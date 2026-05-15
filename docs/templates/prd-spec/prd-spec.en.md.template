@@ -1,0 +1,178 @@
+# Project PRD Spec
+
+This file is the single source of truth for the PRD stage. `ai-prd3` derives each target's `docs/<client_target>/prd.md` and `docs/<client_target>/feature_list.md` from this document after validation passes.
+
+## 1. Project Summary
+
+- Project name:
+- One-line goal:
+- Background:
+- Success definition:
+
+## 2. Scope
+
+### In Scope
+
+- 
+
+### Out of Scope
+
+- 
+
+## 3. Roles And Users
+
+| Role | Description | Key Needs |
+| --- | --- | --- |
+|  |  |  |
+
+## 4. Client Targets
+
+Declare every client target that must be generated for this project. `ai-prd3` only generates directories and files for targets explicitly listed here.
+
+Allowed values:
+
+- `website`
+- `admin`
+- `backend`
+- `miniapp`
+- `mobile`
+- `desktop`
+- `agent`
+
+Required declaration:
+
+```yaml
+client_targets:
+  - website
+  - backend
+```
+
+Rules:
+
+- A target not listed in `client_targets` is treated as not in scope and must not be generated.
+- A listed target must have enough target-specific requirements in section 8 before `prd` can be marked complete.
+- If a feature spans multiple targets, list all related targets on that feature.
+
+## 5. Non-Functional Requirements
+
+| Category | Requirement | Priority |
+| --- | --- | --- |
+| Performance |  |  |
+| Security |  |  |
+| Privacy |  |  |
+| Reliability |  |  |
+| Accessibility |  |  |
+| Compatibility |  |  |
+
+## 6. Business Constraints
+
+- Timeline:
+- Budget / resource constraints:
+- Compliance constraints:
+- Operational constraints:
+
+## 7. Core Features
+
+Each feature ID should be stable and unique. Suggested format: `<TARGET_OR_DOMAIN>-<AREA>-NNN`, for example `WEB-AUTH-001` or `BACKEND-ORDER-001`.
+
+| Feature ID | Name | Client Targets | Priority | Phase | Description | Acceptance Summary |
+| --- | --- | --- | --- | --- | --- | --- |
+|  |  |  | must | mvp |  |  |
+
+## 8. Target-Specific Requirements
+
+Create one subsection for every target declared in section 4. This template includes all supported targets; delete any target sections you do not need and keep only the targets declared in `client_targets`.
+
+### website
+
+- Pages / screens:
+- User flows:
+- API dependencies:
+- Analytics / tracking:
+- Notes:
+
+### admin
+
+- Pages / screens:
+- Admin roles:
+- Audit / permission requirements:
+- API dependencies:
+- Notes:
+
+### backend
+
+- Main services:
+- API surface:
+- Data entities:
+- Integrations:
+- Notes:
+
+### miniapp
+
+- Pages:
+- WeChat capabilities:
+- API dependencies:
+- Notes:
+
+### mobile
+
+- Platforms:
+- Native capabilities:
+- Offline / push requirements:
+- API dependencies:
+- Notes:
+
+### desktop
+
+- Platforms:
+- Native capabilities:
+- Local storage / sync:
+- API dependencies:
+- Notes:
+
+### agent
+
+- Runtime: `python` / `node` / `custom:<description>`
+- Inputs:
+- Outputs:
+- Automation boundaries:
+- Notes:
+
+## 9. Delivery Boundary
+
+- MVP boundary:
+- Later phases:
+- Explicit tradeoffs:
+
+## 10. Deployment And Environment Notes
+
+Non-secret resource requirements only. Secrets belong in `docs/config.env`.
+
+- Dev environment notes:
+- Release environment notes:
+- Cloud provider / region preference (select or fill in):
+  - Alibaba Cloud:
+  - Tencent Cloud:
+  - Huawei Cloud:
+  - AWS:
+  - Google Cloud:
+  - Microsoft Azure:
+  - Vercel:
+  - Cloudflare:
+  - Other:
+- Domains:
+- External services:
+
+## 11. Open Questions
+
+| Question | Owner | Blocking? | Resolution |
+| --- | --- | --- | --- |
+|  |  | yes |  |
+
+## 12. Validation Checklist
+
+- [ ] `client_targets` is explicitly declared and uses only allowed values.
+- [ ] Every declared client target has target-specific requirements.
+- [ ] Every core feature has a stable ID, phase, priority, target list, and acceptance summary.
+- [ ] Non-functional requirements and delivery boundary are clear.
+- [ ] No secrets are included in this file.

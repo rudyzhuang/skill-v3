@@ -1,0 +1,106 @@
+{
+  "_schema": {
+    "name": "skill-v3-project-config",
+    "version": 1,
+    "environment": "dev"
+  },
+  "project": {
+    "name": "",
+    "project_id": "",
+    "root_path": "",
+    "default_client_targets": []
+  },
+  "git": {
+    "remote": "origin",
+    "default_branch": "main",
+    "working_branch_prefix": "ai",
+    "allow_push": false
+  },
+  "build": {
+    "package_manager": "auto",
+    "commands": {
+      "install": "",
+      "typecheck": "",
+      "test": "",
+      "build": "",
+      "test_max_fix_attempts": 3
+    },
+    "artifacts_dir": "dist",
+    "client_targets": {}
+  },
+  "timeouts": {
+    "_doc": "Timeouts for autorun.cjs and per-stage skills. Unit: seconds. See input-spec.md §6.1.",
+    "autorun_total_s": 7200,
+    "stages": {
+      "prd_s": 600,
+      "prd_review_s": 600,
+      "design_s": 600,
+      "contract_s": 600,
+      "design_review_s": 600,
+      "codegen_s": 1800,
+      "typecheck_s": 600,
+      "test_s": 1800,
+      "code_review_s": 600,
+      "merge_push_s": 300,
+      "build_s": 1800,
+      "deploy_s": 1800,
+      "smoke_s": 300,
+      "report_s": 600
+    },
+    "subcommand": {
+      "default_s": 600,
+      "graceful_shutdown_s": 5,
+      "heartbeat_interval_s": 30
+    }
+  },
+  "deploy": {
+    "enabled": false,
+    "environment": "dev",
+    "provider": "manual",
+    "region": "",
+    "project_or_account": "",
+    "services": [
+      {
+        "client_target": "website",
+        "service_name": "",
+        "resource_type": "",
+        "runtime": "",
+        "region": "",
+        "domain": "",
+        "healthcheck_path": "/",
+        "create_if_missing": false,
+        "resource_config": {}
+      }
+    ]
+  },
+  "smoke": {
+    "enabled": true,
+    "base_url": "",
+    "safe_only": true,
+    "checks": [
+      {
+        "name": "homepage",
+        "method": "GET",
+        "path": "/",
+        "expected_status": 200
+      }
+    ]
+  },
+  "security": {
+    "secret_env_path": "docs/config.env",
+    "forbidden_json_key_patterns": [
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "password",
+      "credential",
+      "private_key"
+    ]
+  },
+  "metadata": {
+    "created_by": "ai-prd3",
+    "created_at": null,
+    "updated_at": null
+  }
+}
