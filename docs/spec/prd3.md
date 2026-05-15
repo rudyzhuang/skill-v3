@@ -6,7 +6,7 @@
 | --- | --- |
 | **唯一实现参考源** | 编写 **`ai-prd3/SKILL.md`** 与 **`ai-prd3/scripts/**/*.cjs`** 时，**以本文为唯一规范来源**。不依赖口头约定或散落 PR 描述。 |
 | **与仓库其它文档的关系** | **`docs/input-spec.md`** 描述全流水线跨界语义（退出码分类、日志目录、ai-auto3 门闸等）。本文**已把与 prd / prd-review 直接相关的硬约束摘录进附录 A**；若未来 `input-spec` 与本文冲突，**以同一 PR 内同步修改为收束方式**：先改业务需求文字，再改本文，再改模板/实现。 |
-| **与 `docs/templates/` 的关系** | **JSON / Markdown 字段形状**以对应 `*.template` 文件为准。本文 **§15** 与 **附录** 列出 ai-prd3 须读写的子集；模板增删字段时，**同一维护周期**内更新本文 §15 与相关脚本契约。 |
+| **与 `docs/templates/` 的关系** | **JSON / Markdown 字段形状**以对应 **`docs/templates/*.template`** 及 **`docs/templates/schemas/*.json`** 为准。本文 **§15** 列出 **`stages.json`** 中 ai-prd3 须读写的子集；**附录 A** 为 **`input-spec.md`** 摘录，**附录 B** 为 **`config.*.json`** 密钥/键名扫描规则，**附录 C** 为 **`SKILL.md`** 验收勾选项。模板增删字段时，**同一维护周期**内更新本文 §15、相关附录与脚本契约。 |
 | **`inputs.summary_hash`（全局门闸）** | `input-spec.md` §4.4 要求各阶段维护 `stages.<stage>.inputs.summary_hash`。**`docs/templates/stages.json.template` v1 已在每个 `stages.*.inputs` 下提供 `summary_hash` 空字符串占位**；ai-prd3 在完成 **prd** / **prd-review** 时须按本文 **§9** 写入非空哈希。其它阶段由各 ai-*3 写入。 |
 
 **维护流程（需求变更时）**：
@@ -246,7 +246,7 @@ ai-prd3/
 | --- | --- | --- | --- |
 | 任一校验失败 | `failed` | `false` | 1 |
 | 用户取消 | `failed` 或 `blocked`（实现二选一并写入 `SKILL.md`） | `false` | 2 |
-| 超时（§10） | `failed` | `false` | 3 |
+| 超时（§11） | `failed` | `false` | 3 |
 
 `validation.summary` 须含简短机器可读原因；`checked_at` 填 ISO8601。
 
@@ -398,7 +398,7 @@ summary_hash = SHA256( concat(parts) )
 | ID | 内容 | 状态 |
 | --- | --- | --- |
 | T1 | LLM 产出 JSON 的 **JSON Schema** 随 skill 分发路径 | **已关闭**：**`templates/schemas/prd-review-output.v1.schema.json`**（见 **§4.1** 目录树；版本后缀 `v1` 与 breaking 时升版规则见 `input-spec.md` §9.1）。 |
-| T2 | **registry.sqlite** 是否在 prd 完成时写入 | **已关闭**：**不**作为 prd 完成必要条件；项目索引以 **`.pipeline/stages.json`** 为准，**`~/.cursor/skills/_registry/registry.sqlite`** 由 **ai-auto3** 按需导入（`input-spec.md` §3.2 / §4.3.1#6）。若将来在 prd 路径写入 registry，须 **warn 不阻断** 并同步修订本文 **§14** 与 `SKILL.md`。 |
+| T2 | **registry.sqlite** 是否在 prd 完成时写入 | **已关闭**：**不**作为 prd 完成必要条件；项目索引以 **`.pipeline/stages.json`** 为准，**`~/.cursor/skills/_registry/registry.sqlite`** 由 **ai-auto3** 按需导入（`input-spec.md` §3.2 / §4.3.1#6）。**ai-prd3** 若将来写入该缓存，须 **warn 不阻断**，并在同一 PR 同步修订本文 **§14** 与 **`SKILL.md`**（或删除本表行）。 |
 
 ---
 
@@ -406,11 +406,11 @@ summary_hash = SHA256( concat(parts) )
 
 读写 **`merge-stages.cjs`** 时须保留其它阶段键。ai-prd3 关心的键：
 
-**顶层**：`project`（含 `project_id`）、`pipeline`、`client_targets`、`stages.prd`、`stages.prd_review`。
+**顶层**：`project`（含 `project_id`）、`pipeline`、`client_targets`（含 **`declared`**、**`generated`**、**`allowed_values`**、**`derivation_source`**）、`stages.prd`、`stages.prd_review`。
 
-**`stages.prd`**：`status`、`started_at`、`completed_at`、`inputs`（`source_prd_spec`、`raw_input_refs`、`summary_hash`）、`outputs`（含路径与 `client_targets` 数组）、`validation`（含 `required_files[]`、`passed`、`summary`）、`generated_files`、`blocking_issues`。
+**`stages.prd`**：`status`、`started_at`、`completed_at`、`inputs`（`source_prd_spec`、`raw_input_refs`、`summary_hash`）、`outputs`（含路径与 **`client_targets`** 数组）、`validation`（含 `required_files[]`、`passed`、`summary`）、`generated_files`、**顶层 `blocking_issues`**。
 
-**`stages.prd_review`**：`status`、`inputs`（`requires_stage`、`source_prd_spec`、`feature_lists`、`summary_hash`）、`outputs`（`decision`、`can_enter_design`、`current_phase`、`next_skill_*`）、`review` 全文、`conditions`、`blocking_issues`、`validation`（含 `passed`、`design_inputs_ready`、`config_secret_scan_passed` 等）全文。
+**`stages.prd_review`**：`status`、`started_at`、`completed_at`、`inputs`（`requires_stage`、`source_prd_spec`、`feature_lists`、`summary_hash`）、`outputs`（`decision`、`can_enter_design`、`current_phase`、`next_skill_*`、`duration_ms`、`timed_out`、`timeout_reason`）、`review` 全文、`conditions`、**顶层 `blocking_issues`**（与 **`input-spec.md` §8 阶段 2**「阻塞项列表」对应）、`validation`（含 `passed`、`checked_at`、`summary`、`blocking_issues_count`、`conditions_resolved`、`design_inputs_ready`、`config_secret_scan_passed`、`warnings`）全文。
 
 **`prd_review.inputs.feature_lists`**：脚本应根据 `stages.client_targets.declared` 或 prd 输出，填入形如 `docs/<端>/feature_list.md` 的路径数组。
 
@@ -424,7 +424,7 @@ summary_hash = SHA256( concat(parts) )
 - §6：日志在 `.agent-sessions/`；PID 锁路径（本 skill 若不自管 pipeline 锁，须在 `SKILL.md` 说明由 ai-auto3 管理）。  
 - §7.2：prd / prd-review 重跑须用户确认。  
 - §8 阶段 1–2：prd / prd-review 业务语义与完成判定（本文 §7–§8 已细化）。  
-- §4.3.1：`feature_ids` 非空为 ai-auto3 前置条件之一。  
+- §4.3.1：**`prd` / `prd-review` 已完成**（含 **`stages.prd.status`**、**`stages.prd_review.status`** 与 **`phase_plan[*].feature_ids` 非空**）为 **ai-auto3** 启动前置条件之一。  
 - §4.4：各阶段 `inputs.summary_hash` 用于「已完成」与上游漂移判定；prd / prd-review 的构造规则见本文 **§9**。
 
 ---
@@ -446,11 +446,20 @@ summary_hash = SHA256( concat(parts) )
 - [ ] 覆盖阶段 / 非覆盖阶段。  
 - [ ] I/O 路径表（等同本文 §5）。  
 - [ ] `run.cjs` 子命令表（等同本文 §4.2）。  
-- [ ] 退出码表（等同本文 §10）。  
+- [ ] 退出码表（等同本文 §10）与**超时**约定（等同本文 **§11**）。  
+- [ ] **`config.*.json` 密钥扫描**（**附录 B**）在 `preflight` / `validate-config` 中的调用方式写入 `SKILL.md`。  
 - [ ] 与 **ai-design3**、**ai-auto3** 的下一步话术（等同本文 **§8.7**；prd 完成后的门闸见 **§7.3**）。  
 - [ ] 禁止项（等同本文 §8.2）。  
 - [ ] 重跑与 `--force` 约定（等同本文 §7.5、§8.6）。
 
 ---
 
-*文档版本：与 **docs/input-spec.md**、**docs/templates/stages.json.template** `_schema.version=1`、**docs/templates/feature_list.md.template**、**docs/templates/prd-spec/prd-spec.cn.md.template**、**docs/templates/prd-spec/prd-spec.en.md.template**、**docs/templates/config.dev.json.template**（含 `timeouts.stages.prd_review_s`）当前检入对齐；变更时请走 §0 维护流程。*
+## 19. 修订记录
+
+| 版本 | 日期 | 说明 |
+| --- | --- | --- |
+| 0.1 | 2026-05-15 | 文档评审修订：§0 与 **附录 A/B/C** 分工写清；**§7.4** 超时引用修正为 **§11**；**§15** 补全 **`client_targets` / `prd_review`** 字段边界；**附录 A** 补 **§4.3.1** `prd` 完成态；**附录 C** 补超时与 **附录 B** 扫描勾选项；**§14 T2** 与 **`input-spec.md` §3.2** 语义对齐；页脚增 **`config.env.template`**、**`prd-review-output` schema** |
+
+---
+
+*文档版本：与 **docs/input-spec.md**、**docs/templates/stages.json.template** `_schema.version=1`、**docs/templates/feature_list.md.template**、**docs/templates/prd-spec/prd-spec.cn.md.template**、**docs/templates/prd-spec/prd-spec.en.md.template**、**docs/templates/config.dev.json.template**（含 `timeouts.stages.prd_review_s`）、**docs/templates/config.env.template**、**docs/templates/schemas/prd-review-output.v1.schema.json** 当前检入对齐；变更时请走 §0 维护流程。*
