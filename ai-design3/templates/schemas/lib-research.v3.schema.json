@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://skill-v3.local/schemas/lib-research.v3.schema.json",
+  "title": "lib-research-v3",
+  "description": "docs/designs/<feature_id>.lib-research.json（对齐 ai-design2 P2.5）",
+  "type": "object",
+  "required": ["feature_id", "researched_at", "decisions", "packages_to_install"],
+  "additionalProperties": false,
+  "properties": {
+    "feature_id": { "type": "string", "minLength": 1 },
+    "feature_name": { "type": "string" },
+    "tech_stack": { "type": "string" },
+    "researched_at": { "type": "string", "minLength": 1 },
+    "decisions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Decision" }
+    },
+    "packages_to_install": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "web_search_performed": { "type": "boolean" },
+    "docs_read": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "has_fallback_algorithms": { "type": "boolean" },
+    "cache_hits": { "type": "integer", "minimum": 0 }
+  },
+  "definitions": {
+    "Decision": {
+      "type": "object",
+      "required": ["function_area", "cache_key", "strategy", "needs_human_review", "cache_hit", "constraints_added"],
+      "additionalProperties": true,
+      "properties": {
+        "function_area": { "type": "string" },
+        "cache_key": { "type": "string" },
+        "strategy": {
+          "type": "string",
+          "enum": ["known_library", "web_search", "fallback_algorithm"]
+        },
+        "candidates_evaluated": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "selected_library": { "type": ["string", "null"] },
+        "selected_version": { "type": ["string", "null"] },
+        "license": { "type": ["string", "null"] },
+        "doc_url": { "type": ["string", "null"] },
+        "doc_fetch_failed": { "type": "boolean" },
+        "doc_summary": { "type": ["string", "null"] },
+        "install": { "type": ["string", "null"] },
+        "usage_pattern": { "type": ["string", "null"] },
+        "rationale": { "type": ["string", "null"] },
+        "search_queries": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "fallback_reason": { "type": ["string", "null"] },
+        "algorithm_pseudocode": { "type": ["string", "null"] },
+        "needs_human_review": { "type": "boolean" },
+        "cache_hit": { "type": "boolean" },
+        "constraints_added": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

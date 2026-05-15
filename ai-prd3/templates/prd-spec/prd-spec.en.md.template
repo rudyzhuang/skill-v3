@@ -64,6 +64,8 @@ Rules:
 
 Each feature ID should be stable and unique. Suggested format: `<TARGET_OR_DOMAIN>-<AREA>-NNN`, for example `WEB-AUTH-001` or `BACKEND-ORDER-001`.
 
+**Cross-target features (Client Targets column lists more than one `client_target`):** `<TARGET_OR_DOMAIN>` **must** be a business-capability / domain token (e.g. `ORDER`, `AUTH`, `BILLING`), not a client-channel name (`WEB`, `ADMIN`, `BACKEND`, `MINIAPP`, …) as the first segment; scope is expressed in the Client Targets column. Example: `ORDER-REFUND-001`.
+
 | Feature ID | Name | Client Targets | Priority | Phase | Description | Acceptance Summary |
 | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  | must | mvp |  |  |

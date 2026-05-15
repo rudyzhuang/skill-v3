@@ -173,6 +173,8 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | --- | --- | --- | --- |
 | `preflight` | `--project` | 路径可读、`stages.json` / `_schema` 支持、**prd_review** 门闸、config 密钥扫描（`forbidden_json_key_patterns`） | 只读；失败退出码 **1** |
 | `list-design-candidates` | `--project` | stdout 输出 JSON：本期 `feature_id[]`（来源 `prd_review.review.phase_plan`） | 只读 |
+| `scan-design-style` | `--project` | 扫描源码树片段，写 **`docs/designs/<feature_id>.style-scan.json`**，可选回写 `design.json` 的 `style_scan_ref`；更新 `stages.design.validation.warnings` | `stages.design.validation.warnings` |
+| `lib-research` | `--project` | 函数域研究：写 **`docs/designs/<feature_id>.lib-research.json`**，回写 **`design.json`** 的 `library_decisions` / `constraints[]`；项目缓存 **`.pipeline/lib-research-cache.json`** | 默认仅写磁盘；`stages` 可由 `--dry-run` 预览 |
 | `validate-design` | `--project` | 解析各端 `feature_list.md`、校验 **§6.2** `design-spec.v3.schema.json`（对每个目标 `docs/designs/<feature_id>.design.json`）、blocking 规则 | `stages.design.validation`、`status`（失败时 `failed`） |
 | `write-design` | `--project` | 在 `validate-design` 已通过的前提下，写 **`stages.design`** 完成态、`outputs.design_specs[]` 路径与元数据、`duration_ms` 等 | `stages.design` |
 | `hash-design-inputs` | `--project` | 计算上游摘要，写 **`stages.design.inputs.summary_hash`** | `stages.design.inputs` |
@@ -198,6 +200,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 
 | 文件名 | 校验对象 | 典型调用子命令 |
 | --- | --- | --- |
+| **`lib-research.v3.schema.json`** | 业务仓 **`docs/designs/<feature_id>.lib-research.json`**（若启用 Agent 产出） | `lib-research`（校验 Agent 输出） |
 | **`design-spec.v3.schema.json`** | 业务仓 **`docs/designs/<feature_id>.design.json`**（与 §4 `designs/` 布局一致） | `validate-design` |
 | **`design-snapshot.v3.schema.json`** | 业务仓 **`docs/contracts/<feature_id>/<feature_id>.design.snapshot.json`** | `validate-contract`、`validate-design-review` |
 | **`contract-artifacts-item.v3.schema.json`** | **`stages.contract.outputs.artifacts[]` 单个元素**（`feature_id` + 五类路径字符串字段名与模板一致） | `register-contract-artifacts`（写回前校验行结构）、`validate-contract`（可选二次校验） |
@@ -207,7 +210,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 - OpenAPI：**`swagger-cli validate`**（或项目约定等价物）作用于 `*.api.yaml`。
 - **types**：`tsc --noEmit` 或项目约定编译检查。
 - **schema.sql**：`sql-lint` 或项目约定。
-- **test_spec**：若为 Markdown，用实现内置轻量规则或结构化抽取后再校验；若为 YAML/JSON，可另增 **`test-spec.v3.schema.json`**——**若增加，须与本表同节增补并升 skill 文档版本**；当前 v0 **冻结集仅为上表三文件**。
+- **test_spec**：若为 Markdown，用实现内置轻量规则或结构化抽取后再校验；若为 YAML/JSON，可另增 **`test-spec.v3.schema.json`**——**若增加，须与本表同节增补并升 skill 文档版本**；当前 v0 **冻结集为 §6.2 上表所列 JSON Schema 文件**。
 
 ### 6.3 与 v2 习惯的对照
 

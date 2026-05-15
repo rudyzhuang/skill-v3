@@ -16,10 +16,14 @@ const { scanProjectConfigKeys } = require('./lib/secret-scan.cjs');
 const { createValidators, validateJson } = require('./lib/schema-validate.cjs');
 const { featureDeclaredInLists } = require('./lib/feature-list.cjs');
 const { appendSessionLog } = require('./lib/session-log.cjs');
+const { runStyleScan } = require('./lib/style-scan.cjs');
+const { runLibResearch } = require('./lib/lib-research.cjs');
 
 const SUBCOMMANDS = new Set([
   'preflight',
   'list-design-candidates',
+  'scan-design-style',
+  'lib-research',
   'validate-design',
   'write-design',
   'hash-design-inputs',
@@ -301,6 +305,119 @@ function main() {
 
   const v = validators();
 
+  if (parsed.cmd === 'scan-design-style') {
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) {
+      console.error(`scan-design-style blocked: ${pr.reason}`);
+      finish(EXIT.PRECHECK, { reason: pr.reason });
+    }
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!ids.length) {
+      console.error('scan-design-style: no feature_ids in prd_review.review.phase_plan');
+      finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    }
+    stages.stages.design = stages.stages.design || {};
+    stages.stages.design.validation = stages.stages.design.validation || {};
+    let warn = stages.stages.design.validation.warnings || [];
+    warn = warn.filter((w) => {
+      if (typeof w !== 'string') return true;
+      return !ids.some((fid) => w.startsWith(`style-scan ${fid}:`));
+    });
+    const outPaths = [];
+    for (const fid of ids) {
+      const relDesign = designSpecRel(root, fid);
+      const absDesign = path.join(root, relDesign);
+      if (!fs.existsSync(absDesign)) {
+        console.error(`scan-design-style: missing ${relDesign}`);
+        finish(EXIT.PRECHECK, { reason: 'missing_design_file', feature_id: fid });
+      }
+      let doc;
+      try {
+        doc = readJson(absDesign);
+      } catch (e) {
+        console.error(`scan-design-style: ${e.message}`);
+        finish(EXIT.PRECHECK, { reason: 'design_read_failed', feature_id: fid });
+      }
+      const ct = doc.client_target || 'website';
+      const scan = runStyleScan({
+        projectRoot: root,
+        clientTarget: ct,
+        featureId: fid,
+        dryRun: parsed.dryRun,
+      });
+      if (!scan.ok) {
+        console.error(`scan-design-style failed: ${scan.reason}`);
+        finish(EXIT.PRECHECK, { reason: 'style_scan_failed', feature_id: fid });
+      }
+      outPaths.push(scan.relOut);
+      warn.push(`style-scan ${fid}: ${scan.relOut} (files=${scan.payload.total_files_scanned})`);
+      if (!parsed.dryRun) {
+        doc.style_scan_ref = scan.relOut;
+        fs.writeFileSync(absDesign, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+      }
+    }
+    stages.stages.design.validation.warnings = warn;
+    logDryRunSlice(parsed, { scan_design_style: { outputs: outPaths, warnings: warn.slice(-ids.length) } });
+    writeStages(root, stages, parsed.dryRun);
+    console.log(JSON.stringify({ style_scan_paths: outPaths }, null, 2));
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'lib-research') {
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) {
+      console.error(`lib-research blocked: ${pr.reason}`);
+      finish(EXIT.PRECHECK, { reason: pr.reason });
+    }
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!ids.length) {
+      console.error('lib-research: no feature_ids in prd_review.review.phase_plan');
+      finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    }
+    const skRoot = skillRoot();
+    const summary = [];
+    for (const fid of ids) {
+      const relDesign = designSpecRel(root, fid);
+      const absDesign = path.join(root, relDesign);
+      if (!fs.existsSync(absDesign)) {
+        console.error(`lib-research: missing ${relDesign}`);
+        finish(EXIT.PRECHECK, { reason: 'missing_design_file', feature_id: fid });
+      }
+      const outRel = path.join('docs', 'designs', `${fid}.lib-research.json`).split(path.sep).join('/');
+      const absOut = path.join(root, 'docs', 'designs', `${fid}.lib-research.json`);
+      let featureName = '';
+      try {
+        const dj = readJson(absDesign);
+        featureName = dj.title || dj.name || '';
+      } catch (_) {
+        /* ignore */
+      }
+      const lr = runLibResearch({
+        projectRoot: root,
+        featureId: fid,
+        featureName,
+        designSpecPath: absDesign,
+        outputPath: absOut,
+        force: parsed.force,
+        skillRoot: skRoot,
+        dryRun: parsed.dryRun,
+        validateJson,
+        validateLibResearch: v.validateLibResearch,
+      });
+      summary.push({ feature_id: fid, status: lr.status, reason: lr.reason || null });
+      if (lr.status === 'failed' || !lr.ok) {
+        console.error(`lib-research failed for ${fid}: ${lr.reason || 'unknown'}`);
+        finish(EXIT.PRECHECK, { reason: lr.reason, feature_id: fid });
+      }
+    }
+    logDryRunSlice(parsed, { lib_research: summary });
+    writeStages(root, stages, parsed.dryRun);
+    console.log(JSON.stringify({ lib_research: summary }, null, 2));
+    finish(EXIT.OK);
+  }
+
   if (parsed.cmd === 'validate-design') {
     const pr = prdReviewPassed(stages);
     if (!pr.ok) {
@@ -449,7 +566,13 @@ function main() {
     addFile(path.join('docs', 'inputs', 'prd-spec.md'));
     addFile(path.join('docs', 'config.dev.json'));
     addFile(path.join('docs', 'config.release.json'));
-    for (const fid of ids) addFile(designSpecRel(root, fid));
+    for (const fid of ids) {
+      addFile(designSpecRel(root, fid));
+      const styleRel = path.join('docs', 'designs', `${fid}.style-scan.json`);
+      const lrRel = path.join('docs', 'designs', `${fid}.lib-research.json`);
+      addFile(styleRel);
+      addFile(lrRel);
+    }
     const payload = { feature_ids: ids, files };
     const hash = sha256Hex(JSON.stringify(payload));
     stages.stages.design = stages.stages.design || {};

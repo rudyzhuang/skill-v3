@@ -18,6 +18,10 @@ function run(projectRoot, args) {
   const r = spawnSync(process.execPath, [runCjs, ...args, `--project=${projectRoot}`], {
     encoding: 'utf8',
     cwd: skillRoot,
+    env: {
+      ...process.env,
+      AI_DESIGN_LIB_RESEARCH_USE_STUB: '1',
+    },
   });
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
@@ -80,8 +84,15 @@ function main() {
     status: 'ready_for_contract',
     risks: [],
     shared_changes: [],
+    api_outline: [{ handler: 'smokeHandler', method: 'GET', path: '/smoke' }],
+    file_plan: { new_files: ['src/website/components/SmokeWidget.tsx'] },
   };
   write(path.join(tmp, 'docs', 'designs', `${fid}.design.json`), JSON.stringify(designDoc, null, 2));
+
+  write(
+    path.join(tmp, 'src', 'website', 'SmokeWidget.tsx'),
+    `import React from 'react';\nexport function SmokeWidget() { return null; }\n`
+  );
 
   const snap = { feature_id: fid, client_target: 'website', snapshot_version: 1 };
   write(path.join(tmp, 'docs', 'contracts', fid, `${fid}.design.snapshot.json`), JSON.stringify(snap, null, 2));
@@ -110,6 +121,8 @@ paths:
   const steps = [
     ['preflight'],
     ['list-design-candidates'],
+    ['scan-design-style'],
+    ['lib-research'],
     ['validate-design'],
     ['write-design'],
     ['hash-design-inputs'],

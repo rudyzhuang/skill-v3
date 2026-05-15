@@ -97,6 +97,15 @@
         "type": "object",
         "additionalProperties": true
       }
+    },
+    "library_decisions": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "由 lib-research 子命令回写；含 ref 指向 docs/designs/<feature_id>.lib-research.json"
+    },
+    "style_scan_ref": {
+      "type": "string",
+      "description": "可选：指向 docs/designs/<feature_id>.style-scan.json"
     }
   }
 }

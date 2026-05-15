@@ -64,6 +64,8 @@
 
 每个功能 ID 应保持稳定且唯一。建议格式：`<TARGET_OR_DOMAIN>-<AREA>-NNN`，例如 `WEB-AUTH-001` 或 `BACKEND-ORDER-001`。
 
+**跨端（「涉及端」含多个 client target）**：`<TARGET_OR_DOMAIN>` **须**用表示业务能力/领域的英文词（如 `ORDER`、`AUTH`、`BILLING`），**不要**用某一端名（如 `WEB`、`ADMIN`、`BACKEND`、`MINIAPP`）作为 ID 第一段；跨端范围以「涉及端」列表达，示例：`ORDER-REFUND-001`。
+
 | 功能 ID | 名称 | 涉及端 | 优先级 | 阶段 | 描述 | 验收摘要 |
 | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  | must | mvp |  |  |

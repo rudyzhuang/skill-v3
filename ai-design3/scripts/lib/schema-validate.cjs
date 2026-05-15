@@ -30,6 +30,7 @@ function createValidators(skillRoot) {
     validateDesignSpec: load('design-spec.v3.schema.json'),
     validateDesignSnapshot: load('design-snapshot.v3.schema.json'),
     validateArtifactItem: load('contract-artifacts-item.v3.schema.json'),
+    validateLibResearch: load('lib-research.v3.schema.json'),
   };
 }
 

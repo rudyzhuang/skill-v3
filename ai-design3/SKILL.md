@@ -46,12 +46,26 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `--force` | 否 | 绕过部分「已完成则跳过」判定（见 design3 §8.3 与 input-spec §4.4 对齐） |
 | `--dry-run` | 否 | 仍将计算并更新内存中的 `stages` 对象，但**不写盘**；并向 stdout 打印 `dry_run` JSON 摘要（`slice` 字段） |
 
+**lib-research / 风格扫描相关环境变量**（与第二代 skill 语义对齐；未列出者同 v2 默认）：
+
+| 变量 | 说明 |
+| --- | --- |
+| `AI_DESIGN_SKIP_LIB_RESEARCH=1` | 跳过 lib-research（子命令仍成功，`status=skipped`） |
+| `AI_DESIGN_LIB_RESEARCH_USE_STUB=1` | **不**调外部 Agent，直接写 stub + 回写 design（**smoke 默认注入**，避免 CI 挂起） |
+| `AI_DESIGN_LIB_RESEARCH_WEB_SEARCH` / `AI_DESIGN_LIB_RESEARCH_READ_DOCS` | 写入 Agent prompt 的控制位（默认 `1`） |
+| `AI_DESIGN_LIB_RESEARCH_CACHE_TTL_DAYS` | 项目级缓存 TTL 天（默认 `30`） |
+| `AI_CODEGEN_AGENT_BIN` / `AI_CODEGEN_AGENT_TIMEOUT_MS` / `AI_CODEGEN_AGENT_MODEL` | 外部 Agent 可执行文件与超时 |
+
+**推荐顺序**（在 `validate-design` 之前）：`scan-design-style` → `lib-research` → `validate-design` → `write-design` …
+
 ### 子命令（名称冻结，与 design3.md §6.1 一致）
 
 | 子命令 | 必备选项 | 职责摘要 |
 | --- | --- | --- |
 | `preflight` | `--project` | 可读路径、`stages.json` / `_schema`、prd_review 门闸、`config.*.json` 键名扫描（`security.forbidden_json_key_patterns`） |
 | `list-design-candidates` | `--project` | stdout 输出 JSON：`feature_id[]` |
+| `scan-design-style` | `--project` | 按 `design.json` 的 `client_target` 扫描 `src/<target>`、`apps/<target>`、`packages/<target>`、`src/shared`、`src`（存在才扫）；写出 `docs/designs/<feature_id>.style-scan.json`；回写 `design.json` 的 `style_scan_ref`；在 `stages.design.validation.warnings` 追加摘要（`--dry-run` 不写设计文件与 style-scan 落盘） |
+| `lib-research` | `--project` | 对齐 ai-design2 P2.5：从 `api_outline` / `file_plan` 识别函数域；产出 `docs/designs/<feature_id>.lib-research.json`；可选派发 Cursor `agent` 执行研究；失败或无 Agent 时写 **stub** 并回写 `library_decisions` + `constraints`；缓存 `.pipeline/lib-research-cache.json`。环境变量见下表 |
 | `validate-design` | `--project` | 校验本期 `feature_id` 在至少一个 `docs/<client_target>/feature_list.md` 中有声明（表格行或 `###` 标题）；AJV 校验 `docs/designs/<feature_id>.design.json`；若任一设计文件 `risks[]` 非空则置 `outputs.needs_human_review=true`；更新 `stages.design.validation` |
 | `write-design` | `--project` | 在 `validate-design` 已通过前提下写 `stages.design` 完成态与 `outputs.design_specs[]` |
 | `hash-design-inputs` | `--project` | 写入 `stages.design.inputs.summary_hash` |
@@ -85,6 +99,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | 文件 | 校验对象 |
 | --- | --- |
 | `design-spec.v3.schema.json` | `docs/designs/<feature_id>.design.json` |
+| `lib-research.v3.schema.json` | `docs/designs/<feature_id>.lib-research.json`（机器校验 Agent 输出用） |
 | `design-snapshot.v3.schema.json` | `docs/contracts/<feature_id>/<feature_id>.design.snapshot.json` |
 | `contract-artifacts-item.v3.schema.json` | `stages.contract.outputs.artifacts[]` 单项 |
 
@@ -105,7 +120,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 - [x] frontmatter `name` / `description` 含触发词  
 - [x] 三阶段顺序与门闸已写明  
 - [x] `run.cjs` 子命令表与 design3 §6.1 一致  
-- [x] `templates/schemas/` 三文件齐全  
+- [x] `templates/schemas/` 核心 schema 齐全（含 `lib-research.v3.schema.json`）  
 - [x] 与 ai-prd3 / ai-code3 衔接字段已点名  
 - [x] 不复制脚本到业务仓、不读 v2 DB  
 
