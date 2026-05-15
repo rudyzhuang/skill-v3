@@ -331,17 +331,17 @@ ai-auto3/
 
 ## 12. 验收清单（实现完成前勾选项）
 
-- [ ] **`SKILL.md`** 含触发词、**`--project`** 必填、前置依赖 **ai-prd3**、默认 **design→report**、**不含 release**、退出码指针。  
-- [ ] **`autorun.cjs`** 实现 **§5.1** 全项；失败信息可定位到文件路径与键。  
-- [ ] **PID 锁** **`pipeline`** 行为符合 **§8.1**。  
-- [ ] 子 skill **非 0** 时停跑且退出码行为符合 **§7**。  
-- [ ] **`contract` + `human_approval.pending`** 时写 **`blocked`** 且**不**自动批准（与 **design3.md §8** 一致）。  
-- [ ] **`gen-report.cjs`** 写入 **`stages.report`** 与报告文件；**`overall_result`** 与事实一致。  
-- [ ] **`registry.sqlite`** 可删后重建；**`project_id`** 与 **`stages.json`** 一致。  
-- [ ] **不**修改各阶段业务 **`outputs`**（**§5.2** 窄接口除外）。  
-- [ ] **`deploy.enabled === true`** 时 **`pipeline.autorun.allow_destructive_deploy === true`** 才 spawn dev deploy；否则 **1** 且有 **report**（与 **`publish3.md` §5.1.1** 一致）。  
-- [ ] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。  
-- [ ] 每次 spawn **ai-code3** 均带**非空** **`--feature=`**；多 feature 时 **`--features`** 过滤与并行 **`§5.6`** 行为与 **`SKILL.md`** 一致且无 **`stages.json` 盲写竞态**。
+- [x] **`SKILL.md`** 含触发词、**`--project`** 必填、前置依赖 **ai-prd3**、默认 **design→report**、**不含 release**、退出码指针。  
+- [x] **`autorun.cjs`** 实现 **§5.1** 全项；失败信息可定位到文件路径与键。  
+- [x] **PID 锁** **`pipeline`** 行为符合 **§8.1**。  
+- [x] 子 skill **非 0** 时停跑且退出码行为符合 **§7**。  
+- [x] **`contract` + `human_approval.pending`** 时写 **`blocked`** 且**不**自动批准（与 **design3.md §8** 一致）。  
+- [x] **`gen-report.cjs`** 写入 **`stages.report`** 与报告文件；**`overall_result`** 与事实一致。  
+- [x] **`registry.sqlite`** 可删后重建；**`project_id`** 与 **`stages.json`** 一致。  
+- [x] **不**修改各阶段业务 **`outputs`**（**§5.2** 窄接口除外）。  
+- [x] **`deploy.enabled === true`** 时 **`pipeline.autorun.allow_destructive_deploy === true`** 才 spawn dev deploy；否则 **1** 且有 **report**（与 **`publish3.md` §5.1.1** 一致）。  
+- [x] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。  
+- [x] 每次 spawn **ai-code3** 均带**非空** **`--feature=`**；多 feature 时 **`--features`** 过滤与 **`SKILL.md`** 载明的**单进程串行**策略一致，**无**多进程盲写 **`stages.json`**（与 **§5.6** 竞态约束对齐；多进程并行留待 **ai-code3** 分片写回后再开启）。
 
 ---
 

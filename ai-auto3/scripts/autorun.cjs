@@ -1,0 +1,559 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * ai-auto3 autorun.cjs — 见 docs/spec/auto3.md
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
+
+const { requireAbsoluteProject, scriptPath, agentSessionsDir } = require('./lib/paths.cjs');
+const { runAutorunChecklist } = require('./lib/checklist.cjs');
+const { acquirePipelineLock } = require('./lib/pid-lock.cjs');
+const { runNodeScript } = require('./lib/child-invoke.cjs');
+const { readStages, writeStages, updatePipelineMeta, appendPipelineLog, setContractBlocked } = require('./lib/stages-io.cjs');
+const {
+  upsertProjectFromStages,
+  startRun,
+  finishRun,
+  recordStageEvent,
+} = require('./lib/registry-db.cjs');
+const { shouldSkipCodeStage } = require('./lib/code-skip.cjs');
+
+const DESIGN_CHAIN = [
+  'scan-design-style',
+  'lib-research',
+  'validate-design',
+  'write-design',
+  'hash-design-inputs',
+];
+const CONTRACT_CHAIN = ['register-contract-artifacts', 'validate-contract', 'hash-contract-inputs'];
+const DESIGN_REVIEW_CHAIN = ['validate-design-review', 'write-design-review', 'hash-design-review-inputs'];
+
+const CODE_ORDER = [
+  ['codegen', 'codegen'],
+  ['typecheck', 'typecheck'],
+  ['test', 'test'],
+  ['code_review', 'code-review'],
+  ['merge_push', 'merge-push'],
+  ['build', 'build'],
+];
+
+const STAGE_ORDER = [
+  'design',
+  'contract',
+  'design_review',
+  'codegen',
+  'typecheck',
+  'test',
+  'code_review',
+  'merge_push',
+  'build',
+  'deploy_smoke',
+];
+
+function normalizeStage(s) {
+  return String(s || '')
+    .trim()
+    .replace(/-/g, '_');
+}
+
+function parseArgs(argv) {
+  const rest = argv.slice(2);
+  const out = {
+    subcommand: 'run',
+    project: null,
+    fromStage: 'design',
+    toStage: 'report',
+    forceRerun: null,
+    sessionId: null,
+    dryRun: false,
+    features: null,
+  };
+  const known = new Set(['run', 'preflight-only', 'sync-registry']);
+  if (rest.length && known.has(rest[0])) {
+    out.subcommand = rest.shift();
+  }
+  for (const a of rest) {
+    if (a.startsWith('--project=')) out.project = a.slice('--project='.length);
+    else if (a.startsWith('--from-stage=')) out.fromStage = a.slice('--from-stage='.length);
+    else if (a.startsWith('--to-stage=')) out.toStage = a.slice('--to-stage='.length);
+    else if (a.startsWith('--force-rerun=')) out.forceRerun = normalizeStage(a.slice('--force-rerun='.length));
+    else if (a.startsWith('--session-id=')) out.sessionId = a.slice('--session-id='.length);
+    else if (a.startsWith('--features=')) out.features = a.slice('--features='.length);
+    else if (a === '--dry-run') out.dryRun = true;
+  }
+  return out;
+}
+
+function appendLog(projectRoot, sessionId, line) {
+  const dir = agentSessionsDir(projectRoot);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(path.join(dir, `${sessionId}.log`), `${new Date().toISOString()} ${line}\n`);
+}
+
+function stageTimeoutMs(cfg, stageKey) {
+  const map = {
+    design: 'design_s',
+    contract: 'contract_s',
+    design_review: 'design_review_s',
+    codegen: 'codegen_s',
+    typecheck: 'typecheck_s',
+    test: 'test_s',
+    code_review: 'code_review_s',
+    merge_push: 'merge_push_s',
+    build: 'build_s',
+    deploy: 'deploy_s',
+    smoke: 'smoke_s',
+    deploy_smoke: 'deploy_s',
+  };
+  const k = map[stageKey] || `${stageKey}_s`;
+  const sec = cfg?.timeouts?.stages?.[k];
+  return typeof sec === 'number' && sec > 0 ? sec * 1000 : 600000;
+}
+
+function autorunTotalMs(cfg) {
+  const sec = cfg?.timeouts?.autorun_total_s;
+  return typeof sec === 'number' && sec > 0 ? sec * 1000 : 7200000;
+}
+
+function assertFromStageLegal(from) {
+  const n = normalizeStage(from);
+  const early = new Set(['prd', 'prd_review', 'not_started']);
+  if (early.has(n)) {
+    console.error('autorun: --from-stage 不得早于 design（prd/prd-review 须由 ai-prd3 完成）');
+    return false;
+  }
+  return true;
+}
+
+function sliceStages(fromStage, toStage) {
+  const from = normalizeStage(fromStage);
+  let to = normalizeStage(toStage);
+  if (to === 'report') to = 'deploy_smoke';
+  if (to === 'smoke' || to === 'deploy') to = 'deploy_smoke';
+  const fi = STAGE_ORDER.indexOf(from);
+  const ti = STAGE_ORDER.indexOf(to);
+  if (fi < 0) {
+    console.error(`autorun: unknown --from-stage=${fromStage}`);
+    return null;
+  }
+  if (ti < 0) {
+    console.error(`autorun: unknown --to-stage=${toStage}`);
+    return null;
+  }
+  if (fi > ti) return [];
+  return STAGE_ORDER.slice(fi, ti + 1);
+}
+
+function featureCsv(ids) {
+  return ids.join(',');
+}
+
+async function spawnDesign3(projectRoot, cmd, cfg, sessionId, forceRerunStage) {
+  const script = scriptPath('ai-design3', 'scripts/run.cjs');
+  const args = [cmd, `--project=${projectRoot}`];
+  if (forceRerunStage === 'design') args.push('--force-rerun=design');
+  const t = stageTimeoutMs(cfg, 'design');
+  return runNodeScript({
+    node: process.execPath,
+    script,
+    args,
+    cwd: projectRoot,
+    timeoutMs: t,
+    env: { ...process.env, AI_AUTO3_SESSION_ID: sessionId },
+  });
+}
+
+async function runDesignChain(projectRoot, cfg, sessionId, forceRerun) {
+  const fr = forceRerun === 'design' ? 'design' : null;
+  for (const cmd of DESIGN_CHAIN) {
+    const code = await spawnDesign3(projectRoot, cmd, cfg, sessionId, fr);
+    if (code !== 0) return { code, stage: 'design', detail: cmd };
+  }
+  return { code: 0 };
+}
+
+async function runContractChain(projectRoot, cfg, sessionId, forceRerun) {
+  for (const cmd of CONTRACT_CHAIN) {
+    const script = scriptPath('ai-design3', 'scripts/run.cjs');
+    const args = [cmd, `--project=${projectRoot}`];
+    if (forceRerun === 'contract') args.push('--force-rerun=contract');
+    const code = await runNodeScript({
+      node: process.execPath,
+      script,
+      args,
+      cwd: projectRoot,
+      timeoutMs: stageTimeoutMs(cfg, 'contract'),
+    });
+    if (code !== 0) return { code, stage: 'contract', detail: cmd };
+  }
+  return { code: 0 };
+}
+
+async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun) {
+  for (const cmd of DESIGN_REVIEW_CHAIN) {
+    const script = scriptPath('ai-design3', 'scripts/run.cjs');
+    const args = [cmd, `--project=${projectRoot}`];
+    if (forceRerun === 'design_review') args.push('--force-rerun=design_review');
+    const code = await runNodeScript({
+      node: process.execPath,
+      script,
+      args,
+      cwd: projectRoot,
+      timeoutMs: stageTimeoutMs(cfg, 'design_review'),
+    });
+    if (code !== 0) return { code, stage: 'design_review', detail: cmd };
+  }
+  return { code: 0 };
+}
+
+async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun) {
+  const script = scriptPath('ai-code3', 'scripts/run.cjs');
+  const args = [sub, `--project=${projectRoot}`, `--feature=${featureCsvStr}`, `--session-id=${sessionId}`];
+  const sk = normalizeStage(sub.replace(/-/g, '_'));
+  if (forceRerun && normalizeStage(forceRerun) === sk) {
+    args.push(`--force-rerun=${sk}`);
+  }
+  const t = stageTimeoutMs(cfg, sk === 'merge_push' ? 'merge_push' : sk);
+  return runNodeScript({
+    node: process.execPath,
+    script,
+    args,
+    cwd: projectRoot,
+    timeoutMs: t,
+  });
+}
+
+async function runPublishDev(projectRoot, cfg, sessionId) {
+  const script = scriptPath('ai-publish-dev3', 'scripts/run.cjs');
+  const args = [`--project=${projectRoot}`, '--invoked-by-autorun', `--session-id=${sessionId}`];
+  const deployMs = stageTimeoutMs(cfg, 'deploy') + stageTimeoutMs(cfg, 'smoke');
+  return runNodeScript({
+    node: process.execPath,
+    script,
+    args,
+    cwd: projectRoot,
+    timeoutMs: deployMs,
+  });
+}
+
+async function runGenReport(projectRoot, sessionId, failureReason) {
+  const script = path.join(__dirname, 'gen-report.cjs');
+  const args = [`--project=${projectRoot}`, `--session-id=${sessionId}`];
+  if (failureReason) args.push(`--failure-reason=${failureReason}`);
+  return runNodeScript({
+    node: process.execPath,
+    script,
+    args,
+    cwd: projectRoot,
+    timeoutMs: 120000,
+  });
+}
+
+function maybeHintRollback(doc) {
+  const rb = doc.stages?.test?.rollback_to;
+  if (rb && rb !== 'null') {
+    console.error(`[ai-auto3] stages.test.rollback_to=${rb} — 可考虑 --from-stage=${rb === 'contract' ? 'contract' : 'codegen'} 续跑`);
+  }
+}
+
+async function main() {
+  const opts = parseArgs(process.argv);
+  let projectRoot;
+  try {
+    projectRoot = requireAbsoluteProject(opts.project);
+  } catch (e) {
+    console.error(String(e.message || e));
+    process.exit(1);
+  }
+
+  if (!assertFromStageLegal(opts.fromStage)) process.exit(1);
+
+  const sessionId = opts.sessionId || crypto.randomUUID();
+  const slice = sliceStages(opts.fromStage, opts.toStage);
+  if (!slice) process.exit(1);
+
+  if (opts.subcommand === 'preflight-only') {
+    const ck = runAutorunChecklist(projectRoot, { featuresFilter: opts.features });
+    if (!ck.ok) {
+      console.error(ck.message);
+      process.exit(1);
+    }
+    try {
+      upsertProjectFromStages(projectRoot, readStages(projectRoot));
+    } catch (e) {
+      console.error(String(e.message || e));
+      process.exit(1);
+    }
+    console.error('preflight-only: OK');
+    process.exit(0);
+  }
+
+  if (opts.subcommand === 'sync-registry') {
+    let doc;
+    try {
+      doc = readStages(projectRoot);
+    } catch (e) {
+      console.error(String(e.message || e));
+      process.exit(1);
+    }
+    try {
+      upsertProjectFromStages(projectRoot, doc);
+    } catch (e) {
+      console.error(String(e.message || e));
+      process.exit(1);
+    }
+    console.error('sync-registry: OK');
+    process.exit(0);
+  }
+
+  const ck = runAutorunChecklist(projectRoot, { featuresFilter: opts.features });
+  if (!ck.ok) {
+    console.error(ck.message);
+    await runGenReport(projectRoot, sessionId, ck.message);
+    process.exit(1);
+  }
+
+  let doc = ck.stages;
+  const cfg = ck.configDev;
+  const featureIds = ck.featureIds;
+  const featStr = featureCsv(featureIds);
+
+  try {
+    upsertProjectFromStages(projectRoot, doc);
+  } catch (e) {
+    console.error(String(e.message || e));
+    await runGenReport(projectRoot, sessionId, String(e.message || e));
+    process.exit(1);
+  }
+
+  const t0 = Date.now();
+  const totalCap = autorunTotalMs(cfg);
+
+  const checkBudget = () => {
+    if (Date.now() - t0 > totalCap) {
+      return 'autorun_total_timeout';
+    }
+    return null;
+  };
+
+  if (opts.dryRun) {
+    console.error(`[dry-run] would run stages: ${slice.join(' -> ')} features=${featStr}`);
+    process.exit(0);
+  }
+
+  const lock = acquirePipelineLock(projectRoot, sessionId);
+  if (!lock.ok) {
+    console.error(`pipeline lock held: ${lock.path}`);
+    await runGenReport(projectRoot, sessionId, 'pipeline lock held');
+    process.exit(1);
+  }
+
+  appendLog(projectRoot, sessionId, `autorun begin slice=${slice.join(',')}`);
+
+  let exitCode = 0;
+  let failureReason = '';
+  let stoppedAt = '';
+  let runId = '';
+
+  try {
+    runId = startRun(doc.project?.project_id || 'unknown', sessionId);
+
+    const design3Preflight = scriptPath('ai-design3', 'scripts/run.cjs');
+    const pf = spawnSync(process.execPath, [design3Preflight, 'preflight', `--project=${projectRoot}`], {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      encoding: 'utf8',
+    });
+    if (pf.status !== 0) {
+      exitCode = pf.status || 1;
+      failureReason = 'ai-design3 preflight failed';
+      stoppedAt = 'preflight';
+    } else {
+      for (const stage of slice) {
+        const budget = checkBudget();
+        if (budget) {
+          exitCode = 3;
+          failureReason = budget;
+          stoppedAt = stage;
+          break;
+        }
+
+        doc = readStages(projectRoot);
+        doc = updatePipelineMeta(doc, {
+          currentStage: stage,
+          lastCompleted: doc.pipeline?.last_completed_stage,
+          by: 'ai-auto3',
+        });
+        writeStages(projectRoot, doc);
+
+        if (stage === 'design') {
+          if (
+            !opts.forceRerun &&
+            doc.stages?.design?.status === 'completed' &&
+            doc.stages?.design?.validation?.passed
+          ) {
+            appendLog(projectRoot, sessionId, 'skip design (completed+passed)');
+            recordStageEvent(runId, 'design', 0, 0, true, 'orchestrator skip');
+            continue;
+          }
+          const r = await runDesignChain(projectRoot, cfg, sessionId, opts.forceRerun);
+          if (r.code !== 0) {
+            exitCode = r.code;
+            failureReason = `design failed at ${r.detail}`;
+            stoppedAt = 'design';
+            break;
+          }
+          recordStageEvent(runId, 'design', 0, 0, false, '');
+        } else if (stage === 'contract') {
+          if (
+            !opts.forceRerun &&
+            doc.stages?.contract?.status === 'completed' &&
+            doc.stages?.contract?.validation?.passed
+          ) {
+            appendLog(projectRoot, sessionId, 'skip contract (completed+passed)');
+            recordStageEvent(runId, 'contract', 0, 0, true, 'orchestrator skip');
+            continue;
+          }
+          const r = await runContractChain(projectRoot, cfg, sessionId, opts.forceRerun);
+          if (r.code !== 0) {
+            exitCode = r.code;
+            failureReason = `contract failed at ${r.detail}`;
+            stoppedAt = 'contract';
+            break;
+          }
+          doc = readStages(projectRoot);
+          const ha = doc.stages?.contract?.outputs?.human_approval?.status;
+          if (ha === 'pending') {
+            doc = setContractBlocked(doc);
+            doc = updatePipelineMeta(doc, {
+              currentStage: 'contract',
+              lastCompleted: doc.pipeline?.last_completed_stage,
+              by: 'ai-auto3',
+            });
+            writeStages(projectRoot, doc);
+            exitCode = 1;
+            failureReason =
+              'contract human_approval pending — 请使用 ai-design3 approve-contract / reject-contract';
+            stoppedAt = 'contract';
+            break;
+          }
+          recordStageEvent(runId, 'contract', 0, 0, false, '');
+        } else if (stage === 'design_review') {
+          if (
+            !opts.forceRerun &&
+            doc.stages?.design_review?.status === 'completed' &&
+            doc.stages?.design_review?.validation?.passed
+          ) {
+            appendLog(projectRoot, sessionId, 'skip design_review (completed+passed)');
+            recordStageEvent(runId, 'design_review', 0, 0, true, 'orchestrator skip');
+            continue;
+          }
+          const r = await runDesignReviewChain(projectRoot, cfg, sessionId, opts.forceRerun);
+          if (r.code !== 0) {
+            exitCode = r.code;
+            failureReason = `design_review failed at ${r.detail}`;
+            stoppedAt = 'design_review';
+            break;
+          }
+          recordStageEvent(runId, 'design_review', 0, 0, false, '');
+        } else if (['codegen', 'typecheck', 'test', 'code_review', 'merge_push', 'build'].includes(stage)) {
+          const sk = stage;
+          if (shouldSkipCodeStage(doc, sk, projectRoot, featureIds, opts.forceRerun)) {
+            appendLog(projectRoot, sessionId, `skip ${sk} (summary_hash)`);
+            recordStageEvent(runId, sk, 0, 0, true, 'hash skip');
+            continue;
+          }
+          const row = CODE_ORDER.find(([k]) => k === sk);
+          if (!row) {
+            exitCode = 1;
+            failureReason = `internal: unknown code stage ${sk}`;
+            stoppedAt = sk;
+            break;
+          }
+          const cmd = row[1];
+          const code = await spawnCode3(
+            projectRoot,
+            cmd,
+            featStr,
+            cfg,
+            `${sessionId}-${sk}`,
+            opts.forceRerun
+          );
+          if (code !== 0) {
+            exitCode = code;
+            failureReason = `ai-code3 ${cmd} exit=${code}`;
+            stoppedAt = sk;
+            break;
+          }
+          recordStageEvent(runId, sk, code, 0, false, '');
+        } else if (stage === 'deploy_smoke') {
+          const deployEnabled = !!(cfg.deploy && cfg.deploy.enabled);
+          if (deployEnabled) {
+            const allow =
+              cfg.pipeline && cfg.pipeline.autorun && cfg.pipeline.autorun.allow_destructive_deploy === true;
+            if (!allow) {
+              exitCode = 1;
+              failureReason =
+                'deploy.enabled=true 但 pipeline.autorun.allow_destructive_deploy !== true — 未 spawn ai-publish-dev3（publish3.md §5.1.1）';
+              stoppedAt = 'deploy';
+              break;
+            }
+          }
+          const pub = await runPublishDev(projectRoot, cfg, sessionId);
+          if (pub !== 0) {
+            exitCode = pub;
+            failureReason = `ai-publish-dev3 exit=${pub}`;
+            stoppedAt = 'deploy';
+            break;
+          }
+          recordStageEvent(runId, 'deploy_smoke', pub, 0, false, '');
+        }
+      }
+    }
+
+    const ended = new Date().toISOString();
+    doc = readStages(projectRoot);
+    doc = appendPipelineLog(doc, {
+      session_id: sessionId,
+      path: path.join('.agent-sessions', `${sessionId}.log`),
+      started_at: new Date(t0).toISOString(),
+      ended_at: ended,
+      notes: exitCode === 0 ? 'completed' : failureReason || `exit ${exitCode}`,
+    });
+    writeStages(projectRoot, doc);
+
+    if (runId) finishRun(runId, exitCode, stoppedAt || 'done');
+  } catch (e) {
+    console.error(e);
+    exitCode = 1;
+    failureReason = String(e.message || e);
+    if (runId) finishRun(runId, 1, 'exception');
+  } finally {
+    lock.release();
+  }
+
+  const gr = await runGenReport(
+    projectRoot,
+    sessionId,
+    failureReason || (exitCode ? `exit=${exitCode}` : '')
+  );
+  if (gr !== 0) console.error(`warning: gen-report exited ${gr}`);
+
+  appendLog(
+    projectRoot,
+    sessionId,
+    `autorun end exit=${exitCode} report see stages.report.outputs.report_path`
+  );
+  maybeHintRollback(readStages(projectRoot));
+  process.exit(exitCode);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

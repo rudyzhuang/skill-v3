@@ -1,0 +1,8 @@
+{
+  "name": "ai-auto3-scripts",
+  "private": true,
+  "description": "Dependencies for ai-auto3 registry (SQLite). Run npm install in ai-auto3/.",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  }
+}
