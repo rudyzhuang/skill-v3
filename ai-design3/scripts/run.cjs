@@ -18,6 +18,12 @@ const { featureDeclaredInLists } = require('./lib/feature-list.cjs');
 const { appendSessionLog } = require('./lib/session-log.cjs');
 const { runStyleScan } = require('./lib/style-scan.cjs');
 const { runLibResearch } = require('./lib/lib-research.cjs');
+const {
+  computeDesignInputHash,
+  computeContractInputHash,
+  computeDesignReviewInputHash,
+} = require('./lib/input-hash.cjs');
+const YAML = require('yaml');
 
 const SUBCOMMANDS = new Set([
   'preflight',
@@ -64,6 +70,7 @@ function parseArgs(argv) {
     approvedBy: '',
     notes: null,
     force: false,
+    forceRerun: null,
     dryRun: false,
   };
   if (!args.length) return out;
@@ -78,10 +85,25 @@ function parseArgs(argv) {
     else if (a === '--approved-by') out.approvedBy = args[++i];
     else if (a.startsWith('--notes=')) out.notes = a.slice('--notes='.length);
     else if (a === '--notes') out.notes = args[++i];
-    else if (a === '--force') out.force = true;
+    else if (a.startsWith('--force-rerun=')) out.forceRerun = a.slice('--force-rerun='.length).trim();
+    else if (a === '--force-rerun') {
+      const n = args[++i];
+      if (!n) {
+        console.error('--force-rerun requires a stage: design | contract | design_review');
+        process.exit(EXIT.PRECHECK);
+      }
+      out.forceRerun = String(n).trim();
+    } else if (a === '--force') out.force = true;
     else if (a === '--dry-run') out.dryRun = true;
     else {
       console.error(`Unknown argument: ${a}`);
+      process.exit(EXIT.PRECHECK);
+    }
+  }
+  if (out.forceRerun) {
+    const ok = new Set(['design', 'contract', 'design_review']);
+    if (!ok.has(out.forceRerun)) {
+      console.error(`Invalid --force-rerun value: ${out.forceRerun} (expected design|contract|design_review)`);
       process.exit(EXIT.PRECHECK);
     }
   }
@@ -146,16 +168,33 @@ function designSpecRel(projectRoot, featureId) {
   return path.join('docs', 'designs', `${featureId}.design.json`);
 }
 
-function contractDirRel(featureId) {
-  return path.join('docs', 'contracts', featureId);
+/** 相对 project_root 的 POSIX 风格目录，默认 docs/contracts；见 design3 §4 */
+function readContractsDirRel(projectRoot) {
+  const def = 'docs/contracts';
+  const cfgPath = path.join(projectRoot, 'docs', 'config.dev.json');
+  if (!fs.existsSync(cfgPath)) return def;
+  try {
+    const j = readJson(cfgPath);
+    const p = j?.pipeline?.paths?.contracts_dir;
+    if (typeof p !== 'string' || !p.trim()) return def;
+    const norm = p.trim().replace(/\\/g, '/').replace(/\/$/, '');
+    if (norm.includes('..') || path.isAbsolute(norm)) {
+      console.warn('Ignoring pipeline.paths.contracts_dir (must be relative without ..); using docs/contracts');
+      return def;
+    }
+    return norm;
+  } catch (_) {
+    return def;
+  }
 }
 
-function resolveContractArtifactPaths(projectRoot, featureId) {
-  const base = path.join(projectRoot, 'docs', 'contracts', featureId);
+function resolveContractArtifactPaths(projectRoot, featureId, contractsDirRel) {
+  const cdir = contractsDirRel.split('/').join(path.sep);
+  const base = path.join(projectRoot, cdir, featureId);
   const pick = (cands) => {
     for (const name of cands) {
       const abs = path.join(base, name);
-      if (fs.existsSync(abs)) return path.join('docs', 'contracts', featureId, name).split(path.sep).join('/');
+      if (fs.existsSync(abs)) return `${contractsDirRel}/${featureId}/${name}`.replace(/\\/g, '/');
     }
     return '';
   };
@@ -171,6 +210,29 @@ function resolveContractArtifactPaths(projectRoot, featureId) {
   ]);
   const designSnapshot = pick([`${featureId}.design.snapshot.json`]);
   return { types, api, schema, test_spec: testSpec, design_snapshot: designSnapshot };
+}
+
+/** design3 §5：从磁盘 design.json 复制进 stages.design.outputs.design_specs[] */
+function pickDesignSpecRow(featureId, relFs, doc) {
+  const row = {
+    feature_id: featureId,
+    client_target: doc.client_target,
+    spec_path: relFs.split(path.sep).join('/'),
+    status: doc.status || 'draft',
+    shared_changes: Array.isArray(doc.shared_changes) ? doc.shared_changes : [],
+  };
+  for (const key of [
+    'file_plan',
+    'api_outline',
+    'data_outline',
+    'acceptance',
+    'constraints',
+    'dependencies',
+    'risks',
+  ]) {
+    if (doc[key] !== undefined && doc[key] !== null) row[key] = doc[key];
+  }
+  return row;
 }
 
 function readJson(abs) {
@@ -400,7 +462,7 @@ function main() {
         featureName,
         designSpecPath: absDesign,
         outputPath: absOut,
-        force: parsed.force,
+        force: parsed.force || parsed.forceRerun === 'design',
         skillRoot: skRoot,
         dryRun: parsed.dryRun,
         validateJson,
@@ -429,6 +491,20 @@ function main() {
     if (!ids.length) {
       console.error('validate-design: no feature_ids in prd_review.review.phase_plan');
       finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    }
+    const designRerun = parsed.force || parsed.forceRerun === 'design';
+    if (
+      !parsed.dryRun &&
+      !designRerun &&
+      stages.stages.design?.status === 'completed' &&
+      stages.stages.design?.validation?.passed === true &&
+      stages.stages.design?.inputs?.summary_hash
+    ) {
+      const h = computeDesignInputHash(root, ids);
+      if (h === stages.stages.design.inputs.summary_hash) {
+        console.log('validate-design: skip (design.inputs.summary_hash unchanged)');
+        finish(EXIT.OK, { skipped: true });
+      }
     }
     const errors = [];
     const now = isoNow();
@@ -497,16 +573,17 @@ function main() {
       console.error(`write-design blocked: ${pr.reason}`);
       finish(EXIT.PRECHECK, { reason: pr.reason });
     }
-    if (!stages.stages.design?.validation?.passed && !parsed.force) {
+    const designRerun = parsed.force || parsed.forceRerun === 'design';
+    if (!stages.stages.design?.validation?.passed && !designRerun) {
       console.error('write-design blocked: run validate-design successfully first (or --force).');
       finish(EXIT.PRECHECK, { reason: 'validate_design_required' });
     }
     if (
-      !parsed.force &&
+      !designRerun &&
       stages.stages.design?.status === 'completed' &&
       stages.stages.design?.validation?.passed
     ) {
-      console.log('write-design: design already completed; use --force to rewrite.');
+      console.log('write-design: design already completed; use --force or --force-rerun=design to rewrite.');
       finish(EXIT.OK, { skipped: true });
     }
     const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
@@ -523,13 +600,7 @@ function main() {
         console.error(`write-design: cannot read ${rel}: ${e.message}`);
         finish(EXIT.PRECHECK, { reason: 'design_read_failed', path: rel });
       }
-      design_specs.push({
-        feature_id: fid,
-        client_target: doc.client_target,
-        spec_path: rel.split(path.sep).join('/'),
-        status: doc.status || 'draft',
-        shared_changes: doc.shared_changes || [],
-      });
+      design_specs.push(pickDesignSpecRow(fid, rel, doc));
     }
     const t0 = Date.now();
     stages.stages.design.outputs = stages.stages.design.outputs || {};
@@ -558,23 +629,7 @@ function main() {
     const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
     if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
     if (!ids.length) finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
-    const files = {};
-    const addFile = (rel) => {
-      const abs = path.join(root, rel);
-      if (fs.existsSync(abs)) files[rel.split(path.sep).join('/')] = sha256Hex(fs.readFileSync(abs, 'utf8'));
-    };
-    addFile(path.join('docs', 'inputs', 'prd-spec.md'));
-    addFile(path.join('docs', 'config.dev.json'));
-    addFile(path.join('docs', 'config.release.json'));
-    for (const fid of ids) {
-      addFile(designSpecRel(root, fid));
-      const styleRel = path.join('docs', 'designs', `${fid}.style-scan.json`);
-      const lrRel = path.join('docs', 'designs', `${fid}.lib-research.json`);
-      addFile(styleRel);
-      addFile(lrRel);
-    }
-    const payload = { feature_ids: ids, files };
-    const hash = sha256Hex(JSON.stringify(payload));
+    const hash = computeDesignInputHash(root, ids);
     stages.stages.design = stages.stages.design || {};
     stages.stages.design.inputs = stages.stages.design.inputs || {};
     stages.stages.design.inputs.summary_hash = hash;
@@ -585,7 +640,7 @@ function main() {
   }
 
   if (parsed.cmd === 'register-contract-artifacts') {
-    if (parsed.force) resetContractStageForForce(stages);
+    if (parsed.force || parsed.forceRerun === 'contract') resetContractStageForForce(stages);
     const pr = prdReviewPassed(stages);
     if (!pr.ok) finish(EXIT.PRECHECK, { reason: pr.reason });
     if (stages.stages.design?.status !== 'completed' && !parsed.force) {
@@ -600,9 +655,10 @@ function main() {
     const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
     if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
     if (!ids.length) finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    const contractsDirRel = readContractsDirRel(root);
     const artifacts = [];
     for (const fid of ids) {
-      const paths = resolveContractArtifactPaths(root, fid);
+      const paths = resolveContractArtifactPaths(root, fid, contractsDirRel);
       const row = { feature_id: fid, ...paths };
       const r = validateJson(v.validateArtifactItem, row, `artifacts[${fid}]`);
       if (!r.ok) {
@@ -621,7 +677,8 @@ function main() {
   }
 
   if (parsed.cmd === 'validate-contract') {
-    if (parsed.force) resetContractStageForForce(stages);
+    const contractRerun = parsed.force || parsed.forceRerun === 'contract';
+    if (contractRerun) resetContractStageForForce(stages);
     const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
     if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
     if (stages.stages.design?.status !== 'completed' || !stages.stages.design?.validation?.passed) {
@@ -640,7 +697,24 @@ function main() {
       console.error('validate-contract: no artifacts; run register-contract-artifacts');
       finish(EXIT.PRECHECK, { reason: 'no_artifacts' });
     }
+    if (
+      !parsed.dryRun &&
+      !contractRerun &&
+      stages.stages.contract?.status === 'completed' &&
+      stages.stages.contract?.validation?.passed === true &&
+      ['approved', 'not_required'].includes(stages.stages.contract?.outputs?.human_approval?.status)
+    ) {
+      const prev = stages.stages.contract?.inputs?.summary_hash;
+      if (prev) {
+        const h = computeContractInputHash(root, artifacts);
+        if (h === prev) {
+          console.log('validate-contract: skip (contract.inputs.summary_hash unchanged)');
+          finish(EXIT.OK, { skipped: true });
+        }
+      }
+    }
     const timeoutMs = readTimeoutSeconds(root, 'contract_s') * 1000;
+    const t0 = Date.now();
     stages.stages.contract.outputs = stages.stages.contract.outputs || {};
     stages.stages.contract.outputs.timed_out = false;
     stages.stages.contract.outputs.timeout_reason = null;
@@ -755,10 +829,32 @@ function main() {
           }
         } else if (k === 'types') {
           if (agg.types.status === 'failed' || agg.types.status === 'skipped') continue;
+          const tpath = art.types || '';
+          if (tpath.endsWith('.py')) continue;
           bump(k, 'passed', null);
         } else if (k === 'schema') {
           const body = fs.readFileSync(abs, 'utf8').trim();
           if (!body) bump(k, 'failed', `${prefix} empty schema file`);
+          else if (rel.endsWith('.sql')) {
+            const sl = runWithTimeout('sql-lint', ['-f', abs], root, timeoutMs);
+            if (sl.error && sl.error.code === 'ENOENT') {
+              /* optional tool (design3 §6.2) */
+            } else if (sl.error && sl.error.code === 'ETIMEDOUT') {
+              stages.stages.contract.outputs.timed_out = true;
+              stages.stages.contract.outputs.timeout_reason = 'sql-lint timed out';
+              stages.stages.contract.outputs.duration_ms = timeoutMs;
+              const flatChecks = checkNames.map((n) => agg[n]);
+              stages.stages.contract.validation = stages.stages.contract.validation || {};
+              stages.stages.contract.validation.checks = flatChecks;
+              stages.stages.contract.validation.passed = false;
+              logDryRunSlice(parsed, { contract: { outputs: stages.stages.contract.outputs } });
+              writeStages(root, stages, parsed.dryRun);
+              finish(EXIT.TIMEOUT, { timed_out: true, tool: 'sql-lint' });
+            } else if (sl.status !== 0) {
+              const msg = (sl.stderr || sl.stdout || sl.error?.message || 'sql-lint failed').trim().slice(0, 1500);
+              bump(k, 'failed', `${prefix} sql-lint: ${msg}`);
+            }
+          }
         } else if (k === 'test_spec') {
           const body = fs.readFileSync(abs, 'utf8').trim();
           if (!body) {
@@ -768,10 +864,24 @@ function main() {
               bump(k, 'failed', `${prefix} test_spec markdown should contain at least one heading`);
             }
           } else if (rel.endsWith('.yaml') || rel.endsWith('.yml')) {
-            /* YAML 结构校验不设 schema（design3 §6.2）；仅非空 */
+            try {
+              YAML.parse(body);
+            } catch (e) {
+              bump(k, 'failed', `${prefix} invalid YAML: ${e.message}`);
+            }
           }
         }
       }
+    }
+    const relevant = artifacts.filter((a) => !ids.length || ids.includes(a.feature_id));
+    const hasPyOnly =
+      relevant.length > 0 &&
+      relevant.every((a) => {
+        const t = a.types || '';
+        return t && t.endsWith('.py');
+      });
+    if (!anyTsArtifact && hasPyOnly) {
+      bump('types', 'skipped', 'Python-only types: no tsc check in ai-design3');
     }
     const flatChecks = checkNames.map((n) => agg[n]);
     stages.stages.contract = stages.stages.contract || {};
@@ -797,6 +907,9 @@ function main() {
       }
     } else {
       stages.stages.contract.status = 'failed';
+    }
+    if (!stages.stages.contract.outputs.timed_out) {
+      stages.stages.contract.outputs.duration_ms = Date.now() - t0;
     }
     logDryRunSlice(parsed, {
       contract: { validation: stages.stages.contract.validation, status: stages.stages.contract.status },
@@ -870,16 +983,7 @@ function main() {
 
   if (parsed.cmd === 'hash-contract-inputs') {
     const arts = stages.stages.contract?.outputs?.artifacts || [];
-    const files = {};
-    for (const a of arts) {
-      for (const k of ['types', 'api', 'schema', 'test_spec', 'design_snapshot']) {
-        const rel = a[k];
-        if (!rel) continue;
-        const abs = path.join(root, ...rel.split('/'));
-        if (fs.existsSync(abs)) files[rel] = sha256Hex(fs.readFileSync(abs, 'utf8'));
-      }
-    }
-    const hash = sha256Hex(JSON.stringify({ artifacts: arts, files }));
+    const hash = computeContractInputHash(root, arts);
     stages.stages.contract = stages.stages.contract || {};
     stages.stages.contract.inputs = stages.stages.contract.inputs || {};
     stages.stages.contract.inputs.summary_hash = hash;
@@ -899,7 +1003,7 @@ function main() {
       console.error('validate-design-review blocked: contract.validation.passed is false');
       finish(EXIT.PRECHECK, { reason: 'contract_validation_failed' });
     }
-    if (stages.stages.contract?.status !== 'completed' && !parsed.force) {
+    if (stages.stages.contract?.status !== 'completed' && !(parsed.force || parsed.forceRerun === 'contract')) {
       console.error('validate-design-review blocked: contract.status is not completed');
       finish(EXIT.PRECHECK, { reason: 'contract_not_completed' });
     }
@@ -943,6 +1047,12 @@ function main() {
     stages.stages.design_review.validation.blocking_gaps_count = blocking;
     stages.stages.design_review.validation.passed = errors.length === 0 && blocking === 0;
     stages.stages.design_review.validation.summary = errors.length ? errors.join('; ') : 'design-review checks OK';
+    if (stages.stages.design_review.validation.passed) {
+      stages.stages.design_review.outputs = stages.stages.design_review.outputs || {};
+      if (!String(stages.stages.design_review.outputs.alignment_summary || '').trim()) {
+        stages.stages.design_review.outputs.alignment_summary = stages.stages.design_review.validation.summary;
+      }
+    }
     if (!stages.stages.design_review.validation.passed) {
       stages.stages.design_review.status = 'failed';
     }
@@ -955,7 +1065,8 @@ function main() {
   }
 
   if (parsed.cmd === 'write-design-review') {
-    if (!stages.stages.design_review?.validation?.passed && !parsed.force) {
+    const drRerun = parsed.force || parsed.forceRerun === 'design_review';
+    if (!stages.stages.design_review?.validation?.passed && !drRerun) {
       console.error('write-design-review blocked: validate-design-review first');
       finish(EXIT.PRECHECK, { reason: 'validate_design_review_required' });
     }
@@ -964,6 +1075,12 @@ function main() {
     stages.stages.design_review.outputs.decision = 'passed';
     stages.stages.design_review.outputs.can_enter_codegen = true;
     stages.stages.design_review.outputs.duration_ms = Date.now() - t0;
+    stages.stages.design_review.outputs.timed_out = false;
+    stages.stages.design_review.outputs.timeout_reason = null;
+    if (!String(stages.stages.design_review.outputs.alignment_summary || '').trim()) {
+      stages.stages.design_review.outputs.alignment_summary =
+        stages.stages.design_review.validation?.summary || 'Deterministic design-review checks passed.';
+    }
     stages.stages.design_review.status = 'completed';
     stages.stages.design_review.completed_at = isoNow();
     logDryRunSlice(parsed, {
@@ -982,22 +1099,7 @@ function main() {
   if (parsed.cmd === 'hash-design-review-inputs') {
     const arts = stages.stages.contract?.outputs?.artifacts || [];
     const specs = stages.stages.design?.outputs?.design_specs || [];
-    const files = {};
-    for (const a of arts) {
-      for (const k of ['types', 'api', 'schema', 'test_spec', 'design_snapshot']) {
-        const rel = a[k];
-        if (!rel) continue;
-        const abs = path.join(root, ...rel.split('/'));
-        if (fs.existsSync(abs)) files[rel] = sha256Hex(fs.readFileSync(abs, 'utf8'));
-      }
-    }
-    for (const s of specs) {
-      if (s.spec_path) {
-        const abs = path.join(root, ...String(s.spec_path).split('/'));
-        if (fs.existsSync(abs)) files[s.spec_path] = sha256Hex(fs.readFileSync(abs, 'utf8'));
-      }
-    }
-    const hash = sha256Hex(JSON.stringify({ artifacts: arts, design_specs: specs, files }));
+    const hash = computeDesignReviewInputHash(root, arts, specs);
     stages.stages.design_review = stages.stages.design_review || {};
     stages.stages.design_review.inputs = stages.stages.design_review.inputs || {};
     stages.stages.design_review.inputs.summary_hash = hash;

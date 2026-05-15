@@ -33,7 +33,7 @@ disable-model-invocation: true
 node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路径> [选项…]
 ```
 
-**依赖**：在 `ai-design3/` 目录执行一次 `npm install`（使用 AJV 加载 `templates/schemas/*.v3.schema.json`）。
+**依赖**：在 `ai-design3/` 目录执行一次 `npm install`（AJV + `yaml` 包：用于 `test-spec` 的 YAML 语法校验）。
 
 **全局选项**（所有子命令解析一致）：
 
@@ -44,7 +44,8 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `--approved-by=<id>` | 否 | 仅 `approve-contract`：写入 `human_approval.approved_by`（缺省取 `USER` / `USERNAME` 环境变量或空串） |
 | `--notes=<text>` | `reject-contract` **必填**；其余审批类子命令可选 | 拒绝/备注 |
 | `--force` | 否 | 绕过部分「已完成则跳过」判定（见 design3 §8.3 与 input-spec §4.4 对齐） |
-| `--dry-run` | 否 | 仍将计算并更新内存中的 `stages` 对象，但**不写盘**；并向 stdout 打印 `dry_run` JSON 摘要（`slice` 字段） |
+| `--force-rerun=<stage>` | 否 | `design` \| `contract` \| `design_review`：收窄重跑语义；`contract` 等价于对 `register-contract-artifacts` / `validate-contract` 触发与 `--force` 相同的 contract 阶段重置；`design` / `design_review` 用于对应子命令的门闸与 lib-research `force` |
+| `--dry-run` | 否 | 仍将计算并更新内存中的 `stages` 对象，但**不写盘**；并向 stdout 打印 `dry_run` JSON 摘要（`slice` 字段）；**不**走「summary_hash 未变则整段跳过」捷径 |
 
 **lib-research / 风格扫描相关环境变量**（与第二代 skill 语义对齐；未列出者同 v2 默认）：
 
@@ -66,17 +67,17 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `list-design-candidates` | `--project` | stdout 输出 JSON：`feature_id[]` |
 | `scan-design-style` | `--project` | 按 `design.json` 的 `client_target` 扫描 `src/<target>`、`apps/<target>`、`packages/<target>`、`src/shared`、`src`（存在才扫）；写出 `docs/designs/<feature_id>.style-scan.json`；回写 `design.json` 的 `style_scan_ref`；在 `stages.design.validation.warnings` 追加摘要（`--dry-run` 不写设计文件与 style-scan 落盘） |
 | `lib-research` | `--project` | 对齐 ai-design2 P2.5：从 `api_outline` / `file_plan` 识别函数域；产出 `docs/designs/<feature_id>.lib-research.json`；可选派发 Cursor `agent` 执行研究；失败或无 Agent 时写 **stub** 并回写 `library_decisions` + `constraints`；缓存 `.pipeline/lib-research-cache.json`。环境变量见下表 |
-| `validate-design` | `--project` | 校验本期 `feature_id` 在至少一个 `docs/<client_target>/feature_list.md` 中有声明（表格行或 `###` 标题）；AJV 校验 `docs/designs/<feature_id>.design.json`；若任一设计文件 `risks[]` 非空则置 `outputs.needs_human_review=true`；更新 `stages.design.validation` |
-| `write-design` | `--project` | 在 `validate-design` 已通过前提下写 `stages.design` 完成态与 `outputs.design_specs[]` |
+| `validate-design` | `--project` | 校验本期 `feature_id` 在至少一个 `docs/<client_target>/feature_list.md` 中有声明（表格行或 `###` 标题）；AJV 校验 `docs/designs/<feature_id>.design.json`；若任一设计文件 `risks[]` 非空则置 `outputs.needs_human_review=true`；更新 `stages.design.validation`。若已存在 `hash-design-inputs` 写入的 `design.inputs.summary_hash` 且与当前上游文件重算一致，则整段跳过（stdout 提示；**非** `--dry-run`） |
+| `write-design` | `--project` | 在 `validate-design` 已通过前提下写 `stages.design` 完成态与 `outputs.design_specs[]`（从各 `design.json` 复制 `file_plan` / `api_outline` / `data_outline` / `acceptance` / `constraints` / `dependencies` / `risks` 等字段，若存在） |
 | `hash-design-inputs` | `--project` | 写入 `stages.design.inputs.summary_hash` |
-| `register-contract-artifacts` | `--project` | 扫描 `docs/contracts/<feature_id>/` 五类约定文件名，填充 `artifacts[]`（缺任一路径则本子命令失败）；**不**跑 tsc/swagger（design3 §6.1）。若 `design.outputs.needs_human_review===true` 则拒绝（可用 `--force` 绕过）。`--force` 时重置 contract 人工审批与校验占位（对齐 design3 §11 / input-spec 重跑矩阵） |
-| `validate-contract` | `--project` | 机器校验：根目录存在 `tsconfig.json` 且含 `.types.ts` 契约时跑一次 `npx tsc --noEmit`；快照 AJV；OpenAPI 头 + 可选 `swagger-cli validate`（超时退出码 **3** 并写 `outputs.timed_out`）；`paths` 级 `x-smoke` 缺失时仅在 `checks[].errors` 中记建议，不把 `api` 标为失败。校验通过且人工未批时 `contract.status=blocked`，通过且已批/免批时 `completed` |
+| `register-contract-artifacts` | `--project` | 扫描契约根下 `<feature_id>/` 五类约定文件名（默认 `docs/contracts/`，可由 `docs/config.dev.json` 的 `pipeline.paths.contracts_dir` 覆盖），填充 `artifacts[]`；**不**跑 tsc/swagger。若 `needs_human_review===true` 则拒绝（`--force` 绕过）。`--force` 或 `--force-rerun=contract` 时重置 contract 人工审批与校验占位 |
+| `validate-contract` | `--project` | 机器校验：`tsc` / 快照 AJV / OpenAPI + 可选 `swagger-cli`；`*.sql` 若 PATH 中存在 `sql-lint` 则调用；`test-spec` YAML 做语法 parse；纯 Python `types` 无 tsc 时记 `skipped`。成功结束写 `outputs.duration_ms`。若 `hash-contract-inputs` 后 `contract.inputs.summary_hash` 未变且 contract 已完成且已批/免批，则整段跳过（**非** `--dry-run`） |
 | `approve-contract` | `--project` | `human_approval.status → approved` |
 | `reject-contract` | `--project`、`--notes` | `human_approval.status → rejected` |
 | `mark-contract-not-required` | `--project` | `human_approval.status → not_required` |
 | `hash-contract-inputs` | `--project` | 写入 `stages.contract.inputs.summary_hash` |
-| `validate-design-review` | `--project` | 门闸：`human_approval`、`contract.validation.passed`、`contract.status===completed`（可用 `--force` 绕过最后一项）；五类快照路径必填；快照 AJV + 与 `design_specs` 的 `feature_id`/`client_target` 对齐；`gaps` 阻塞计数 |
-| `write-design-review` | `--project` | 在 `validate-design-review` 通过后写 `stages.design_review` 完成态 |
+| `validate-design-review` | `--project` | 门闸：`human_approval`、`contract.validation.passed`、`contract.status===completed`（`--force` 或 `--force-rerun=contract` 可绕过最后一项）；快照 AJV + 与 `design_specs` 对齐；`gaps` 阻塞计数；通过且尚无 `alignment_summary` 时写入确定性摘要 |
+| `write-design-review` | `--project` | 在 `validate-design-review` 通过后写 `stages.design_review` 完成态、`decision`、`can_enter_codegen`、`timed_out`/`timeout_reason`、`alignment_summary`（若仍为空则用校验摘要） |
 | `hash-design-review-inputs` | `--project` | 写入 `stages.design_review.inputs.summary_hash` |
 
 ## 退出码（与 input-spec §5 对齐）
@@ -86,7 +87,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | 0 | 成功 | — |
 | 1 | 前置/门闸/缺文件/schema/配置扫描 | `preflight` 失败、`validate-design` 缺规格文件、`validate-contract` 缺产物路径 |
 | 2 | 用户取消 | SIGINT |
-| 3 | 超时/异常 | `swagger-cli validate` / `tsc --noEmit` 子进程超时（写 `stages.contract.outputs.timed_out`） |
+| 3 | 超时/异常 | `swagger-cli` / `tsc --noEmit` / `sql-lint` 子进程超时（写 `stages.contract.outputs.timed_out`） |
 | 4 | 质量门 | AJV/OpenAPI 校验失败、`validate-design-review` 阻塞缺口 |
 | 5 | 契约破坏 | 预留 |
 

@@ -116,6 +116,7 @@
 
 - **`design_snapshot`** 必须与当前 design 规格结构化一致，供 design-review 做 diff/字段级核对；其 JSON Schema 文件名以 **§6.2** 为准（`design-snapshot.v3.schema.json`）。
 - **`api.yaml`** 除常规 OpenAPI 校验外，须满足后续 **ai-publish-dev3** 冒烟对 **`x-smoke`** 的约定（字段形状见 [`input-spec.md`](../input-spec.md) §8.13）。
+- **契约根目录**：默认 `docs/contracts/`；可在业务仓 `docs/config.dev.json` 设置 `pipeline.paths.contracts_dir`（**相对**项目根、**不得**含 `..`），`register-contract-artifacts` 与路径登记均使用该值。
 
 ---
 
@@ -138,7 +139,7 @@
 | `risks` | array | 需人工确认项；非空时可抬升 `outputs.needs_human_review` |
 | `shared_changes` | array | 共享层路径及影响说明（见 input-spec §8 阶段 3） |
 
-**与 codegen 的契约**：`file_plan` 应尽量避免多 feature 同时 `modify_files` 指向同一「汇总文件」；沿用 v2 SKILL 中的**插件式注册**最佳实践（流程与反模式说明见本机 `~/.cursor/skills/ai-design2/SKILL.md` 中「集成枢纽、`depends_on` 与合并冲突控制」一节）。
+**与 codegen 的契约**：`file_plan` 应尽量避免多 feature 同时 `modify_files` 指向同一「汇总文件」；沿用 v2 SKILL 中的**插件式注册**最佳实践（流程与反模式说明见本机 `~/.cursor/skills/ai-design2/SKILL.md` 中「集成枢纽、`depends_on` 与合并冲突控制」一节）。**ai-code3** 的 **`codegen.cjs`** 在真实生成实现时，应以 **`design_snapshot`**（契约 **`design_snapshot`** 路径）中的 **`file_plan` / `depends_on` / 路由与验收摘要** 为硬边界，并与 **`stages.contract.outputs.artifacts[]`** 中该 **`feature_id`** 的五类契约路径一起注入 Agent 上下文（详见 **`docs/spec/code3.md` §7.4–§7.9**）。
 
 ---
 
@@ -165,7 +166,8 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `--approved-by=<id>` | 否 | 仅 **`approve-contract`**：写入 `human_approval.approved_by`（缺省可为空或 `env`/`git` 推导，须在 SKILL 写死） |
 | `--notes=<text>` | 条件 | **`reject-contract` 必填**；`approve-contract` / `mark-contract-not-required` 可选 |
 | `--force` | 否 | 忽略「已完成则跳过」判定，等价 input-spec §4.4 `--force-rerun` 在单阶段内的收窄实现 |
-| `--dry-run` | 否 | 只打印将执行的操作与将写入的 `stages` 差分，**不落盘** |
+| `--force-rerun=<stage>` | 否 | `design` \| `contract` \| `design_review`：与 `--force` 组合实现分阶段重跑（实现以 `SKILL.md` 为准） |
+| `--dry-run` | 否 | 只打印将执行的操作与将写入的 `stages` 差分，**不落盘**；**不**启用「inputs.summary_hash 未变则整段跳过」 |
 
 **子命令（名称冻结；新增须走文档版本 bump 与 `_schema` 联动评审）**：
 
@@ -208,9 +210,9 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 **非 AJV 的契约校验**（仍由 `validate-contract` 调度，**不设**本表 JSON Schema 名）：
 
 - OpenAPI：**`swagger-cli validate`**（或项目约定等价物）作用于 `*.api.yaml`。
-- **types**：`tsc --noEmit` 或项目约定编译检查。
-- **schema.sql**：`sql-lint` 或项目约定。
-- **test_spec**：若为 Markdown，用实现内置轻量规则或结构化抽取后再校验；若为 YAML/JSON，可另增 **`test-spec.v3.schema.json`**——**若增加，须与本表同节增补并升 skill 文档版本**；当前 v0 **冻结集为 §6.2 上表所列 JSON Schema 文件**。
+- **types**：`tsc --noEmit` 或项目约定编译检查；纯 Python `types` 无项目级检查时记 `skipped`。
+- **schema.sql**：若 PATH 中存在 **`sql-lint`** 则对 `*.sql` 调用；否则仅非空检查。
+- **test_spec**：Markdown 轻量规则；YAML 做**语法 parse**（依赖 skill 内 `yaml` 包）；可另增 **`test-spec.v3.schema.json`**——**若增加，须与本表同节增补并升 skill 文档版本**；当前 v0 **冻结集为 §6.2 上表所列 JSON Schema 文件**。
 
 ### 6.3 与 v2 习惯的对照
 
@@ -239,7 +241,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 
 1. **自动序列起点**：ai-auto3 默认从 **design** 开始（[`input-spec.md`](../input-spec.md) §4.3）；故 ai-design3 必须能在「仅跑 design」或「design → contract → design-review 一次跑完」两种模式下工作。
 2. **contract 人工审批停跑**：当 `human_approval.status === "pending"` 时，ai-auto3 将 contract 标为 **blocked** 并停止；用户需通过 **ai-design3** 调用 **`run.cjs approve-contract`** / **`run.cjs reject-contract`**（见 **§6.1**）。**禁止**在 skill 内提供「默认 approve」捷径。
-3. **「已完成则跳过」**：实现 §4.4 三条件：`status === "completed"`、`validation.passed === true`、`inputs.summary_hash` 与上游一致；`--force-rerun=<stage>` 可绕过（与 input-spec §4.4 一致）。
+3. **「已完成则跳过」**：实现 §4.4 三条件：`status === "completed"`、`validation.passed === true`、`inputs.summary_hash` 与上游一致；`--force` / `--force-rerun=<stage>` 可绕过。`validate-design` / `validate-contract` 在已写入对应 `inputs.summary_hash` 且重算一致时可**整段跳过**（`--dry-run` 除外，仍完整计算以便打印 `slice`）。
 4. **日志**：会话日志写在 **`<project_root>/.agent-sessions/`**（路径与轮转见 input-spec §6）；ai-design3 **自己**追加本阶段日志，不假设 ai-auto3 代写。
 
 ---
@@ -254,12 +256,12 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 
 ## 10. `SKILL.md` 编写清单（发布前自检）
 
-- [ ] frontmatter：`name: ai-design3`、`description` 含触发词（如「ai-design3」「设计契约」「design-review」）。
-- [ ] 明确三阶段顺序及**不可跳步**门闸。
-- [ ] 列出 **`run.cjs` 全部子命令**（含参数示例），与 **§6.1** 完全一致。
-- [ ] 随 skill 发布的 **`templates/schemas/`** 下 JSON Schema 与 **§6.2** 文件名一致（三文件齐全）。
-- [ ] 说明与 **ai-prd3**（上游）、**ai-code3**（下游）的衔接字段：`design_review.outputs.can_enter_codegen`、`codegen.inputs.requires_stage`。
-- [ ] 重申：**不**复制脚本到业务仓；**不**读取 v2 `pipeline.db`。
+- [x] frontmatter：`name: ai-design3`、`description` 含触发词（如「ai-design3」「设计契约」「design-review」）。
+- [x] 明确三阶段顺序及**不可跳步**门闸。
+- [x] 列出 **`run.cjs` 全部子命令**（含参数示例），与 **§6.1** 完全一致。
+- [x] 随 skill 发布的 **`templates/schemas/`** 下 JSON Schema 与 **§6.2** 文件名一致（**四**文件：`design-spec`、`lib-research`、`design-snapshot`、`contract-artifacts-item`）。
+- [x] 说明与 **ai-prd3**（上游）、**ai-code3**（下游）的衔接字段：`design_review.outputs.can_enter_codegen`、`codegen.inputs.requires_stage`。
+- [x] 重申：**不**复制脚本到业务仓；**不**读取 v2 `pipeline.db`。
 
 ---
 
