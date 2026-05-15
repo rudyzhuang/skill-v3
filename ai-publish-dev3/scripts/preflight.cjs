@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { configJsonPath, configEnvPath, stagesPath } = require('./lib/paths.cjs');
 const { collectForbiddenKeyViolations } = require('./lib/forbidden-scan.cjs');
-const { parseConfigEnv, validateEnvKeys } = require('./lib/config-env.cjs');
+const { parseConfigEnv } = require('./lib/config-env.cjs');
 const { matchArtifactsForService } = require('./lib/artifacts.cjs');
+const { isAutomatedProvider, validateAutomatedProviderEnv } = require('./lib/providers/registry.cjs');
 
 const ENV = 'dev';
 
@@ -65,10 +66,10 @@ function runPreflight(projectRoot, opts = {}) {
     const provider = String(providerRaw).toLowerCase();
     const allowExit8Test =
       process.env.AI_PUBLISH_DEV3_SELFTEST === '1' && String(providerRaw).toLowerCase() === 'exit8-test';
-    if (deployEnabled && !allowExit8Test && provider !== 'manual' && provider !== 'cloudflare') {
+    if (deployEnabled && !allowExit8Test && provider !== 'manual' && !isAutomatedProvider(provider)) {
       return {
         ok: false,
-        message: `preflight: deploy.provider="${providerRaw}" 尚无自动化实现；请改为 manual、cloudflare 或扩展 providers（publish3.md §4.1）。`,
+        message: `preflight: deploy.provider="${providerRaw}" 尚无自动化实现；请改为 manual、已注册云 provider 或扩展 scripts/lib/providers/registry.cjs（publish3.md §4.1）。`,
       };
     }
 
@@ -103,16 +104,16 @@ function runPreflight(projectRoot, opts = {}) {
       }
     }
 
-    if (deployEnabled && String(providerRaw).toLowerCase() === 'cloudflare') {
+    if (deployEnabled && isAutomatedProvider(provider) && !allowExit8Test) {
       let envMap;
       try {
         envMap = parseConfigEnv(envPath);
       } catch (e) {
-        return { ok: false, message: `preflight cloudflare: 读取 config.env 失败: ${e.message}` };
+        return { ok: false, message: `preflight deploy: 读取 config.env 失败: ${e.message}` };
       }
-      const vr = validateEnvKeys(envMap, ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'], { requireNonEmpty: true });
+      const vr = validateAutomatedProviderEnv(envMap, provider);
       if (!vr.ok) {
-        return { ok: false, message: `preflight cloudflare: ${vr.message}` };
+        return { ok: false, message: `preflight deploy (${provider}): ${vr.message}` };
       }
     }
   }

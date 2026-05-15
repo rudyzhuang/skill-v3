@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { stagesPath } = require('./lib/paths.cjs');
 const { planManualDeploy } = require('./lib/providers/manual.cjs');
-const { executeCloudflareAndWriteStages } = require('./lib/providers/cloudflare.cjs');
+const { isAutomatedProvider, executeAutomatedDeploy } = require('./lib/providers/registry.cjs');
 const { updateStages } = require('./lib/stages-io.cjs');
 const { sha256Stable, deploySummaryInput, hashConfigDeploySubtree } = require('./lib/summary-hash.cjs');
 const { collectConsumedArtifacts } = require('./lib/artifacts.cjs');
@@ -150,11 +150,11 @@ async function runDeploy(projectRoot, opts = {}) {
   const allowExit8Test =
     process.env.AI_PUBLISH_DEV3_SELFTEST === '1' && String(providerRaw).toLowerCase() === 'exit8-test';
 
-  if (!allowExit8Test && provider !== 'manual' && provider !== 'cloudflare') {
+  if (!allowExit8Test && provider !== 'manual' && !isAutomatedProvider(provider)) {
     return {
       code: 1,
       failed_step: 'deploy',
-      message: `deploy.provider="${config.deploy.provider}" 尚无自动化实现；请改用 manual、cloudflare 或扩展 scripts/lib/providers/（publish3.md §4.1）。`,
+      message: `deploy.provider="${config.deploy.provider}" 尚无自动化实现；请改用 manual 或已注册的云 provider（见 scripts/lib/providers/registry.cjs，publish3.md §4.1）。`,
     };
   }
 
@@ -251,8 +251,9 @@ async function runDeploy(projectRoot, opts = {}) {
         onHeartbeat: () => log(`alive: deploy pid=${process.pid}`),
       },
       async () => {
-        if (provider === 'cloudflare') {
-          return executeCloudflareAndWriteStages(
+        if (isAutomatedProvider(provider)) {
+          return executeAutomatedDeploy(
+            providerRaw,
             projectRoot,
             config,
             buildArts,

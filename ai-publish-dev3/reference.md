@@ -5,11 +5,11 @@
 | 码 | 场景 |
 | --- | --- |
 | 0 | 成功（含允许的 **skipped**；`--dry-run` 下 deploy/smoke 不触网） |
-| 1 | 缺文件/配置/门闸/映射/forbidden/未授权 autorun deploy/不支持的 **provider**（非 manual/cloudflare/自测 exit8-test）/手工 deploy 缺 **`--explicit-confirm`** 等 |
+| 1 | 缺文件/配置/门闸/映射/forbidden/未授权 autorun deploy/不支持的 **provider**（非 manual / **registry 已注册云** / 自测 **exit8-test**）/手工 deploy 缺 **`--explicit-confirm`** 等 |
 | 2 | 用户取消（预留） |
 | 3 | **超时**（`run-with-timeout.cjs`）：smoke HTTP 整包超时写回 `timed_out`/`timeout_reason`/`duration_ms`；`manual` deploy 同步体见 SKILL「已知限制」 |
 | 4 | **smoke** HTTP 检查未通过（质量门） |
-| 8 | **deploy** 云/托管 API 或 **`wrangler`** 失败：**`cloudflare`** provider 与自测 **`exit8-test`**（`AI_PUBLISH_DEV3_SELFTEST=1`） |
+| 8 | **deploy** 云/托管 API 或 CLI（**`wrangler` / `vercel` / `aws` / `aliyun` / `firebase-tools` / `az` 等**）失败：**已注册云 provider** 与自测 **`exit8-test`**（`AI_PUBLISH_DEV3_SELFTEST=1`） |
 
 ## `stages.json` 写回（摘要）
 
@@ -36,8 +36,8 @@
 | §4.1 目录 | `config-load.cjs`/`secret-env.cjs` 命名与现网 **`config-env.cjs`** 不一致 | **功能等价**（命名未对齐文档，以 SKILL 表为准） |
 | §4.1 | `prompts/` 可选 | **未建**（可选） |
 | §4.3 `run.cjs` | 参数、`--confirm-deploy` 拒绝、退出码、`failed_step` | **已满足** |
-| §4.3 `preflight` | config、env、stages 门闸、forbidden | **已满足**；**cloudflare** 追加凭证门闸 |
-| §4.3 `deploy` | `deploy-dev` 锁、provider、写回、云失败 **8**、缺凭证 **1** | **已满足**（**manual** / **cloudflare** / **exit8-test**） |
+| §4.3 `preflight` | config、env、stages 门闸、forbidden | **已满足**；**自动化 provider** 追加 **`docs/config.env`** 键校验（见 `lib/providers/registry.cjs`） |
+| §4.3 `deploy` | `deploy-dev` 锁、provider、写回、云失败 **8**、缺凭证 **1** | **已满足**（**manual** / **registry 内云** / **exit8-test**） |
 | §4.3 `smoke` | `smoke` 锁、串行于 deploy 后、失败 **4** | **已满足** |
 | §4.3 `init.cjs` | 可选占位 | **已满足**（占位） |
 | §5.1 | deploy/smoke skip + `skip_reason`；`--require-deploy` | **已满足** |
@@ -56,7 +56,7 @@
 - [x] **`--project`** 非法 → **1**。
 - [x] forbidden 扫描；**`security.*` 键名豁免**避免模板误报。
 - [x] **artifact 一对一**；**`artifact_ref`** 优先（`lib/artifacts.cjs`）。
-- [x] **manual** / **cloudflare** `deploy` 成功路径写回 **`stages.deploy.outputs.*`**（含 **url**、**status**、**log_path** 字段位；`log_path` 常为空字符串）。
+- [x] **manual** / **registry 内各云** `deploy` 成功路径写回 **`stages.deploy.outputs.*`**（含 **url**、**status**、**log_path** 字段位；`log_path` 常为空字符串）。
 - [x] **smoke**：默认 **GET/HEAD**；**`x-smoke` safe/safe_post** 允许 **safe POST**。
 - [x] **§6.2**：`summary_hash` 一致且 **`status=completed`** 且 **`validation.passed`** 时跳过；**`--force-rerun`** 可重跑。
 - [x] **§5.1.1**：`--invoked-by-autorun` + `allow_destructive_deploy` 门闸。
@@ -64,8 +64,8 @@
 - [x] **x-smoke** 与 **`smoke.checks[]`** 合并（`stages.contract.outputs.artifacts[].api` 与约定 **`docs/api.yaml`**）。
 - [x] **`.agent-sessions/<session_id>.log`** + **`alive:`**（经 `run-with-timeout` 心跳回调）。
 - [x] **`init.cjs`** 占位入口。
-- [x] **Cloudflare**：`lib/providers/cloudflare.cjs` + **退出 8** 语义（API / `wrangler`）。
-- [ ] **其它 catalog 云**（AWS/阿里云/腾讯云等）未在 **dev** skill 实现（`publish3.md` §0 非目标：不穷尽所有云）。
+- [x] **多平台自动化**：`lib/providers/registry.cjs` 调度 **cloudflare** / **vercel** / **aws** / **alibaba_cloud** / **tencent_cloud** / **huawei_cloud** / **google_cloud** / **azure**（静态/OSS/Firebase/Blob 等 **CLI 薄封装**；非 FC/SAE/GKE 等全量 PaaS）。
+- [ ] **catalog 中其余资源型**（如 FC、GKE、RDS）仍不在本 skill 自动化范围内。
 
 ## 评审轮次记录（实现收口）
 

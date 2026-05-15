@@ -12,7 +12,7 @@ const https = require('https');
 const { spawnSync } = require('child_process');
 const { parseConfigEnv } = require('../config-env.cjs');
 const { matchArtifactsForService } = require('../artifacts.cjs');
-const { updateStages } = require('../stages-io.cjs');
+const { finalizeDeploySuccess, finalizeDeployFailure } = require('./stage-write.cjs');
 
 const CF_API = 'api.cloudflare.com';
 
@@ -410,53 +410,15 @@ async function executeCloudflareAndWriteStages(projectRoot, config, buildArtifac
   const t0 = Date.now();
   try {
     const planned = await runCloudflareDeploy(projectRoot, config.deploy, buildArtifacts, log);
-    const now = new Date().toISOString();
-    updateStages(stPath, (doc) => {
-      doc.stages = doc.stages || {};
-      const prev = doc.stages.deploy || {};
-      doc.stages.deploy = {
-        ...prev,
-        status: 'completed',
-        environment: 'dev',
-        started_at: prev.started_at || now,
-        completed_at: now,
-        inputs: {
-          ...(prev.inputs || {}),
-          summary_hash: summaryHash,
-          requires_stage: 'build',
-          config: 'docs/config.dev.json',
-          secret_env: 'docs/config.env',
-          artifacts: consumed.map((a) => ({
-            client_target: a.client_target,
-            sub_platform: a.sub_platform || '',
-            artifact_path: a.artifact_path,
-            status: a.status,
-          })),
-        },
-        outputs: {
-          ...(prev.outputs || {}),
-          environment: 'dev',
-          provider: 'cloudflare',
-          services: planned.services,
-          deploy_url: planned.deploy_url,
-          commit: '',
-          error: '',
-          timed_out: false,
-          timeout_reason: null,
-          duration_ms: Date.now() - t0,
-        },
-        validation: {
-          ...(prev.validation || {}),
-          passed: true,
-          checked_at: now,
-          summary: 'Cloudflare 全自动部署（Pages/Workers + 域名/DNS/SSL）',
-        },
-      };
+    finalizeDeploySuccess(stPath, t0, summaryHash, consumed, {
+      provider: 'cloudflare',
+      services: planned.services,
+      deploy_url: planned.deploy_url,
+      validationSummary: 'Cloudflare 全自动部署（Pages/Workers + 域名/DNS/SSL）',
     });
     return { code: 0, message: 'deploy 完成（cloudflare provider）' };
   } catch (e) {
     const msg = e.message || String(e);
-    const now = new Date().toISOString();
     const cfStatus = e.cfStatus;
     const exitCode = e.exitCode;
     let code = 1;
@@ -465,45 +427,10 @@ async function executeCloudflareAndWriteStages(projectRoot, config, buildArtifac
     else if (exitCode != null && exitCode !== 0) code = 8;
     else if (cfStatus != null) code = 8;
 
-    updateStages(stPath, (doc) => {
-      doc.stages = doc.stages || {};
-      const prev = doc.stages.deploy || {};
-      doc.stages.deploy = {
-        ...prev,
-        status: 'completed',
-        environment: 'dev',
-        completed_at: now,
-        inputs: {
-          ...(prev.inputs || {}),
-          summary_hash: summaryHash,
-          requires_stage: 'build',
-          config: 'docs/config.dev.json',
-          secret_env: 'docs/config.env',
-          artifacts: consumed.map((a) => ({
-            client_target: a.client_target,
-            sub_platform: a.sub_platform || '',
-            artifact_path: a.artifact_path,
-            status: a.status,
-          })),
-        },
-        outputs: {
-          ...(prev.outputs || {}),
-          environment: 'dev',
-          provider: 'cloudflare',
-          services: [],
-          deploy_url: '',
-          error: msg.slice(0, 2000),
-          timed_out: false,
-          timeout_reason: null,
-          duration_ms: Date.now() - t0,
-        },
-        validation: {
-          ...(prev.validation || {}),
-          passed: false,
-          checked_at: now,
-          summary: 'Cloudflare deploy 失败',
-        },
-      };
+    finalizeDeployFailure(stPath, t0, summaryHash, consumed, {
+      provider: 'cloudflare',
+      errorMsg: msg,
+      validationSummary: 'Cloudflare deploy 失败',
     });
 
     if (code === 8) return { code: 8, failed_step: 'deploy', message: msg };
