@@ -29,6 +29,12 @@ async function main() {
     process.exit(1);
   }
 
+  const subEarly = options.subcommand;
+  if (subEarly === 'clean' || subEarly === 'clean-worktrees') {
+    const code = await require('./clean.cjs').run({ projectRoot: options.project, options });
+    process.exit(code ?? 0);
+  }
+
   const pre = await require('./preflight.cjs').run({ projectRoot: options.project, options });
   if (pre !== 0) {
     console.error('failed_stage=preflight');

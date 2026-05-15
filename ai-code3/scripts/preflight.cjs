@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const stagesIo = require('./lib/stages-io.cjs');
 const secret = require('./lib/secret-scan.cjs');
+const { assertCodegenGates } = require('./lib/codegen-gates.cjs');
 
 function loadJson(p) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -49,6 +50,17 @@ async function run(ctx) {
       if (!r.ok) errs.push(...r.errors);
     } catch (e) {
       errs.push(`config.release.json: ${e.message}`);
+    }
+  }
+
+  if (errs.length === 0 && process.env.AI_CODE3_PREFLIGHT_UPSTREAM_GATES === 'yes') {
+    try {
+      const d = stagesIo.readStagesSync(projectRoot);
+      stagesIo.assertSchemaSupported(d);
+      const g = assertCodegenGates(d);
+      if (g) errs.push(`codegen_upstream_gate: ${g}`);
+    } catch (e) {
+      errs.push(`upstream_gate_read: ${e.message || String(e)}`);
     }
   }
 

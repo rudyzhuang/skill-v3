@@ -30,7 +30,7 @@ disable-model-invocation: true
 ## codegen 与 Cursor Agent（规划真源）
 
 - **worktree + 分相 Agent、环境变量、CI 跳过策略、状态字段** 以 **`docs/spec/code3.md` §7.4–§7.12** 为准（对齐上一代 **ai-codegen2**，状态落在 **`stages.codegen.outputs.worktrees[]`** 与 **`outputs.agent`**）。  
-- **`codegen.cjs`** 过渡实现完成后，应拆分 **`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**（规划名），**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
+- **`codegen.cjs`** 已拆分 **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`**、**`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**；**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
 
 ## 业务项目路径（相对 `<project_root>/`）
 
@@ -53,8 +53,9 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 | 子命令 | 行为 |
 | --- | --- |
 | （缺省）或 `all` | 自 **codegen** 顺序执行至 **build**（满足「已完成则跳过」三条件时跳过，见 `docs/spec/code3.md` 附录 A · A.3） |
-| `preflight` | 校验项目根、`docs/config.dev.json`、`.pipeline/stages.json` 可读、**`_schema.version`**、附录 B 式 **secret-scan**（不写回阶段状态）；**各阶段业务门闸**由各 `*.cjs` 在执行时校验 |
+| `preflight` | 校验项目根、`docs/config.dev.json`、`.pipeline/stages.json` 可读、**`_schema.version`**、附录 B 式 **secret-scan**（不写回阶段状态）；可选 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 预检 **§7.2**；**各阶段业务门闸**由各 `*.cjs` 在执行时校验 |
 | `codegen` / `typecheck` / `test` / `code-review` / `merge-push` / `build` | 单阶段；仍执行该阶段前置门闸 |
+| `clean` / `clean-worktrees` | 仅 **`clean.cjs`**（**不**跑 preflight）；须 **`AI_CODE3_CLEAN_CONFIRM=yes`** |
 
 **常用选项**：`--from-stage=`、`--to-stage=`、`--feature=`（**逗号分隔多 id** 合法）、`--force-rerun=<stage>`、`--dry-run`、`--session-id=`。
 

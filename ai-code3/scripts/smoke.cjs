@@ -17,7 +17,11 @@ function runNode(args) {
   const r = spawnSync(process.execPath, [runScript, ...args], {
     stdio: 'inherit',
     cwd: skillRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      AI_CODE3_ALLOW_NO_AGENT_PASS: 'yes',
+      AI_CODE3_SKIP_AGENT: '1',
+    },
   });
   return r.status ?? 1;
 }

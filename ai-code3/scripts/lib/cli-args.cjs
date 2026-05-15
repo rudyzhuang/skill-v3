@@ -43,6 +43,8 @@ function parseCommonArgs(argv) {
     'code-review',
     'merge-push',
     'build',
+    'clean',
+    'clean-worktrees',
   ]);
 
   for (const a of rest) {

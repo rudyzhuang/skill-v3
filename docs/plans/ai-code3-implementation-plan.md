@@ -8,15 +8,15 @@
 | --- | ---: | --- | --- | --- |
 | **P0** | 1 | 附录 B secret-scan **单测** + 冒烟串联 | **完成** | `self-test-secret-scan.cjs` |
 | **P1** | 2 | **`merge-push.cjs`**：真实 `git merge`、冲突 **6**、可选 `git push`（**7**） | **完成** | `lib/merge-git.cjs`、`self-test-merge-push.cjs`；**§11.4** |
-| **P2** | 3 | **`codegen.cjs`**：`git worktree` 创建/复用、二次 diff-guard、绝对路径 worktree | **未开始** | 仍为过渡：门闸后直接 `completed`（§7.4） |
-| **P3** | 4 | **`codegen-scaffold` / `invoke-codegen-agent`**、`outputs.agent`、`AI_CODE3_SKIP_AGENT` | **未开始** | §7.8–§7.12 |
-| **P4** | 5 | **`test.cjs`**：Agent 式 fix-loop 定稿 + **`rollback_to`** 细化 | **部分** | 当前为同命令重试 |
-| **P5** | 6 | **`code-review.cjs`**：契约驱动结构化输出 + JSON Schema（§18 T2） | **未开始** | 依赖人工预填或 stub |
-| **P6** | 7 | **`build.cjs`**：`client_targets` × `sub_platforms` 矩阵 | **部分** | 单命令 + 简化 artifacts |
-| **P7** | 8 | **`preflight.cjs`**：codegen 上游门闸预检 | **未开始** | 门闸在各阶段脚本 |
-| **P8** | 9 | **§15 心跳** | **未开始** | |
-| **P9** | 10 | **`prompts/*.md`**、`clean` 子命令 | **未开始** | |
-| **P10** | 11 | **§16 自动化验收矩阵** | **部分** | secret + merge 自测 + smoke |
+| **P2** | 3 | **`codegen.cjs`**：`git worktree` 创建/复用、二次 diff-guard、绝对路径 worktree | **完成** | **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`** |
+| **P3** | 4 | **`codegen-scaffold` / `invoke-codegen-agent`**、`outputs.agent`、`AI_CODE3_SKIP_AGENT` | **完成** | **`prompts/codegen-impl.md`** 为骨架；完整分相见 **§7.8–§7.12** |
+| **P4** | 5 | **`test.cjs`**：Agent 式 fix-loop 定稿 + **`rollback_to`** 细化 | **部分** | **`build.commands.test_fix`** 间隙钩子；同命令重试仍无 Agent |
+| **P5** | 6 | **`code-review.cjs`**：契约驱动结构化输出 + JSON Schema（§18 T2） | **部分** | **`AI_CODE3_CODE_REVIEW_JSON`** 导入；无内置 LLM |
+| **P6** | 7 | **`build.cjs`**：`client_targets` × `sub_platforms` 矩阵 | **完成** | **`artifacts[]`** 字段级与 §12.3 仍可继续对齐 |
+| **P7** | 8 | **`preflight.cjs`**：codegen 上游门闸预检 | **完成** | 默认关闭；**`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** |
+| **P8** | 9 | **§15 心跳** | **部分** | **codegen / test / build** + **`--session-id=`** |
+| **P9** | 10 | **`prompts/*.md`**、`clean` 子命令 | **完成** | **`clean.cjs`**、**`AI_CODE3_CLEAN_CONFIRM`** |
+| **P10** | 11 | **§16 自动化验收矩阵** | **部分** | secret + merge 自测 + smoke；可增 clean / upstream-gate 用例 |
 
 ## 2. 分步完成定义（每阶段）
 
@@ -55,21 +55,26 @@
 | 能力 | 规格章节 | 实现 | 说明 |
 | --- | --- | --- | --- |
 | run 串联 / summary_hash 跳过 | 附录 A.3、§13 | **完成** | `run.cjs`、`summary-hash.cjs` |
-| codegen 门闸 + 主仓 diff-guard | §7.2–§7.3 | **完成** | 二次 worktree diff-guard **未**做 |
-| codegen worktree + Agent | §7.4–§7.12 | **未开始** | 过渡直写 `completed` |
+| codegen 门闸 + 主仓 diff-guard | §7.2–§7.3 | **完成** | |
+| codegen worktree + Agent | §7.4–§7.12 | **部分** | worktree / scaffold / 二次 diff-guard / **`outputs.agent`** / skip 已落地；完整 Cursor 分相与 **§7.10** 级验收见 SSOT |
 | typecheck | §8 | **完成** | 全 skip 退出 0（T1） |
-| test + rollback_to | §9 | **部分** | 重试无 Agent 修补 |
-| code-review | §10 | **部分** | 外部填结论或 stub |
+| test + rollback_to | §9 | **部分** | **`test_fix`** 钩子；重试无 Agent 修补 |
+| code-review | §10 | **部分** | **JSON 导入**；无内置 LLM |
 | merge-push 真 merge / 6 / push 7 | §11 | **完成** | `merge-git.cjs` |
-| build 多端矩阵 | §12 | **部分** | |
-| preflight secret-scan | 附录 B | **完成** | 上游门闸 **未**在 preflight |
+| build 多端矩阵 | §12 | **完成** | **`artifacts[]`** 与 §12.3 可对齐收紧 |
+| preflight secret-scan | 附录 B | **完成** | |
+| preflight 上游门闸（可选） | §7.2 | **完成** | **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** |
+| clean worktrees | §4.3 | **完成** | **`AI_CODE3_CLEAN_CONFIRM=yes`** |
 | 附录 B 单测 | 附录 B | **完成** | |
-| §15 心跳 | §15 | **未开始** | |
+| §15 心跳 | §15 | **部分** | codegen / test / build + **`--session-id=`** |
 
 ## 5. 已知局限（与 SSOT 一致）
 
-- **codegen**：§7.4 过渡实现；无真实 worktree/Agent、无 **`outputs.agent`**、无二次契约 diff-guard。  
-- **code-review / build / test fix-loop / preflight 上游 / 心跳**：见 **§4.3**「部分/未开始」。  
+- **codegen**：worktree / diff-guard / Agent 封装已落地；**§7.8–§7.12** 中与编排、多相 Cursor 集成的**穷尽**验收仍以 SSOT 为准。  
+- **test**：无 Agent 式 fix-loop；**rollback_to** 语义可继续细化。  
+- **code-review**：无内置 LLM；**JSON Schema（§18 T2）** 未接。  
+- **§15 心跳**：未覆盖全阶段（见 **§0.1**）。  
+- **§16 矩阵**：可增补 **clean**、**preflight 上游门闸** 等自动化用例。  
 - **业务仓**应在 **`.gitignore`** 中忽略 **`.agent-sessions/`**，否则锁文件可能影响「干净树」门闸（§11.4）。
 
 ## 6. 评审记录
@@ -80,7 +85,8 @@
 | R2 | 2026-05-15 | 重复执行 §4.1 三条命令 + 抽查 §4.2 | **PASS** |
 | R3 | 2026-05-15 | **全量**：对照 **`code3.md` §0.1** + §4.1 修正 + **`ai-code3`** 目录脚本逐项；§4.1 自动化 ×1 | **PASS** |
 | R4 | 2026-05-15 | 与 R3 **相同**检查与 **§4.1** 自动化 ×1（连续第二轮） | **PASS** |
+| R5 | 2026-05-15 | **P2–P9** 能力落地后：`self-test-secret-scan`、`self-test-merge-push`、`smoke` 各 ×1；**`code3.md` §0.1** 与本文 **§1** 同步 | **PASS** |
 
-**结论**：**`docs/spec/code3.md` 规划的全文目标形态尚未在代码中全部实现**（见 **§0.1**「否 / 部分」行及 **§7.4**）；已实现部分与 **§0.1、§4.1、§11.4** 描述**完整、准确**；连续 **R3/R4** 与 **§4.1** 自动化门禁均通过。
+**结论**：**`docs/spec/code3.md` 全文目标形态仍有「部分」项**（见 **§0.1** 与 **§1** 中 **P4 / P5 / P8 / P10**）；**P2、P3、P6、P7、P9** 已按当前仓库实现对齐文档；**§4.1** 三条自动化门禁最近一次执行 **exit 0**。
 
 *维护：完成阶段后更新 **§1 状态** 与 **§6**。*

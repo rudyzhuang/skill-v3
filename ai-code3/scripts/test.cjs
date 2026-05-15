@@ -63,12 +63,30 @@ async function run(ctx) {
 
   let lastCode = 1;
   let attempts = 0;
+  const fixCmd = config?.build?.commands?.test_fix;
+  const sessionId = options.sessionId || '';
+  let hb;
+  if (sessionId) {
+    const { appendHeartbeat } = require('./lib/session-log.cjs');
+    hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'test', 'tick'), 30_000);
+  }
+  try {
   for (let i = 0; i < maxAttempts; i++) {
     attempts += 1;
     const r = await runWithTimeout('sh', ['-c', testCmd], { cwd, timeoutMs });
     lastCode = r.timedOut ? 3 : r.code;
     if (r.timedOut) break;
     if (r.code === 0) break;
+    if (fixCmd && i < maxAttempts - 1) {
+      const fr = await runWithTimeout('sh', ['-c', fixCmd], { cwd, timeoutMs });
+      if (fr.timedOut) {
+        lastCode = 3;
+        break;
+      }
+    }
+  }
+  } finally {
+    if (hb) clearInterval(hb);
   }
 
   const passed = lastCode === 0;

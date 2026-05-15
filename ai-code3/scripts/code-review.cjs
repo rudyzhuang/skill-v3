@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const stagesIo = require('./lib/stages-io.cjs');
 const summaryHash = require('./lib/summary-hash.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
@@ -21,6 +23,75 @@ async function run(ctx) {
     console.error(msg);
     if (!options.dryRun) writeTerminal(projectRoot, doc, 'code_review', 'blocked', { summary: msg });
     return 1;
+  }
+
+  const importPath = process.env.AI_CODE3_CODE_REVIEW_JSON;
+  if (importPath && !options.stubRemaining) {
+    const abs = path.isAbsolute(importPath) ? importPath : path.join(projectRoot, importPath);
+    if (!fs.existsSync(abs)) {
+      console.error(`failed_stage=code_review missing import file: ${abs}`);
+      return 1;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(fs.readFileSync(abs, 'utf8'));
+    } catch (e) {
+      console.error(`failed_stage=code_review invalid JSON: ${e.message}`);
+      return 1;
+    }
+    const decision = String(payload.decision || 'pending');
+    const allowed = new Set(['passed', 'failed', 'passed_with_warnings', 'pending']);
+    if (!allowed.has(decision)) {
+      console.error(`failed_stage=code_review invalid decision: ${decision}`);
+      return 1;
+    }
+    const crit = Number(payload.critical_issues) || 0;
+    const warns = Number(payload.warnings) || 0;
+    const checklist = Array.isArray(payload.checklist) ? payload.checklist : [];
+    const now = new Date().toISOString();
+    const hash = summaryHash.computeUpstreamHashForStage(doc, 'code_review', projectRoot, options.featureIds);
+    const cr0 = doc.stages?.code_review;
+    const passed = decision === 'passed' && crit === 0;
+    if (options.dryRun) {
+      console.error(`[dry-run] code-review import decision=${decision}`);
+      return 0;
+    }
+    doc = stagesIo.updateStage(doc, 'code_review', {
+      status: passed ? 'completed' : 'failed',
+      started_at: cr0?.started_at || now,
+      completed_at: now,
+      inputs: {
+        ...cr0?.inputs,
+        summary_hash: hash,
+        requires_stage: 'test',
+        worktrees: doc.stages?.test?.inputs?.worktrees || [],
+      },
+      outputs: {
+        ...cr0?.outputs,
+        decision,
+        critical_issues: crit,
+        warnings: warns,
+        checklist,
+        duration_ms: 0,
+        timed_out: false,
+        timeout_reason: null,
+      },
+      validation: {
+        ...cr0?.validation,
+        passed,
+        summary: `imported from AI_CODE3_CODE_REVIEW_JSON (${abs})`,
+      },
+    });
+    stagesIo.writeStagesSync(projectRoot, doc);
+    if (decision === 'passed_with_warnings') {
+      console.error('failed_stage=code_review passed_with_warnings treated as failure (strict default)');
+      return 4;
+    }
+    if (!passed) {
+      console.error(`failed_stage=code_review decision=${decision} critical=${crit}`);
+      return 4;
+    }
+    return 0;
   }
 
   const cr = doc.stages?.code_review;

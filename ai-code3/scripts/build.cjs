@@ -110,27 +110,61 @@ async function run(ctx) {
     return 0;
   }
 
-  if (!buildCmd) {
-    const msg = 'set docs/config.dev.json build.commands.build or use --stub-remaining';
-    console.error(`failed_stage=build: ${msg}`);
-    if (!options.dryRun) writeTerminal(projectRoot, doc, 'build', 'blocked', { summary: msg });
-    return 1;
+  const sessionId = options.sessionId || '';
+  let hb;
+  if (sessionId) {
+    const { appendHeartbeat } = require('./lib/session-log.cjs');
+    hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'build', 'tick'), 30_000);
   }
 
-  const r = await runWithTimeout('sh', ['-c', buildCmd], { cwd, timeoutMs });
-  const passed = r.code === 0 && !r.timedOut;
-  const artDir = path.join(projectRoot, config?.build?.artifacts_dir || 'dist');
-  const artifacts = [
-    {
-      client_target: declared[0] || 'website',
-      sub_platform: 'default',
-      build_type: 'cli',
-      command: buildCmd,
-      artifact_path: fs.existsSync(artDir) ? artDir : '',
-      status: passed ? 'completed' : 'failed',
-      log_path: '',
-    },
-  ];
+  const targets = declared.length ? declared : ['website'];
+  const artifacts = [];
+  let anyTimedOut = false;
+  let anyFailed = false;
+
+  try {
+    for (const target of targets) {
+      const spec = (clientTargets && clientTargets[target]) || {};
+      const subs =
+        Array.isArray(spec.sub_platforms) && spec.sub_platforms.length > 0
+          ? spec.sub_platforms
+          : [{ id: 'default', build: spec.build || buildCmd }];
+      for (const sp of subs) {
+        const subId = (sp && sp.id) || (typeof sp === 'string' ? sp : 'default');
+        const cmd = (sp && sp.build) || spec.build || buildCmd;
+        if (!cmd) {
+          artifacts.push({
+            client_target: target,
+            sub_platform: subId,
+            build_type: 'not_configured',
+            command: '',
+            artifact_path: '',
+            status: target === 'backend' ? 'not_applicable' : 'failed',
+            log_path: '',
+          });
+          if (target !== 'backend') anyFailed = true;
+          continue;
+        }
+        const r = await runWithTimeout('sh', ['-c', cmd], { cwd, timeoutMs });
+        if (r.timedOut) anyTimedOut = true;
+        if (r.code !== 0 || r.timedOut) anyFailed = true;
+        const artDir = path.join(projectRoot, config?.build?.artifacts_dir || 'dist', target, subId);
+        artifacts.push({
+          client_target: target,
+          sub_platform: subId,
+          build_type: 'cli',
+          command: cmd,
+          artifact_path: fs.existsSync(artDir) ? artDir : path.join(projectRoot, config?.build?.artifacts_dir || 'dist'),
+          status: r.code === 0 && !r.timedOut ? 'completed' : 'failed',
+          log_path: '',
+        });
+      }
+    }
+  } finally {
+    if (hb) clearInterval(hb);
+  }
+
+  const passed = !anyFailed && !anyTimedOut;
 
   doc = stagesIo.updateStage(doc, 'build', {
     status: passed ? 'completed' : 'failed',
@@ -145,8 +179,8 @@ async function run(ctx) {
       artifacts,
       skipped_targets: [],
       duration_ms: 0,
-      timed_out: r.timedOut,
-      timeout_reason: r.timedOut ? 'build_command' : null,
+      timed_out: anyTimedOut,
+      timeout_reason: anyTimedOut ? 'build_command' : null,
     },
     validation: {
       ...doc.stages?.build?.validation,
@@ -157,8 +191,8 @@ async function run(ctx) {
   stagesIo.writeStagesSync(projectRoot, doc);
 
   if (!passed) {
-    console.error(`failed_stage=build code=${r.code} timedOut=${r.timedOut}`);
-    return r.timedOut ? 3 : 4;
+    console.error(`failed_stage=build anyFailed=${anyFailed} timedOut=${anyTimedOut}`);
+    return anyTimedOut ? 3 : 4;
   }
   return 0;
   } finally {

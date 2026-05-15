@@ -24,15 +24,16 @@
 | 能力 | 主要章节 | 与当前脚本对齐 | 说明 |
 | --- | --- | --- | --- |
 | `run.cjs` 串联、`summary_hash` 跳过、`failed_stage=` | §4、附录 A.3、§13 | **是** | |
-| `preflight`：根、`config.dev.json`、**`stages.json`**、schema、**config.* secret-scan** | §4.1、附录 B | **是** | **不**含 **§7.2** 上游门闸（各阶段脚本自校） |
-| `codegen`：§7.2 门闸 + 主仓 **diff-guard** | §7.2–§7.3 | **是** | **否**：worktree 创建、二次契约守护、Agent、`outputs.agent`（§7.4 目标） |
+| `preflight`：根、`config.dev.json`、**`stages.json`**、schema、**config.* secret-scan** | §4.1、附录 B | **是** | **§7.2** 上游门闸：默认**不**跑；设 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 时与 **`lib/codegen-gates.cjs`** 对齐预检 |
+| `codegen`：§7.2 门闸 + 主仓 **diff-guard** + per-feature **worktree** + worktree 内契约 **二次 diff-guard** | §7.2–§7.4 | **是** | **`lib/codegen-worktree.cjs`**；**`lib/codegen-scaffold.cjs`**；**`lib/invoke-codegen-agent.cjs`**（**`AI_CODE3_AGENT_BIN`** 等）；**`outputs.agent`**；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_ALLOW_NO_AGENT_PASS`**；分相/完整 Cursor 集成仍以 **§7.8–§7.12** 为验收细项 |
 | `typecheck` | §8 | **是** | 含 T1 全 skip→0 |
-| `test` | §9 | **部分** | 同命令重试；无 Agent fix-loop |
-| `code-review` | §10 | **部分** | 无 LLM；`passed`+`validation.passed` 时刷新 hash；否则 stub 或 blocked |
+| `test` | §9 | **部分** | 同命令重试；**`build.commands.test_fix`** 于重试间隙可选执行；无 Agent fix-loop |
+| `code-review` | §10 | **部分** | **`AI_CODE3_CODE_REVIEW_JSON`** 可导入写回；无内置 LLM；`passed`+`validation.passed` 时刷新 hash；**`passed_with_warnings`**→**4**；否则 stub 或 blocked |
 | `merge-push` | §11、§11.4 | **是** | stub 路径除外 |
-| `build` | §12 | **部分** | 单命令 + 简化 artifacts |
+| `build` | §12 | **是** | **`client_targets`×`sub_platforms`** 矩阵；逐条超时；**`artifacts[]`** 仍偏 CLI 路径汇总（与 §12.3 字段级对齐可继续收紧） |
+| **`clean` / `clean-worktrees`** | §4.3 | **是** | **`clean.cjs`**；**`git worktree remove`**；须 **`AI_CODE3_CLEAN_CONFIRM=yes`**；**绕过** preflight |
 | 附录 B 单测 / merge 自测 / smoke | 附录 B、§16 | **是** | 见 **`ai-code3/scripts/self-test-*.cjs`**、`smoke.cjs` |
-| §15 心跳 | §15 | **否** | |
+| §15 心跳 | §15 | **部分** | **`--session-id=`** 时 **codegen / test / build** 向 **`.agent-sessions/<id>.log`** 追加 tick（**`lib/session-log.cjs`**） |
 
 ---
 
@@ -82,6 +83,7 @@ ai-code3/
 ├── SKILL.md
 ├── SPEC.md                    # 可选：安装到 ~/.cursor/skills 时指向本仓 docs/spec/code3.md
 ├── prompts/                   # 可选：codegen（impl/test）、code-review、test 修复循环等
+│   └── codegen-impl.md
 └── scripts/
     ├── run.cjs                # 建议：唯一 CLI 入口，分发子命令
     ├── preflight.cjs
@@ -91,35 +93,43 @@ ai-code3/
     ├── code-review.cjs
     ├── merge-push.cjs
     ├── build.cjs
+    ├── clean.cjs              # 清理 .pipeline/worktrees/v3-fc-*（destructive）
     └── lib/
         ├── stages-io.cjs      # 读合并写 stages.json；schema 版本；additive 缺省补齐
         ├── run-with-timeout.cjs
         ├── summary-hash.cjs
         ├── secret-scan.cjs   # 附录 B；preflight 可选调用
         ├── merge-git.cjs     # §11：merge/push 组合（merge-push.cjs 调用）
-        ├── codegen-scaffold.cjs      # 规划：确定性骨架（design_snapshot + 契约路径）
-        └── invoke-codegen-agent.cjs  # 规划：封装 Cursor CLI / @cursor/sdk；分相 impl|test
+        ├── codegen-gates.cjs         # §7.2 门闸（preflight / codegen 复用）
+        ├── codegen-worktree.cjs      # worktree 列表、创建/复用 v3-fc-*
+        ├── codegen-scaffold.cjs      # §7.6 / §7.9：确定性骨架（file_plan）
+        ├── invoke-codegen-agent.cjs  # §7.8–§7.9：外部 Agent 二进制封装
+        └── session-log.cjs           # §15：心跳追加 .agent-sessions/<session>.log
 ```
 
 **脚本职责表**（文件名允许微调，但 **门闸 / 状态写回 / 子进程** 不得合并成不可测试的黑盒）：
 
 | 脚本 | 职责 |
 | --- | --- |
-| `run.cjs` | 解析 `--project`、`--from-stage`、`--to-stage`、`--feature`、`--force-rerun`、`--dry-run`、`--session-id`；串联子流程；统一退出码；日志中带 `failed_stage=` |
-| `preflight.cjs` | 校验项目根、**`docs/config.dev.json`** 存在且可读、**`.pipeline/stages.json`** 可读及 **`_schema.version`**；对 **`config.dev.json` / `config.release.json`（若存在）** 执行 **附录 B** 式 **secret-scan**；**不**在此处校验 **§7.2** codegen 上游门闸（由 **`codegen.cjs`** 等阶段脚本执行时校验）；失败 **退出码 1** |
-| `codegen.cjs` | **目标形态（§7.4–§7.12）**：**git worktree** 建/复用、设计快照、**Cursor Agent** 分相、可选骨架、**diff-guard**、心跳与超时、回写 **`stages.codegen`**。**当前仓库过渡实现**：§7.2 门闸 + **主仓**契约路径 **diff-guard** 通过后写回 **`completed`**（无 Agent / 无二次 worktree diff-guard）；详见 **§0.1** |
+| `run.cjs` | 解析 `--project`、`--from-stage`、`--to-stage`、`--feature`、`--force-rerun`、`--dry-run`、`--session-id`；**`clean`/`clean-worktrees` 先于 preflight 短路**；其余子命令串联；统一退出码；日志中带 `failed_stage=` |
+| `preflight.cjs` | 校验项目根、**`docs/config.dev.json`** 存在且可读、**`.pipeline/stages.json`** 可读及 **`_schema.version`**；对 **`config.dev.json` / `config.release.json`（若存在）** 执行 **附录 B** 式 **secret-scan**；可选 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 调用 **`lib/codegen-gates.cjs`** 预检 **§7.2**；失败 **退出码 1** |
+| `codegen.cjs` | **§7.2** 门闸；主仓 + 各 feature **worktree** 契约路径 **diff-guard**；**`lib/codegen-scaffold.cjs`**；**`lib/invoke-codegen-agent.cjs`**（可 **`AI_CODE3_SKIP_AGENT`**）；回写 **`stages.codegen.outputs.worktrees[]`**、**`outputs.agent`**；详见 **§0.1** 与 **§7.8–§7.12** 细项验收 |
 | `typecheck.cjs` | 静态检查探测与执行；回写 **`stages.typecheck`** |
 | `test.cjs` | 测试与 fix-loop；回写 **`stages.test`**、`rollback_to` |
-| `code-review.cjs` | **目标**：合并 **LLM** 结构化结论并回写 **`stages.code_review`**。**当前仓库**：不调用 LLM；若 **`outputs.decision`** 为 **`passed`**、**`validation.passed`** 为 **`true`** 且 **`critical_issues===0`** 则刷新 **`summary_hash`** / **`completed_at`**；**`passed_with_warnings`** → 退出 **4**；否则 **blocked**（或 **`--stub-remaining`** 占位） |
+| `code-review.cjs` | **目标**：合并 **LLM** 结构化结论并回写 **`stages.code_review`**。**当前仓库**：可选 **`AI_CODE3_CODE_REVIEW_JSON`** 导入；不内置 LLM；若 **`outputs.decision`** 为 **`passed`**、**`validation.passed`** 为 **`true`** 且 **`critical_issues===0`** 则刷新 **`summary_hash`** / **`completed_at`**；**`passed_with_warnings`** → 退出 **4**；否则 **blocked**（或 **`--stub-remaining`** 占位） |
 | `merge-push.cjs` | **`lib/merge-git.cjs`** 组合 **`git merge --no-ff` / `git push`**、锁；干净工作区在加锁**前**校验；**`--stub-remaining`** 占位；回写 **`stages.merge_push`**（细节 **§11.4**） |
-| `build.cjs` | **目标**：按 **§12.2** 多端 **`client_targets`×`sub_platforms`** 构建。**当前仓库**：优先顶层 **`build.commands.build`** + 简化 **`artifacts[]`**（详见 **§0.1**）；超时与锁已部分对齐 |
+| `build.cjs` | 按 **§12.2** **`client_targets`×`sub_platforms`** 矩阵执行 **`build.commands.build`** 与各条 **`sub_platforms[].build`** / per-target **`build`**；**`--session-id`** 心跳；回写 **`stages.build.outputs.artifacts[]`** |
+| `clean.cjs` | **`git worktree remove --force`** 清理 **`.pipeline/worktrees/v3-fc-*`**；须 **`AI_CODE3_CLEAN_CONFIRM=yes`** |
 | `lib/stages-io.cjs` | 原子写/文件锁、`_schema.version`、**`input-spec.md` §9.1** additive 规则 |
 | `lib/run-with-timeout.cjs` | SIGTERM 宽限 → SIGKILL；超时 **退出码 3**；`timed_out` / `duration_ms` / `timeout_reason` |
 | `lib/summary-hash.cjs` | **§13** 与 **附录 A · A.3** 跳过判定 |
 | `lib/secret-scan.cjs` | **附录 B**：`config.*.json` 键名/值形态扫描；由 **preflight** 可选调用 |
 | `lib/merge-git.cjs` | **§11**：解析 worktrees 分支、顺序 merge、冲突收集 **`merge --abort`**、可选 **push**（供 **`merge-push.cjs`** 调用） |
+| `lib/codegen-gates.cjs` | **§7.2**：上游门闸断言（返回错误消息或 **`null`**）；**preflight**（可选）与 **codegen** 复用 |
+| `lib/codegen-worktree.cjs` | **§7.4**：`git worktree` 列表、**`v3-fc-*`** 创建/复用、绝对路径锚定 |
 | `lib/codegen-scaffold.cjs` | **§7.6 / §7.9**：确定性占位与目录（**不得**含 Agent 调用） |
-| `lib/invoke-codegen-agent.cjs` | **§7.8–§7.9**：在 worktree 根目录上下文调用 Agent；超时/退出码映射 **§7.12** |
+| `lib/invoke-codegen-agent.cjs` | **§7.8–§7.9**：在 worktree 根目录上下文调用外部 Agent；超时/退出码映射 **§7.12** |
+| `lib/session-log.cjs` | **§15**：**`.agent-sessions/<session>.log`** 心跳追加 |
 
 **最小可行路径（MVP）**：可先将逻辑内联在 `run.cjs`，但 **SKILL.md** 须承诺最终目录结构与入口，避免长期单文件不可维护。
 
@@ -130,6 +140,7 @@ ai-code3/
 | （缺省）或 `all` | 自 **codegen** 顺序执行至 **build**（遵守 **附录 A · A.3**「已完成则跳过」三条件） |
 | `preflight` | 仅 `preflight.cjs` |
 | `codegen` / `typecheck` / `test` / `code-review` / `merge-push` / `build` | 仅执行对应阶段；仍须执行该阶段前置门闸 |
+| `clean` / `clean-worktrees` | 仅 **`clean.cjs`**；**不**跑 preflight；destructive，须 **`AI_CODE3_CLEAN_CONFIRM=yes`** |
 
 **约定**：校验/门闸失败时退出码 **1**（或 **§14** 规定的其它码），且须将当前阶段 `stages.*.status` 更新为 **`failed`**（或 **`blocked`**，与 **§7–§12** 一致）、`validation.passed=false`，不得长时间滞留 **`running`** 而无 `completed_at`/`failed` 终态（与 **`docs/spec/prd3.md` §4.3** 精神一致）。
 
