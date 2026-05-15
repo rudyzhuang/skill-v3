@@ -133,6 +133,11 @@ ai-code3/
 
 **约定**：校验/门闸失败时退出码 **1**（或 **§14** 规定的其它码），且须将当前阶段 `stages.*.status` 更新为 **`failed`**（或 **`blocked`**，与 **§7–§12** 一致）、`validation.passed=false`，不得长时间滞留 **`running`** 而无 `completed_at`/`failed` 终态（与 **`docs/spec/prd3.md` §4.3** 精神一致）。
 
+### 4.4 编排层（**ai-auto3**）与 **`--feature`**
+
+- **人工 / 本地单跑**：可省略 **`--feature`**，此时 **`codegen`** 等阶段按脚本约定从 **`stages.prd_review.review.phase_plan[*].feature_ids`** 推导默认范围（与 **`cli-args.cjs` / `codegen.cjs`** 行为一致）；**`--feature=id1,id2`** 仍为合法显式多 id。  
+- **由 ai-auto3 spawn 的自动编排**：**禁止**省略 **`--feature`**；每一次子进程（含 **`merge-push`**、**`build`**）**必须**带**非空** **`--feature=`**（并行波次后对 **`merge-push`/`build`** 推荐传入**本轮 id 全集**的逗号拼接）。**不得**依赖「未传参则由 ai-code3 从 `prd_review` 隐式聚合」作为编排默认范围。并行与 **`merge-push` 前汇合**见 **`docs/spec/auto3.md` §5.6**、**`docs/input-spec.md` §4.3**。
+
 ---
 
 ## 5. 业务项目侧路径契约

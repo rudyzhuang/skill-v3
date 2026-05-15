@@ -52,7 +52,7 @@
 | 阶段范围 | 调用的 skill（安装目录名） | 备注 |
 | --- | --- | --- |
 | `design` → `contract` → `design-review` | **ai-design3** | 须支持「仅跑某段」或「一次跑多段」；见 **`docs/spec/design3.md` §8**。 |
-| `codegen` → `build` | **ai-code3** | 见 **`docs/spec/code3.md`**。 |
+| `codegen` → `build` | **ai-code3** | 见 **`docs/spec/code3.md`**（含 **git worktree**、**Cursor Agent** 分相生成、**`stages.codegen.outputs.agent`** 与 **`worktrees[]`** 真源；编排层调用 **`run.cjs`** 时须传递 **`--project`**，并须遵守 **§5.6** 对 **`--feature`** 与并行的约定；阶段超时与心跳见 **`input-spec.md` §6.1**）。 |
 | `deploy`（dev）→ `smoke` | **ai-publish-dev3** | 见 **`docs/spec/publish3.md`**。 |
 | `report` | **本 skill** 的 **`gen-report.cjs`** | 不单独拆 skill（**`input-spec.md` §4.2**）。 |
 
@@ -61,6 +61,8 @@
 `node <cursor_skills_root>/<skill_name>/scripts/run.cjs <子命令> --project=<业务项目根绝对路径> [其它选项]`
 
 其中 **`<cursor_skills_root>`** 默认 **`~/.cursor/skills`**（与 **`input-spec.md` §一** 一致）。**禁止**依赖 `process.cwd()` 推断项目根；**必须**传入 **`--project`**（与 **§3** 一致）。
+
+**ai-code3 特例**：凡由 **ai-auto3** spawn 的 **ai-code3** 调用，**必须**额外携带 **`--feature=...`**（非空），规则见 **§5.6**；不得依赖「未传 `--feature` 时由 ai-code3 从 `prd_review` 隐式展开」作为编排默认行为。
 
 ---
 
@@ -120,6 +122,7 @@ ai-auto3/
 | **`--force-rerun=<stage>`** | 否 | 忽略 **§6**「已完成」判定，强制重跑该阶段；**destructive** 阶段仍须满足 **§6.3** 与 **`input-spec.md` §7.2**。 |
 | **`--session-id=<id>`** | 否 | 若缺省则由脚本生成 UUID；用于 **`.agent-sessions/<session_id>.log`** 与锁 JSON 内字段。 |
 | **`--dry-run`** | 否 | 只打印将执行的阶段与跳过原因，不申请锁、不 spawn 子 skill（可选 MVP+）。 |
+| **`--features=<id[,id...]>`** | 否 | **仅影响 ai-code3 段**：限定本期自动跑 **`codegen`→`build`** 所覆盖的 **`feature_id`** 集合；须为 **`stages.prd_review.review.phase_plan[*].feature_ids`** 去重后的**子集**；非法或越界 id → 退出码 **1**。缺省时默认等于「phase_plan 合并全集」（与 checklist 非空一致），但 **spawn 子进程时仍须把解析后的每个 id 显式写入 `--feature=`**（见 **§5.6**）。 |
 
 **子命令（可选扩展）**：
 
@@ -177,7 +180,7 @@ ai-auto3/
 3. 自 **`from-stage`** 起遍历阶段链至 **`smoke`**：  
    - 若 **§6** 判定「已完成」且无 **`--force-rerun`** → 打日志「跳过」并 continue。  
    - 若本阶段为 **`contract`** 且 **`human_approval.status === "pending"`** → **§5.2** 写 **`blocked`** → **停跑**（退出码按子 skill 最近一次或 **1** 择定，须在 **§7** 文档化）。  
-   - 否则 **spawn** 对应子 skill（**§2.3**），传入 **`--project`** 与本阶段 **`timeouts.stages.<stage>_s`**（从 **`docs/config.dev.json`** 读取，缺省按模板）。  
+   - 否则 **spawn** 对应子 skill（**§2.3**），传入 **`--project`** 与本阶段 **`timeouts.stages.<stage>_s`**（从 **`docs/config.dev.json`** 读取，缺省按模板）；若被调用方为 **ai-code3**，还须遵守 **§5.6**（**`--feature`** 非空、并行与 **`merge-push`** 前汇合）。  
    - 子进程非 **0** → **停跑**，退出码 **§7**。  
    - 子进程 **0** → 可选：重新读取 **`stages.json`** 校验该阶段 **`status/completed`** 与 **`validation.passed`** 一致，防止子进程谎报。  
 4. 调用 **`ai-publish-dev3`** 执行 **dev** **`deploy` + `smoke`** 前：须满足 **`input-spec.md` §7.2** 与 **`docs/spec/publish3.md` §5.1.1**。具体地，当 **`docs/config.dev.json.deploy.enabled === true`** 时，必须 **`docs/config.dev.json.pipeline.autorun.allow_destructive_deploy === true`**（缺键或 **`false`** 均视为未授权）；**否则不得 spawn deploy**，**退出码 1**，**`gen-report.cjs`** 须在正文中写明原因（可引用 **`pipeline.autorun.allow_destructive_deploy`** 路径）。**`deploy.enabled === false`** 时跳过本约束（无自动 deploy）。**不得**仅以 **`deploy.enabled === true`** 代替 **`allow_destructive_deploy`**。  
@@ -188,6 +191,28 @@ ai-auto3/
 ### 5.5 与「测试失败回退建议」的配合
 
 **`stages.test.rollback_to`**（**`codegen` / `contract` / `null`**）由 **ai-code3** 写入；**ai-auto3** **不**直接越权改写其它阶段状态，但应在 **report** 与 stdout 中**显著提示**「建议从何处人工或带参续跑」（**`input-spec.md` §5**）。**可选增强**：识别 **`rollback_to`** 后自动调整 **`--from-stage`** 仅当用户显式传入 **`--follow-rollback`** 之类开关（若实现该开关，须写入 **`SKILL.md` 与本文**）。
+
+### 5.6 调用 **ai-code3** 时的 **`--feature`** 与多进程并行（定稿）
+
+本节只约束 **ai-auto3 → ai-code3**；**人工**直接调用 **ai-code3** 时是否省略 **`--feature`** 仍由 **`docs/spec/code3.md`** 与 **`ai-code3/SKILL.md`** 描述（可与编排不同）。
+
+1. **显式 feature（必须）**  
+   - 每一次 **spawn** **`node .../ai-code3/scripts/run.cjs`**（子命令为 **`all`**、**`codegen`**、**`typecheck`**、**`test`**、**`code-review`**、**`merge-push`**、**`build`** 等任一形式）时，命令行**必须**包含 **`--feature=<非空列表>`**。  
+   - **允许形态 A（单进程多 id）**：**`--feature=id1,id2`**（逗号分隔、trim 后非空），由 **ai-code3** 在单进程内按 **`docs/spec/code3.md`** 约定顺序处理。  
+   - **允许形态 B（多进程并行，推荐用于多 feature 提速）**：对 **K 个** **`feature_id`** 发起 **K** 次子进程，**每次** **`--feature=<单个 id>`**；**每次**须使用**不同**的 **`--session-id=`**（或由编排器生成的从属会话 id），便于日志区分。  
+   - **`merge-push` / `build` 的取值**：此二阶段虽对仓库为**全局**操作，编排层 spawn 时**仍不得省略** **`--feature=`**；应传入**本轮待合并或已纳入产物的 feature 集合**的显式列表（推荐与 **`--features`** 解析结果或并行波次 id **全集**一致的 **`--feature=id1,id2,...`**），以便审计与 **`inputs.summary_hash`** 维度对齐。  
+   - **禁止**：编排层为图省事省略 **`--feature`**，依赖 **ai-code3** 在未传参时从 **`stages.prd_review.review.phase_plan`** 聚合本期全部 id 作为**自动编排**的隐式范围（避免与 **`--features`** 子集、多仓模板差异及审计不一致）。
+
+2. **并行边界与 `stages.json` 一致性**  
+   - **目标**：多个 **ai-code3** 子进程可同时推进**不同 feature** 的 **codegen / typecheck / test / code-review**（以 **`worktrees[]`** 按 **`feature_id`** 隔离为前提）。  
+   - **硬约束**：**`merge-push`** 与 **`build`** 对仓库与 **`stages.json`** 的写入具有**全局**语义；**在进入 `merge-push` 之前**，编排层**必须** **`await`** 上述并行波次**全部**成功退出（退出码 **0**），再**单次串行** spawn **`merge-push`**（必要时 **`build`**），除非未来 **ai-code3** 规格与实现提供**已文档化**的安全多写者合并协议。  
+   - **竞态**：在整文件 **`writeStagesSync`** 模型下，多进程同时回写同一 **`stages.*` 段**会导致丢失更新；**实现 ai-auto3 时**须采用**已选择且写入 `SKILL.md` 的策略**之一：**串行化子结果合并**、**单写者编排器聚合**、或 **ai-code3 侧按 feature 分片原子更新**（以后者为准时须同步 **code3.md** 与模板）。**禁止**在无明确定义的情况下多进程盲写 **`.pipeline/stages.json`**。
+
+3. **与 checklist 的关系**  
+   - **`§5.1#2`** 已要求 **`phase_plan[*].feature_ids`** 非空；**`--features`**（**§4.3**）若存在，必须为该集合的子集，否则开跑前失败。
+
+4. **超时传递**  
+   - 每个子进程仍须继承 **`timeouts.stages.<stage>_s`** 与 **`--project`**；并行时**总墙钟**可能受最慢子进程支配；**`autorun_total_s`** 仍封顶整条编排（**§11**）。
 
 ---
 
@@ -315,7 +340,8 @@ ai-auto3/
 - [ ] **`registry.sqlite`** 可删后重建；**`project_id`** 与 **`stages.json`** 一致。  
 - [ ] **不**修改各阶段业务 **`outputs`**（**§5.2** 窄接口除外）。  
 - [ ] **`deploy.enabled === true`** 时 **`pipeline.autorun.allow_destructive_deploy === true`** 才 spawn dev deploy；否则 **1** 且有 **report**（与 **`publish3.md` §5.1.1** 一致）。  
-- [ ] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。
+- [ ] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。  
+- [ ] 每次 spawn **ai-code3** 均带**非空** **`--feature=`**；多 feature 时 **`--features`** 过滤与并行 **`§5.6`** 行为与 **`SKILL.md`** 一致且无 **`stages.json` 盲写竞态**。
 
 ---
 
@@ -325,7 +351,7 @@ ai-auto3/
 | --- | --- |
 | 全流水线阶段语义、退出码、日志 | **`docs/input-spec.md`** |
 | **ai-design3**、**contract** 审批停跑 | **`docs/spec/design3.md` §8** |
-| **ai-code3**、**merge-push/build** | **`docs/spec/code3.md`** |
+| **ai-code3**、**merge-push/build**、**`--feature` / 编排并行** | **`docs/spec/code3.md`**、**`docs/spec/auto3.md` §5.6** |
 | **ai-publish-dev3**、**deploy/smoke**、**`pipeline.autorun.allow_destructive_deploy`** | **`docs/spec/publish3.md` §2.3、§4.2、§5.1.1** |
 | **ai-prd3** 与 **ai-auto3** checklist 对齐 | **`docs/spec/prd3.md` §8.5** |
 | **字段真源** | **`docs/templates/stages.json.template`**、**`config.dev.json.template`** |
