@@ -1,17 +1,54 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://skill-v3.local/schemas/prd-review-output.v1.schema.json",
   "title": "ai-prd3 prd-review LLM structured merge payload",
-  "description": "Merged by prd-review-write-stage.cjs into stages.prd_review (partial document). v1 placeholder: tighten required fields as implementation lands. See docs/spec/prd3.md §4.1 / §8.3.",
+  "description": "Merged by prd-review-write-stage.cjs into stages.prd_review. See docs/spec/prd3.md §8.3 and prompts/prd-review.md.",
   "type": "object",
+  "required": ["review", "outputs", "blocking_issues", "conditions"],
   "properties": {
     "review": {
       "type": "object",
-      "description": "Maps to stages.prd_review.review"
+      "required": ["summary", "phase_plan"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "phase_plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["phase", "feature_ids", "goal", "exit_criteria"],
+            "properties": {
+              "phase": { "type": "string", "minLength": 1 },
+              "feature_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.-]+$" }
+              },
+              "goal": { "type": "string", "minLength": 1 },
+              "exit_criteria": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "outputs": {
       "type": "object",
-      "description": "Maps to stages.prd_review.outputs (e.g. decision)"
+      "required": ["decision"],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["passed", "failed", "pending", "conditional_passed", "blocked", "deferred"]
+        }
+      },
+      "additionalProperties": true
     },
     "blocking_issues": {
       "type": "array",

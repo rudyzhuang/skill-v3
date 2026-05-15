@@ -112,4 +112,20 @@ function tryLegacyYaml(content) {
   }
 }
 
-module.exports = { parseClientTargets, tryLegacyYaml, ALLOWED };
+/**
+ * 当前 prd-spec 是否走 §6.4 YAML legacy（无 §6.1 标题且 YAML 声明与 stages.declared 一致）。
+ * @param {string} content
+ * @param {string[]} declaredSlugs
+ */
+function specUsesLegacyYamlClientTargets(content, declaredSlugs) {
+  const d = parseClientTargets(content);
+  if (d.ok) return false;
+  if (d.error !== 'missing_client_targets_heading') return false;
+  const ly = tryLegacyYaml(content);
+  if (!ly || !ly.length) return false;
+  const a = [...declaredSlugs].sort().join(',');
+  const b = [...ly].sort().join(',');
+  return a === b;
+}
+
+module.exports = { parseClientTargets, tryLegacyYaml, specUsesLegacyYamlClientTargets, ALLOWED };

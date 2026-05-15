@@ -4,6 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs, requireProject, stagesPath } = require('./lib/paths.cjs');
 
+/** 与 docs/templates/feature_list.md.template 骨架对齐（prd3.md §7.2） */
+const FEATURE_LIST_SECTION_RES = [
+  /^##\s+Metadata\s*$/m,
+  /^##\s+Status Values\s*$/m,
+  /^##\s+Features\s*$/m,
+  /^##\s+Feature Details\s*$/m,
+];
+
 /**
  * @param {string} md
  * @returns {string[]}
@@ -55,6 +63,12 @@ function main() {
     }
     if (fs.existsSync(fl)) {
       const md = fs.readFileSync(fl, 'utf8');
+      for (let i = 0; i < FEATURE_LIST_SECTION_RES.length; i++) {
+        const re = FEATURE_LIST_SECTION_RES[i];
+        if (!re.test(md)) {
+          errors.push(`feature_list_missing_section:${slug}:idx${i}`);
+        }
+      }
       const ids = parseFeatureIds(md);
       if (ids.length === 0) errors.push(`feature_table_empty:${slug}`);
     }

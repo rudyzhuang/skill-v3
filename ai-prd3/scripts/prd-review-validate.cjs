@@ -6,6 +6,15 @@ const crypto = require('crypto');
 const { parseArgs, requireProject, stagesPath } = require('./lib/paths.cjs');
 const { stableStringify } = require('./lib/json-stable.cjs');
 const { scanJsonSecrets } = require('./lib/secret-scan.cjs');
+const { markPrdReviewFailed } = require('./lib/stage-status.cjs');
+
+function safeMarkPrdReviewFailed(root, summary) {
+  try {
+    markPrdReviewFailed(root, summary);
+  } catch (_) {
+    /* stages.json 缺失或不可写 */
+  }
+}
 
 function sha256HexParts(parts) {
   const buf = Buffer.from(parts.join(''), 'utf8');
@@ -42,16 +51,28 @@ function main() {
   const args = parseArgs(process.argv);
   const root = requireProject(args);
   const stagesFile = stagesPath(root);
-  const stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
+  if (!fs.existsSync(stagesFile)) {
+    console.error('缺少', stagesFile);
+    process.exit(1);
+  }
+  let stages;
+  try {
+    stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
+  } catch (e) {
+    console.error('stages.json 无法解析:', String(e.message || e));
+    process.exit(1);
+  }
 
   const prd = stages.stages?.prd;
   if (prd?.status !== 'completed' || !prd?.validation?.passed) {
+    safeMarkPrdReviewFailed(root, 'preflight:prd_not_completed');
     console.error('前置门闸失败：stages.prd 须为 completed 且 validation.passed=true');
     process.exit(1);
   }
 
   const pr = stages.stages?.prd_review;
   if (!pr) {
+    safeMarkPrdReviewFailed(root, 'preflight:missing_prd_review_block');
     console.error('缺少 stages.prd_review');
     process.exit(1);
   }

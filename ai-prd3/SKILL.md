@@ -1,6 +1,6 @@
 ---
 name: ai-prd3
-version: "0.2.1"
+version: "0.2.2"
 description: >-
   Skill V3 第三代 PRD 与需求评审（prd-review）：维护 docs/inputs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md，
   更新 .pipeline/stages.json 的 prd 与 prd_review 及 inputs.summary_hash。在用户提到 ai-prd3、第三代 PRD、Skill V3 prd、
@@ -36,7 +36,7 @@ disable-model-invocation: true
 
 ## 3. 唯一 CLI 入口
 
-在 **本仓库** 中 skill 根目录为 **`ai-prd3/`**（与 `prd3.md` §3 中 `<skill_dir>/scripts/` 布局一致，可拷贝到 `~/.cursor/skills/ai-prd3/` 使用）：
+在 **本仓库** 中 skill 根目录为 **`ai-prd3/`**（与 `prd3.md` §3 中 `<skill_dir>/scripts/` 布局一致，可拷贝到 `~/.cursor/skills/ai-prd3/` 使用）。**首次使用前**在 **`ai-prd3/`** 目录执行 **`npm install`** 以安装 **AJV**（`prd-review-write-stage` 对 **`templates/schemas/prd-review-output.v1.schema.json`** 做机器校验，见 `prd3.md` §8.3）。
 
 ```bash
 node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径> [选项]
@@ -51,7 +51,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed**（`prd3.md` §4.2 末段） |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |
 | `validate-prd-review` | 前置门闸 + **终检**；通过写 **§9.2** `prd_review.inputs.summary_hash` 与 **`completed`** |
-| `write-prd-review` | 合并 LLM JSON（经 **`lib/prd-review-payload.cjs`** 结构校验）；**不**置 `completed`、**不**写 **§9.2** 哈希（与 `prd3.md` §8.3 一致；§4.2 表中「哈希」指整条 prd-review 流程的落盘终态由终检完成） |
+| `write-prd-review` | 合并 LLM JSON（经 **AJV + `templates/schemas/prd-review-output.v1.schema.json`** 校验）；**不**置 `completed`、**不**写 **§9.2** 哈希（与 `prd3.md` §8.3 一致；§4.2 表中「哈希」指整条 prd-review 流程的落盘终态由终检完成） |
 
 **常用选项**：
 
@@ -105,10 +105,11 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 ## 9. 冒烟与自检
 
 ```bash
-node ai-prd3/scripts/smoke.cjs
+cd ai-prd3 && npm install   # 若尚未安装 AJV
+node scripts/smoke.cjs
 ```
 
-含 **`scripts/self-test-secret-scan.cjs`**（附录 B 键名/值形态用例）。发布前须与 **`docs/templates/`** 同步 `templates/`（`prd3.md` §13）。
+`smoke.cjs` **连续跑两轮**主流程与关键负面用例（JSON Schema 拒绝、`conditional_passed` 终检、`prd_spec_drift`、非法端名等）；两轮均须输出 **`smoke: all passed`**。含 **`scripts/self-test-secret-scan.cjs`**（附录 B 键名/值形态用例）。发布前须与 **`docs/templates/`** 同步 `templates/`（`prd3.md` §13）。
 
 ## 10. 附录 C（`prd3.md` §18）核对
 
@@ -121,4 +122,4 @@ node ai-prd3/scripts/smoke.cjs
 
 ---
 
-*连续两轮评审（2026-05-15）：`node ai-prd3/scripts/smoke.cjs` 连续两次通过；对照 `prd3.md` §4.2 / §7.2 / §11 / §12 与 `SKILL.md` 附录 C 已闭合此前缺口。规格变更请走 `prd3.md` §0 维护流程。*
+*连续两轮评审（2026-05-15）：`smoke.cjs` 内建 round-1 / round-2 全量通过；已对齐 `prd3.md` §4.2 / §6.4 / §8.3（AJV）/ §12 与附录 C。规格变更请走 `prd3.md` §0 维护流程。*

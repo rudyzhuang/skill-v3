@@ -5,6 +5,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { parseArgs, requireProject, stagesPath, prdSpecPath, skillDirFrom } = require('./lib/paths.cjs');
+const { specUsesLegacyYamlClientTargets } = require('./prd-parse-client-targets.cjs');
+const { markPrdFailed } = require('./lib/stage-status.cjs');
 
 function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -38,7 +40,10 @@ function main() {
   ];
   for (const c of chain) {
     const r = spawnSync(c[0], c.slice(1), { stdio: 'inherit' });
-    if (r.status !== 0) process.exit(r.status || 1);
+    if (r.status !== 0) {
+      markPrdFailed(root, `write_chain_failed:${path.basename(c[1])}`);
+      process.exit(r.status || 1);
+    }
   }
 
   const stagesFresh = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
@@ -61,7 +66,15 @@ function main() {
   stagesFresh.stages.prd.validation = stagesFresh.stages.prd.validation || {};
   stagesFresh.stages.prd.validation.passed = true;
   stagesFresh.stages.prd.validation.checked_at = now;
-  stagesFresh.stages.prd.validation.summary = 'validate_chain_ok';
+  const legacyNote =
+    stagesFresh.client_targets?._bootstrap_note === 'legacy_yaml_client_targets' ||
+    specUsesLegacyYamlClientTargets(canonicalFile(specPath), declared);
+  if (legacyNote) {
+    delete stagesFresh.client_targets._bootstrap_note;
+    stagesFresh.stages.prd.validation.summary = 'validate_chain_ok;legacy_yaml_client_targets';
+  } else {
+    stagesFresh.stages.prd.validation.summary = 'validate_chain_ok';
+  }
 
   const req = stagesFresh.stages.prd.validation.required_files;
   if (Array.isArray(req)) {

@@ -135,7 +135,7 @@ function main() {
     }
     const text = fs.readFileSync(spec, 'utf8');
     let p = parseClientTargets(text);
-    if (!p.ok) {
+    if (!p.ok && p.error === 'missing_client_targets_heading') {
       const leg = tryLegacyYaml(text);
       if (leg && leg.length) p = { ok: true, slugs: leg, legacy: true };
     }

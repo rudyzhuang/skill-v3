@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parseArgs, requireProject, stagesPath } = require('./lib/paths.cjs');
+const { parseArgs, requireProject, stagesPath, skillDirFrom } = require('./lib/paths.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
 
 function main() {
@@ -32,8 +32,9 @@ function main() {
   }
 
   const payload = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  const skillDir = skillDirFrom(__filename);
   const { validatePrdReviewMergePayload } = require('./lib/prd-review-payload.cjs');
-  const pv = validatePrdReviewMergePayload(payload);
+  const pv = validatePrdReviewMergePayload(payload, skillDir);
   if (!pv.ok) {
     console.error(JSON.stringify({ ok: false, errors: pv.errors }, null, 2));
     process.exit(1);

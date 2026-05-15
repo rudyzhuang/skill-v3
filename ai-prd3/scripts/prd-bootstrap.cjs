@@ -144,7 +144,7 @@ function main() {
   const specText = fs.readFileSync(prdSpec, 'utf8');
   let parse = parseClientTargets(specText);
   let legacyNote = '';
-  if (!parse.ok) {
+  if (!parse.ok && parse.error === 'missing_client_targets_heading') {
     const legacy = tryLegacyYaml(specText);
     if (legacy && legacy.length) {
       parse = { ok: true, slugs: legacy };

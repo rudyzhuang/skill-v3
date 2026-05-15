@@ -72,7 +72,7 @@ function main() {
 
   let parsed = parseClientTargets(md);
   let summaryExtra = '';
-  if (!parsed.ok) {
+  if (!parsed.ok && parsed.error === 'missing_client_targets_heading') {
     const legacy = tryLegacyYaml(md);
     if (legacy && legacy.length) {
       parsed = { ok: true, slugs: legacy };
