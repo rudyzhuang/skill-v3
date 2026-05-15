@@ -1,0 +1,79 @@
+# Feature List
+
+This file is generated for one `client_target` from `docs/inputs/prd-spec.md`. Keep it deterministic so downstream stages can parse or validate it.
+
+## Metadata
+
+| Field | Value |
+| --- | --- |
+| schema_name | skill-v3-feature-list |
+| schema_version | 1 |
+| client_target |  |
+| source | docs/inputs/prd-spec.md |
+| generated_by | ai-prd3 |
+| generated_at |  |
+
+## Status Values
+
+Allowed feature status values:
+
+- `draft`
+- `reviewed`
+- `approved`
+- `blocked`
+- `deferred`
+
+Allowed priority values:
+
+- `must`
+- `should`
+- `could`
+- `later`
+
+Allowed phase values:
+
+- `mvp`
+- `standard`
+- `complete`
+- `future`
+
+## Features
+
+| Feature ID | Area | Name | Status | Priority | Phase | Related Targets | Acceptance Summary |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+|  |  |  | draft | must | mvp |  |  |
+
+## Feature Details
+
+### `<FEATURE-ID>`: `<Feature Name>`
+
+- Area:
+- Status: `draft`
+- Priority: `must`
+- Phase: `mvp`
+- Client target:
+- Related targets:
+- Source requirement:
+- Description:
+- User value:
+- Dependencies:
+- Risks:
+
+#### Acceptance Criteria
+
+- Given ...
+- When ...
+- Then ...
+
+#### Design Input Notes
+
+- Data / entity hints:
+- API / integration hints:
+- UI / flow hints:
+- Non-functional constraints:
+
+#### Review Notes
+
+- prd-review decision:
+- Blocking issues:
+- Follow-up:

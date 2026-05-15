@@ -1,0 +1,1099 @@
+{
+  "_schema": {
+    "name": "skill-v3-deploy-services-catalog",
+    "version": 1,
+    "description": "Candidate deployment services for ai-prd3. This catalog is used to infer selected services, but generated config.dev.json and config.release.json should contain only services needed by the project."
+  },
+  "selection_policy": {
+    "do_not_copy_catalog_wholesale": true,
+    "generated_config_rule": "Only write the selected provider and services inferred from docs/inputs/prd-spec.md and user confirmation. Unselected providers and unused services must not be written to docs/config.dev.json or docs/config.release.json.",
+    "requires_user_confirmation_when_ambiguous": true,
+    "secret_policy": "Credentials and tokens must be written only to docs/config.env or an approved secret manager."
+  },
+  "service_categories": [
+    "static_site",
+    "web_app",
+    "container_app",
+    "serverless_function",
+    "api_gateway",
+    "object_storage",
+    "cdn",
+    "database",
+    "dns",
+    "edge_worker",
+    "virtual_machine"
+  ],
+  "providers": [
+    {
+      "id": "alibaba_cloud",
+      "display_name": "Alibaba Cloud",
+      "regions_hint": [
+        "cn-hangzhou",
+        "cn-shanghai",
+        "cn-beijing",
+        "ap-southeast-1"
+      ],
+      "official_docs": [
+        "https://help.aliyun.com/zh/functioncompute/fc/developer-reference/api-fc-2023-03-30-overview",
+        "https://help.aliyun.com/zh/sae/guide-to-alibaba-cloud-cli"
+      ],
+      "services": [
+        {
+          "id": "fc",
+          "display_name": "Function Compute",
+          "categories": [
+            "serverless_function",
+            "api_gateway"
+          ],
+          "resource_type": "function",
+          "api_reference_url": "https://help.aliyun.com/zh/functioncompute/fc/developer-reference/api-fc-2023-03-30-overview",
+          "recommended_for": [
+            "agent",
+            "backend",
+            "website_api"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "function_name": "",
+              "trigger_type": "http"
+            }
+          }
+        },
+        {
+          "id": "sae",
+          "display_name": "Serverless App Engine",
+          "categories": [
+            "web_app",
+            "container_app"
+          ],
+          "resource_type": "application",
+          "api_reference_url": "https://help.aliyun.com/zh/sae/guide-to-alibaba-cloud-cli",
+          "recommended_for": [
+            "website",
+            "admin",
+            "backend"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "app_name": "",
+              "namespace": ""
+            }
+          }
+        },
+        {
+          "id": "ecs",
+          "display_name": "Elastic Compute Service",
+          "categories": [
+            "virtual_machine",
+            "web_app",
+            "backend"
+          ],
+          "resource_type": "virtual_machine",
+          "api_reference_url": "https://www.alibabacloud.com/help/en/ecs/developer-reference/api-ecs-2014-05-26-overview",
+          "recommended_for": [
+            "backend",
+            "desktop_backend",
+            "legacy_app"
+          ],
+          "config_defaults": {
+            "runtime": "custom",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "instance_id": "",
+              "image_id": "",
+              "instance_type": ""
+            }
+          }
+        },
+        {
+          "id": "oss",
+          "display_name": "Object Storage Service",
+          "categories": [
+            "object_storage",
+            "static_site"
+          ],
+          "resource_type": "bucket",
+          "api_reference_url": "https://www.alibabacloud.com/help/en/oss/developer-reference/api-reference",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads",
+            "website"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "bucket": "",
+              "static_website": false
+            }
+          }
+        },
+        {
+          "id": "cdn",
+          "display_name": "Alibaba Cloud CDN",
+          "categories": [
+            "cdn"
+          ],
+          "resource_type": "cdn_distribution",
+          "api_reference_url": "https://www.alibabacloud.com/help/en/cdn/developer-reference/api-cdn-2018-05-10-overview",
+          "recommended_for": [
+            "website",
+            "static_assets"
+          ],
+          "config_defaults": {
+            "runtime": "edge",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "domain": "",
+              "origin": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "tencent_cloud",
+      "display_name": "Tencent Cloud",
+      "regions_hint": [
+        "ap-guangzhou",
+        "ap-shanghai",
+        "ap-beijing",
+        "ap-singapore"
+      ],
+      "official_docs": [
+        "https://intl.cloud.tencent.com/document/product/583/17234",
+        "https://intl.cloud.tencent.com/document/product/628",
+        "https://intl.cloud.tencent.com/document/product/1103/42327"
+      ],
+      "services": [
+        {
+          "id": "scf",
+          "display_name": "Serverless Cloud Function",
+          "categories": [
+            "serverless_function"
+          ],
+          "resource_type": "function",
+          "api_reference_url": "https://intl.cloud.tencent.com/document/product/583/17234",
+          "recommended_for": [
+            "backend",
+            "agent",
+            "website_api"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "function_name": "",
+              "namespace": "default"
+            }
+          }
+        },
+        {
+          "id": "api_gateway",
+          "display_name": "API Gateway",
+          "categories": [
+            "api_gateway"
+          ],
+          "resource_type": "api_gateway_service",
+          "api_reference_url": "https://intl.cloud.tencent.com/document/product/628",
+          "recommended_for": [
+            "backend_api",
+            "miniapp_api"
+          ],
+          "config_defaults": {
+            "runtime": "gateway",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "service_id": "",
+              "protocol": "https"
+            }
+          }
+        },
+        {
+          "id": "cloudbase",
+          "display_name": "CloudBase",
+          "categories": [
+            "static_site",
+            "serverless_function",
+            "database"
+          ],
+          "resource_type": "cloudbase_environment",
+          "api_reference_url": "https://intl.cloud.tencent.com/document/product/1266/70291",
+          "recommended_for": [
+            "miniapp",
+            "website",
+            "backend"
+          ],
+          "config_defaults": {
+            "runtime": "serverless",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "environment_id": "",
+              "hosting": false,
+              "cloud_functions": false
+            }
+          }
+        },
+        {
+          "id": "lighthouse",
+          "display_name": "Lighthouse",
+          "categories": [
+            "virtual_machine",
+            "web_app",
+            "backend"
+          ],
+          "resource_type": "instance",
+          "api_reference_url": "https://intl.cloud.tencent.com/document/product/1103/42327",
+          "recommended_for": [
+            "small_backend",
+            "legacy_app"
+          ],
+          "config_defaults": {
+            "runtime": "custom",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "instance_id": "",
+              "bundle_id": ""
+            }
+          }
+        },
+        {
+          "id": "cos",
+          "display_name": "Cloud Object Storage",
+          "categories": [
+            "object_storage",
+            "static_site"
+          ],
+          "resource_type": "bucket",
+          "api_reference_url": "https://intl.cloud.tencent.com/document/product/436",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "bucket": "",
+              "static_website": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "huawei_cloud",
+      "display_name": "Huawei Cloud",
+      "regions_hint": [
+        "cn-north-4",
+        "cn-east-3",
+        "cn-south-1",
+        "ap-southeast-3"
+      ],
+      "official_docs": [
+        "https://support.huaweicloud.com/intl/en-us/api-functiongraph/functiongraph_06_1500.html"
+      ],
+      "services": [
+        {
+          "id": "functiongraph",
+          "display_name": "FunctionGraph",
+          "categories": [
+            "serverless_function"
+          ],
+          "resource_type": "function",
+          "api_reference_url": "https://support.huaweicloud.com/intl/en-us/api-functiongraph/functiongraph_06_1500.html",
+          "recommended_for": [
+            "backend",
+            "agent",
+            "website_api"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "function_name": "",
+              "package": "default"
+            }
+          }
+        },
+        {
+          "id": "apig",
+          "display_name": "API Gateway",
+          "categories": [
+            "api_gateway"
+          ],
+          "resource_type": "api_gateway_service",
+          "api_reference_url": "https://support.huaweicloud.com/intl/en-us/api-apig/",
+          "recommended_for": [
+            "backend_api",
+            "miniapp_api"
+          ],
+          "config_defaults": {
+            "runtime": "gateway",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "instance_id": "",
+              "group_id": ""
+            }
+          }
+        },
+        {
+          "id": "ecs",
+          "display_name": "Elastic Cloud Server",
+          "categories": [
+            "virtual_machine",
+            "web_app",
+            "backend"
+          ],
+          "resource_type": "virtual_machine",
+          "api_reference_url": "https://support.huaweicloud.com/intl/en-us/api-ecs/",
+          "recommended_for": [
+            "backend",
+            "legacy_app"
+          ],
+          "config_defaults": {
+            "runtime": "custom",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "server_id": "",
+              "flavor_ref": "",
+              "image_ref": ""
+            }
+          }
+        },
+        {
+          "id": "obs",
+          "display_name": "Object Storage Service",
+          "categories": [
+            "object_storage",
+            "static_site"
+          ],
+          "resource_type": "bucket",
+          "api_reference_url": "https://support.huaweicloud.com/intl/en-us/api-obs/",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "bucket": "",
+              "static_website": false
+            }
+          }
+        },
+        {
+          "id": "cdn",
+          "display_name": "Content Delivery Network",
+          "categories": [
+            "cdn"
+          ],
+          "resource_type": "cdn_distribution",
+          "api_reference_url": "https://support.huaweicloud.com/intl/en-us/api-cdn/",
+          "recommended_for": [
+            "website",
+            "static_assets"
+          ],
+          "config_defaults": {
+            "runtime": "edge",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "domain": "",
+              "origin": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "aws",
+      "display_name": "Amazon Web Services",
+      "regions_hint": [
+        "us-east-1",
+        "us-west-2",
+        "ap-southeast-1",
+        "ap-northeast-1"
+      ],
+      "official_docs": [
+        "https://docs.aws.amazon.com/lambda/latest/api/Welcome.html",
+        "https://docs.aws.amazon.com/apigateway/latest/developerguide/api-ref.html",
+        "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ProgrammingGuide.html"
+      ],
+      "services": [
+        {
+          "id": "lambda",
+          "display_name": "AWS Lambda",
+          "categories": [
+            "serverless_function"
+          ],
+          "resource_type": "function",
+          "api_reference_url": "https://docs.aws.amazon.com/lambda/latest/api/Welcome.html",
+          "recommended_for": [
+            "backend",
+            "agent",
+            "website_api"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "function_name": "",
+              "handler": ""
+            }
+          }
+        },
+        {
+          "id": "api_gateway",
+          "display_name": "Amazon API Gateway",
+          "categories": [
+            "api_gateway"
+          ],
+          "resource_type": "api_gateway",
+          "api_reference_url": "https://docs.aws.amazon.com/apigateway/latest/developerguide/api-ref.html",
+          "recommended_for": [
+            "backend_api",
+            "lambda_http"
+          ],
+          "config_defaults": {
+            "runtime": "gateway",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "api_id": "",
+              "stage": ""
+            }
+          }
+        },
+        {
+          "id": "ecs",
+          "display_name": "Amazon Elastic Container Service",
+          "categories": [
+            "container_app"
+          ],
+          "resource_type": "container_service",
+          "api_reference_url": "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ProgrammingGuide.html",
+          "recommended_for": [
+            "backend",
+            "containerized_web_app"
+          ],
+          "config_defaults": {
+            "runtime": "container",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "cluster": "",
+              "service": "",
+              "task_definition": ""
+            }
+          }
+        },
+        {
+          "id": "app_runner",
+          "display_name": "AWS App Runner",
+          "categories": [
+            "web_app",
+            "container_app"
+          ],
+          "resource_type": "app_runner_service",
+          "api_reference_url": "https://docs.aws.amazon.com/apprunner/latest/api/Welcome.html",
+          "recommended_for": [
+            "website",
+            "backend",
+            "containerized_web_app"
+          ],
+          "config_defaults": {
+            "runtime": "container",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "service_arn": "",
+              "source_type": "repository"
+            }
+          }
+        },
+        {
+          "id": "amplify",
+          "display_name": "AWS Amplify Hosting",
+          "categories": [
+            "static_site",
+            "web_app"
+          ],
+          "resource_type": "amplify_app",
+          "api_reference_url": "https://docs.aws.amazon.com/amplify/latest/APIReference/welcome.html",
+          "recommended_for": [
+            "website",
+            "admin",
+            "static_site"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "app_id": "",
+              "branch_name": ""
+            }
+          }
+        },
+        {
+          "id": "s3",
+          "display_name": "Amazon S3",
+          "categories": [
+            "object_storage",
+            "static_site"
+          ],
+          "resource_type": "bucket",
+          "api_reference_url": "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "bucket": "",
+              "static_website": false
+            }
+          }
+        },
+        {
+          "id": "cloudfront",
+          "display_name": "Amazon CloudFront",
+          "categories": [
+            "cdn"
+          ],
+          "resource_type": "cdn_distribution",
+          "api_reference_url": "https://docs.aws.amazon.com/cloudfront/latest/APIReference/Welcome.html",
+          "recommended_for": [
+            "website",
+            "static_assets"
+          ],
+          "config_defaults": {
+            "runtime": "edge",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "distribution_id": "",
+              "origin": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "google_cloud",
+      "display_name": "Google Cloud",
+      "regions_hint": [
+        "us-central1",
+        "us-east1",
+        "asia-southeast1",
+        "asia-northeast1"
+      ],
+      "official_docs": [
+        "https://cloud.google.com/run/docs/apis",
+        "https://cloud.google.com/storage/docs/apis",
+        "https://firebase.google.com/docs/reference/hosting/rest"
+      ],
+      "services": [
+        {
+          "id": "cloud_run",
+          "display_name": "Cloud Run",
+          "categories": [
+            "container_app",
+            "web_app"
+          ],
+          "resource_type": "cloud_run_service",
+          "api_reference_url": "https://cloud.google.com/run/docs/apis",
+          "recommended_for": [
+            "backend",
+            "website",
+            "containerized_web_app"
+          ],
+          "config_defaults": {
+            "runtime": "container",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "service": "",
+              "project": "",
+              "ingress": "all"
+            }
+          }
+        },
+        {
+          "id": "cloud_functions",
+          "display_name": "Cloud Functions",
+          "categories": [
+            "serverless_function"
+          ],
+          "resource_type": "function",
+          "api_reference_url": "https://cloud.google.com/functions/docs/reference/rest",
+          "recommended_for": [
+            "backend",
+            "agent",
+            "website_api"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "function": "",
+              "trigger": "https"
+            }
+          }
+        },
+        {
+          "id": "firebase_hosting",
+          "display_name": "Firebase Hosting",
+          "categories": [
+            "static_site",
+            "web_app"
+          ],
+          "resource_type": "firebase_site",
+          "api_reference_url": "https://firebase.google.com/docs/reference/hosting/rest",
+          "recommended_for": [
+            "website",
+            "admin",
+            "static_site"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "site_id": "",
+              "channel": "live"
+            }
+          }
+        },
+        {
+          "id": "cloud_storage",
+          "display_name": "Cloud Storage",
+          "categories": [
+            "object_storage",
+            "static_site"
+          ],
+          "resource_type": "bucket",
+          "api_reference_url": "https://cloud.google.com/storage/docs/apis",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "bucket": "",
+              "static_website": false
+            }
+          }
+        },
+        {
+          "id": "app_engine",
+          "display_name": "App Engine",
+          "categories": [
+            "web_app"
+          ],
+          "resource_type": "app_engine_service",
+          "api_reference_url": "https://cloud.google.com/appengine/docs/admin-api",
+          "recommended_for": [
+            "website",
+            "backend"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "service": "default",
+              "version": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "azure",
+      "display_name": "Microsoft Azure",
+      "regions_hint": [
+        "eastus",
+        "westus2",
+        "southeastasia",
+        "japaneast"
+      ],
+      "official_docs": [
+        "https://learn.microsoft.com/en-us/rest/api/appservice/web-apps",
+        "https://learn.microsoft.com/en-us/rest/api/containerapps/",
+        "https://learn.microsoft.com/en-us/azure/static-web-apps/"
+      ],
+      "services": [
+        {
+          "id": "app_service",
+          "display_name": "Azure App Service",
+          "categories": [
+            "web_app",
+            "backend"
+          ],
+          "resource_type": "web_app",
+          "api_reference_url": "https://learn.microsoft.com/en-us/rest/api/appservice/web-apps",
+          "recommended_for": [
+            "website",
+            "admin",
+            "backend"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "resource_group": "",
+              "site_name": "",
+              "app_service_plan": ""
+            }
+          }
+        },
+        {
+          "id": "container_apps",
+          "display_name": "Azure Container Apps",
+          "categories": [
+            "container_app",
+            "web_app"
+          ],
+          "resource_type": "container_app",
+          "api_reference_url": "https://learn.microsoft.com/en-us/rest/api/containerapps/",
+          "recommended_for": [
+            "backend",
+            "containerized_web_app"
+          ],
+          "config_defaults": {
+            "runtime": "container",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "resource_group": "",
+              "container_app": "",
+              "environment": ""
+            }
+          }
+        },
+        {
+          "id": "functions",
+          "display_name": "Azure Functions",
+          "categories": [
+            "serverless_function"
+          ],
+          "resource_type": "function_app",
+          "api_reference_url": "https://learn.microsoft.com/en-us/rest/api/appservice/web-apps",
+          "recommended_for": [
+            "backend",
+            "agent",
+            "website_api"
+          ],
+          "config_defaults": {
+            "runtime": "",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "resource_group": "",
+              "function_app": "",
+              "trigger": "http"
+            }
+          }
+        },
+        {
+          "id": "static_web_apps",
+          "display_name": "Azure Static Web Apps",
+          "categories": [
+            "static_site",
+            "web_app"
+          ],
+          "resource_type": "static_site",
+          "api_reference_url": "https://learn.microsoft.com/en-us/azure/static-web-apps/",
+          "recommended_for": [
+            "website",
+            "admin",
+            "static_site"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "resource_group": "",
+              "site_name": ""
+            }
+          }
+        },
+        {
+          "id": "storage_account",
+          "display_name": "Azure Storage",
+          "categories": [
+            "object_storage",
+            "static_site"
+          ],
+          "resource_type": "storage_account",
+          "api_reference_url": "https://learn.microsoft.com/en-us/rest/api/storagerp/storage-accounts",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads"
+          ],
+          "config_defaults": {
+            "runtime": "static",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "resource_group": "",
+              "account_name": "",
+              "static_website": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "vercel",
+      "display_name": "Vercel",
+      "regions_hint": [
+        "global"
+      ],
+      "official_docs": [
+        "https://vercel.com/docs/rest-api/deployments/create-a-new-deployment",
+        "https://vercel.com/docs/rest-api/projects/find-a-project-by-id-or-name"
+      ],
+      "services": [
+        {
+          "id": "projects",
+          "display_name": "Vercel Projects",
+          "categories": [
+            "web_app",
+            "static_site",
+            "serverless_function"
+          ],
+          "resource_type": "vercel_project",
+          "api_reference_url": "https://vercel.com/docs/rest-api/projects/find-a-project-by-id-or-name",
+          "recommended_for": [
+            "website",
+            "admin",
+            "nextjs_app",
+            "static_site"
+          ],
+          "config_defaults": {
+            "runtime": "vercel",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "project_id": "",
+              "team_id": "",
+              "framework": ""
+            }
+          }
+        },
+        {
+          "id": "deployments",
+          "display_name": "Vercel Deployments",
+          "categories": [
+            "web_app",
+            "static_site"
+          ],
+          "resource_type": "deployment",
+          "api_reference_url": "https://vercel.com/docs/rest-api/deployments/create-a-new-deployment",
+          "recommended_for": [
+            "website",
+            "admin",
+            "preview_deployments"
+          ],
+          "config_defaults": {
+            "runtime": "vercel",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "project_id": "",
+              "target": "production"
+            }
+          }
+        },
+        {
+          "id": "domains",
+          "display_name": "Vercel Domains",
+          "categories": [
+            "dns"
+          ],
+          "resource_type": "domain",
+          "api_reference_url": "https://vercel.com/docs/rest-api/domains",
+          "recommended_for": [
+            "website",
+            "custom_domain"
+          ],
+          "config_defaults": {
+            "runtime": "dns",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "domain": "",
+              "project_id": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "cloudflare",
+      "display_name": "Cloudflare",
+      "regions_hint": [
+        "global"
+      ],
+      "official_docs": [
+        "https://developers.cloudflare.com/pages/configuration/api/",
+        "https://developers.cloudflare.com/api/resources/workers/",
+        "https://developers.cloudflare.com/r2/api",
+        "https://developers.cloudflare.com/d1/d1-api"
+      ],
+      "services": [
+        {
+          "id": "pages",
+          "display_name": "Cloudflare Pages",
+          "categories": [
+            "static_site",
+            "web_app"
+          ],
+          "resource_type": "pages_project",
+          "api_reference_url": "https://developers.cloudflare.com/pages/configuration/api/",
+          "recommended_for": [
+            "website",
+            "admin",
+            "static_site"
+          ],
+          "config_defaults": {
+            "runtime": "pages",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "account_id": "",
+              "project_name": "",
+              "production_branch": "main"
+            }
+          }
+        },
+        {
+          "id": "workers",
+          "display_name": "Cloudflare Workers",
+          "categories": [
+            "edge_worker",
+            "serverless_function",
+            "api_gateway"
+          ],
+          "resource_type": "worker_script",
+          "api_reference_url": "https://developers.cloudflare.com/api/resources/workers/",
+          "recommended_for": [
+            "edge_api",
+            "backend",
+            "agent"
+          ],
+          "config_defaults": {
+            "runtime": "worker",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "account_id": "",
+              "script_name": "",
+              "route": ""
+            }
+          }
+        },
+        {
+          "id": "r2",
+          "display_name": "Cloudflare R2",
+          "categories": [
+            "object_storage"
+          ],
+          "resource_type": "bucket",
+          "api_reference_url": "https://developers.cloudflare.com/r2/api",
+          "recommended_for": [
+            "static_assets",
+            "file_uploads"
+          ],
+          "config_defaults": {
+            "runtime": "storage",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "account_id": "",
+              "bucket": ""
+            }
+          }
+        },
+        {
+          "id": "d1",
+          "display_name": "Cloudflare D1",
+          "categories": [
+            "database"
+          ],
+          "resource_type": "database",
+          "api_reference_url": "https://developers.cloudflare.com/d1/d1-api",
+          "recommended_for": [
+            "edge_api",
+            "small_database"
+          ],
+          "config_defaults": {
+            "runtime": "sqlite",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "account_id": "",
+              "database_id": "",
+              "database_name": ""
+            }
+          }
+        },
+        {
+          "id": "dns",
+          "display_name": "Cloudflare DNS",
+          "categories": [
+            "dns",
+            "cdn"
+          ],
+          "resource_type": "dns_zone",
+          "api_reference_url": "https://developers.cloudflare.com/api/resources/dns/",
+          "recommended_for": [
+            "custom_domain",
+            "website"
+          ],
+          "config_defaults": {
+            "runtime": "dns",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "zone_id": "",
+              "records": []
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

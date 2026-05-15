@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-v3.local/schemas/prd-review-output.v1.schema.json",
+  "title": "ai-prd3 prd-review LLM structured merge payload",
+  "description": "Merged by prd-review-write-stage.cjs into stages.prd_review (partial document). v1 placeholder: tighten required fields as implementation lands. See docs/spec/prd3.md §4.1 / §8.3.",
+  "type": "object",
+  "properties": {
+    "review": {
+      "type": "object",
+      "description": "Maps to stages.prd_review.review"
+    },
+    "outputs": {
+      "type": "object",
+      "description": "Maps to stages.prd_review.outputs (e.g. decision)"
+    },
+    "blocking_issues": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "conditions": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "additionalProperties": true
+}
