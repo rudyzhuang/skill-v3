@@ -1,0 +1,65 @@
+{
+  "$id": "https://skill-v3.local/schemas/design-snapshot.v3.schema.json",
+  "title": "DesignSnapshotContractV3",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "feature_id",
+    "client_target",
+    "snapshot_version"
+  ],
+  "properties": {
+    "feature_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "snapshot_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "derived_from_spec_path": {
+      "type": "string"
+    },
+    "api_outline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "data_outline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "file_plan": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "shared_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

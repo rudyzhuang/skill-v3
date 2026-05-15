@@ -1,0 +1,41 @@
+{
+  "$id": "https://skill-v3.local/schemas/contract-artifacts-item.v3.schema.json",
+  "title": "ContractArtifactsItemV3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "feature_id",
+    "types",
+    "api",
+    "schema",
+    "test_spec",
+    "design_snapshot"
+  ],
+  "properties": {
+    "feature_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "types": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to types artifact (relative to project root recommended)"
+    },
+    "api": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "test_spec": {
+      "type": "string",
+      "minLength": 1
+    },
+    "design_snapshot": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

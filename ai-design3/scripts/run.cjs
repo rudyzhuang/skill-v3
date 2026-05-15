@@ -1,0 +1,895 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * ai-design3 — 唯一对外 CLI（冻结子命令见 docs/spec/design3.md §6.1）。
+ * 用法: node <skill_dir>/scripts/run.cjs <子命令> --project=<abs> [选项…]
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
+
+const { readStages, writeStages, isoNow } = require('./lib/stages-io.cjs');
+const { scanProjectConfigKeys } = require('./lib/secret-scan.cjs');
+const { createValidators, validateJson } = require('./lib/schema-validate.cjs');
+const { featureDeclaredInLists } = require('./lib/feature-list.cjs');
+const { appendSessionLog } = require('./lib/session-log.cjs');
+
+const SUBCOMMANDS = new Set([
+  'preflight',
+  'list-design-candidates',
+  'validate-design',
+  'write-design',
+  'hash-design-inputs',
+  'register-contract-artifacts',
+  'validate-contract',
+  'approve-contract',
+  'reject-contract',
+  'mark-contract-not-required',
+  'hash-contract-inputs',
+  'validate-design-review',
+  'write-design-review',
+  'hash-design-review-inputs',
+]);
+
+const EXIT = {
+  OK: 0,
+  PRECHECK: 1,
+  CANCEL: 2,
+  TIMEOUT: 3,
+  QUALITY: 4,
+  CONTRACT_BREAK: 5,
+};
+
+function sha256Hex(content) {
+  return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+function skillRoot() {
+  return path.resolve(__dirname, '..');
+}
+
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  const out = {
+    cmd: null,
+    project: null,
+    feature: null,
+    approvedBy: '',
+    notes: null,
+    force: false,
+    dryRun: false,
+  };
+  if (!args.length) return out;
+  out.cmd = args.shift();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith('--project=')) out.project = a.slice('--project='.length);
+    else if (a === '--project') out.project = args[++i];
+    else if (a.startsWith('--feature=')) out.feature = a.slice('--feature='.length);
+    else if (a === '--feature') out.feature = args[++i];
+    else if (a.startsWith('--approved-by=')) out.approvedBy = a.slice('--approved-by='.length);
+    else if (a === '--approved-by') out.approvedBy = args[++i];
+    else if (a.startsWith('--notes=')) out.notes = a.slice('--notes='.length);
+    else if (a === '--notes') out.notes = args[++i];
+    else if (a === '--force') out.force = true;
+    else if (a === '--dry-run') out.dryRun = true;
+    else {
+      console.error(`Unknown argument: ${a}`);
+      process.exit(EXIT.PRECHECK);
+    }
+  }
+  return out;
+}
+
+function resolveProjectRoot(parsed) {
+  if (parsed.project) {
+    const abs = path.resolve(parsed.project);
+    if (!fs.existsSync(abs)) {
+      console.error(`--project path does not exist: ${abs}`);
+      process.exit(EXIT.PRECHECK);
+    }
+    return abs;
+  }
+  let dir = process.cwd();
+  for (let i = 0; i < 40; i++) {
+    const candidate = path.join(dir, '.pipeline', 'stages.json');
+    if (fs.existsSync(candidate)) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  console.error(
+    'Missing --project=<abs>. Could not find .pipeline/stages.json by walking up from cwd.'
+  );
+  process.exit(EXIT.PRECHECK);
+}
+
+function unionFeatureIds(stages) {
+  const plan = stages.stages?.prd_review?.review?.phase_plan;
+  if (!Array.isArray(plan)) return [];
+  const set = new Set();
+  for (const row of plan) {
+    for (const fid of row.feature_ids || []) {
+      if (fid) set.add(String(fid));
+    }
+  }
+  return [...set].sort();
+}
+
+function filterFeatures(ids, single) {
+  if (!single) return ids;
+  if (!ids.includes(single)) {
+    console.error(`Feature ${single} is not in current prd_review.phase_plan union.`);
+    return null;
+  }
+  return [single];
+}
+
+function prdReviewPassed(stages) {
+  const pr = stages.stages?.prd_review;
+  if (!pr) return { ok: false, reason: 'missing stages.prd_review' };
+  if (pr.status !== 'completed') return { ok: false, reason: `prd_review.status=${pr.status}` };
+  if (pr.outputs?.decision !== 'passed') {
+    return { ok: false, reason: `prd_review.outputs.decision=${pr.outputs?.decision}` };
+  }
+  return { ok: true };
+}
+
+function designSpecRel(projectRoot, featureId) {
+  return path.join('docs', 'designs', `${featureId}.design.json`);
+}
+
+function contractDirRel(featureId) {
+  return path.join('docs', 'contracts', featureId);
+}
+
+function resolveContractArtifactPaths(projectRoot, featureId) {
+  const base = path.join(projectRoot, 'docs', 'contracts', featureId);
+  const pick = (cands) => {
+    for (const name of cands) {
+      const abs = path.join(base, name);
+      if (fs.existsSync(abs)) return path.join('docs', 'contracts', featureId, name).split(path.sep).join('/');
+    }
+    return '';
+  };
+  const types =
+    pick([`${featureId}.types.ts`, `${featureId}.types.py`]) ||
+    pick([`${featureId}.types.tsx`]);
+  const api = pick([`${featureId}.api.yaml`, `${featureId}.api.yml`]);
+  const schema = pick([`${featureId}.schema.sql`, `${featureId}.schema.prisma`]);
+  const testSpec = pick([
+    `${featureId}.test-spec.md`,
+    `${featureId}.test-spec.yaml`,
+    `${featureId}.test-spec.yml`,
+  ]);
+  const designSnapshot = pick([`${featureId}.design.snapshot.json`]);
+  return { types, api, schema, test_spec: testSpec, design_snapshot: designSnapshot };
+}
+
+function readJson(abs) {
+  return JSON.parse(fs.readFileSync(abs, 'utf8'));
+}
+
+function readTimeoutSeconds(projectRoot, key) {
+  const p = path.join(projectRoot, 'docs', 'config.dev.json');
+  if (!fs.existsSync(p)) return 600;
+  try {
+    const j = readJson(p);
+    const v = j?.timeouts?.stages?.[key];
+    return typeof v === 'number' && v > 0 ? v : 600;
+  } catch (_) {
+    return 600;
+  }
+}
+
+function runWithTimeout(cmd, args, cwd, timeoutMs) {
+  return spawnSync(cmd, args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function looksLikeOpenApiDoc(text) {
+  const head = text.slice(0, 4000);
+  return /\bopenapi\s*:/i.test(head) || /\bswagger\s*:/i.test(head);
+}
+
+/** design3 §4 / input-spec §8.13：至少一处路径级 x-smoke（弱校验，避免完全漏配） */
+function openApiHasXSmokePathLevel(text) {
+  return /^(\s+)x-smoke\s*:/m.test(text);
+}
+
+function logDryRunSlice(parsed, slice) {
+  if (!parsed.dryRun) return;
+  console.log(JSON.stringify({ dry_run: true, subcommand: parsed.cmd, slice }, null, 2));
+}
+
+function resetContractStageForForce(stages) {
+  stages.stages.contract = stages.stages.contract || {};
+  stages.stages.contract.outputs = stages.stages.contract.outputs || {};
+  stages.stages.contract.outputs.human_approval = {
+    status: 'pending',
+    approved_by: '',
+    approved_at: null,
+    notes: 'reset by --force (contract stage rerun)',
+  };
+  stages.stages.contract.outputs.timed_out = false;
+  stages.stages.contract.outputs.timeout_reason = null;
+  stages.stages.contract.validation = stages.stages.contract.validation || {};
+  stages.stages.contract.validation.passed = false;
+  stages.stages.contract.validation.summary = '';
+  stages.stages.contract.validation.checked_at = null;
+  const names = ['types', 'api', 'schema', 'test_spec', 'design_snapshot'];
+  stages.stages.contract.validation.checks = names.map((name) => ({
+    name,
+    status: 'pending',
+    errors: [],
+  }));
+  stages.stages.contract.status = 'not_started';
+  stages.stages.contract.completed_at = null;
+}
+
+function contractBlockedByDesignHumanGate(stages) {
+  if (stages.stages.design?.outputs?.needs_human_review === true) {
+    return {
+      ok: false,
+      reason:
+        'design.outputs.needs_human_review is true; resolve in design before contract (design3 §3.2)',
+    };
+  }
+  return { ok: true };
+}
+
+function main() {
+  const parsed = parseArgs(process.argv);
+  if (!parsed.cmd || !SUBCOMMANDS.has(parsed.cmd)) {
+    console.error(`Usage: node scripts/run.cjs <subcommand> --project=<abs> [...]\nSubcommands: ${[...SUBCOMMANDS].join(', ')}`);
+    process.exit(EXIT.PRECHECK);
+  }
+
+  const root = resolveProjectRoot(parsed);
+  const skRoot = skillRoot();
+  let stages;
+  try {
+    stages = readStages(root);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(EXIT.PRECHECK);
+  }
+
+  const finish = (code, extra = {}) => {
+    appendSessionLog(root, { subcommand: parsed.cmd, exit_code: code, ...extra });
+    process.exit(code);
+  };
+
+  const validators = () => createValidators(skRoot);
+
+  if (parsed.cmd === 'preflight') {
+    if (!stages._schema || stages._schema.name !== 'skill-v3-stages') {
+      console.warn('Warning: stages._schema.name is not skill-v3-stages (continuing).');
+    }
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) {
+      console.error(`preflight failed: ${pr.reason}`);
+      finish(EXIT.PRECHECK, { reason: pr.reason });
+    }
+    const prdSpec = path.join(root, 'docs', 'inputs', 'prd-spec.md');
+    if (!fs.existsSync(prdSpec)) {
+      console.error(`preflight failed: missing ${prdSpec}`);
+      finish(EXIT.PRECHECK, { reason: 'missing prd-spec.md' });
+    }
+    const scan = scanProjectConfigKeys(root);
+    if (!scan.ok) {
+      console.error('preflight failed: config key scan');
+      for (const line of scan.errors) console.error(`  ${line}`);
+      finish(EXIT.PRECHECK, { reason: 'config_secret_scan' });
+    }
+    console.log('preflight ok');
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'list-design-candidates') {
+    const ids = unionFeatureIds(stages);
+    console.log(JSON.stringify(ids, null, 2));
+    finish(EXIT.OK);
+  }
+
+  const v = validators();
+
+  if (parsed.cmd === 'validate-design') {
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) {
+      console.error(`validate-design blocked: ${pr.reason}`);
+      finish(EXIT.PRECHECK, { reason: pr.reason });
+    }
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!ids.length) {
+      console.error('validate-design: no feature_ids in prd_review.review.phase_plan');
+      finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    }
+    const errors = [];
+    const now = isoNow();
+    let anyRisks = false;
+    for (const fid of ids) {
+      const decl = featureDeclaredInLists(root, fid);
+      if (!decl.ok) {
+        errors.push(
+          `feature_list: ${fid}: ${decl.reason}${decl.searched ? ` (searched: ${decl.searched.join(', ')})` : ''}`
+        );
+      }
+      const rel = designSpecRel(root, fid);
+      const abs = path.join(root, rel);
+      if (!fs.existsSync(abs)) {
+        errors.push(`missing design spec: ${rel}`);
+        continue;
+      }
+      let doc;
+      try {
+        doc = readJson(abs);
+      } catch (e) {
+        errors.push(`${rel}: invalid JSON (${e.message})`);
+        continue;
+      }
+      const r = validateJson(v.validateDesignSpec, doc, rel);
+      if (!r.ok) errors.push(...r.errors);
+      if (doc.feature_id && doc.feature_id !== fid) {
+        errors.push(`${rel}: feature_id mismatch file name (expected ${fid})`);
+      }
+      if (Array.isArray(doc.risks) && doc.risks.length) anyRisks = true;
+    }
+    stages.stages.design = stages.stages.design || {};
+    stages.stages.design.outputs = stages.stages.design.outputs || {};
+    stages.stages.design.outputs.needs_human_review = errors.length === 0 && anyRisks;
+    stages.stages.design.validation = stages.stages.design.validation || {};
+    stages.stages.design.validation.checked_at = now;
+    stages.stages.design.validation.summary = errors.length ? errors.join('; ') : 'design specs OK';
+    stages.stages.design.validation.passed = errors.length === 0;
+    if (errors.length) {
+      stages.stages.design.status = 'failed';
+      stages.stages.design.blocking_issues = errors;
+    } else {
+      stages.stages.design.blocking_issues = [];
+    }
+    logDryRunSlice(parsed, {
+      design: {
+        validation: stages.stages.design.validation,
+        status: stages.stages.design.status,
+        blocking_issues: stages.stages.design.blocking_issues,
+        outputs: { needs_human_review: stages.stages.design.outputs.needs_human_review },
+      },
+    });
+    writeStages(root, stages, parsed.dryRun);
+    if (errors.length) {
+      const missing = errors.some(
+        (e) => e.startsWith('missing') || e.startsWith('feature_list:') || e.includes('no docs/*/feature_list')
+      );
+      finish(missing ? EXIT.PRECHECK : EXIT.QUALITY, { blocking_issues: errors.length });
+    }
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'write-design') {
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) {
+      console.error(`write-design blocked: ${pr.reason}`);
+      finish(EXIT.PRECHECK, { reason: pr.reason });
+    }
+    if (!stages.stages.design?.validation?.passed && !parsed.force) {
+      console.error('write-design blocked: run validate-design successfully first (or --force).');
+      finish(EXIT.PRECHECK, { reason: 'validate_design_required' });
+    }
+    if (
+      !parsed.force &&
+      stages.stages.design?.status === 'completed' &&
+      stages.stages.design?.validation?.passed
+    ) {
+      console.log('write-design: design already completed; use --force to rewrite.');
+      finish(EXIT.OK, { skipped: true });
+    }
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!ids.length) finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    const design_specs = [];
+    for (const fid of ids) {
+      const rel = designSpecRel(root, fid);
+      const abs = path.join(root, rel);
+      let doc;
+      try {
+        doc = readJson(abs);
+      } catch (e) {
+        console.error(`write-design: cannot read ${rel}: ${e.message}`);
+        finish(EXIT.PRECHECK, { reason: 'design_read_failed', path: rel });
+      }
+      design_specs.push({
+        feature_id: fid,
+        client_target: doc.client_target,
+        spec_path: rel.split(path.sep).join('/'),
+        status: doc.status || 'draft',
+        shared_changes: doc.shared_changes || [],
+      });
+    }
+    const t0 = Date.now();
+    stages.stages.design.outputs = stages.stages.design.outputs || {};
+    stages.stages.design.outputs.design_specs = design_specs;
+    stages.stages.design.outputs.duration_ms = Date.now() - t0;
+    stages.stages.design.outputs.timed_out = false;
+    stages.stages.design.outputs.timeout_reason = null;
+    stages.stages.design.status = 'completed';
+    stages.stages.design.completed_at = isoNow();
+    stages.stages.design.validation = stages.stages.design.validation || {};
+    stages.stages.design.validation.passed = true;
+    stages.stages.design.validation.summary = 'completed via write-design';
+    logDryRunSlice(parsed, {
+      design: {
+        status: stages.stages.design.status,
+        outputs: { design_specs, duration_ms: stages.stages.design.outputs.duration_ms },
+      },
+    });
+    writeStages(root, stages, parsed.dryRun);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'hash-design-inputs') {
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) finish(EXIT.PRECHECK, { reason: pr.reason });
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!ids.length) finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    const files = {};
+    const addFile = (rel) => {
+      const abs = path.join(root, rel);
+      if (fs.existsSync(abs)) files[rel.split(path.sep).join('/')] = sha256Hex(fs.readFileSync(abs, 'utf8'));
+    };
+    addFile(path.join('docs', 'inputs', 'prd-spec.md'));
+    addFile(path.join('docs', 'config.dev.json'));
+    addFile(path.join('docs', 'config.release.json'));
+    for (const fid of ids) addFile(designSpecRel(root, fid));
+    const payload = { feature_ids: ids, files };
+    const hash = sha256Hex(JSON.stringify(payload));
+    stages.stages.design = stages.stages.design || {};
+    stages.stages.design.inputs = stages.stages.design.inputs || {};
+    stages.stages.design.inputs.summary_hash = hash;
+    logDryRunSlice(parsed, { design: { inputs: { summary_hash: hash } } });
+    writeStages(root, stages, parsed.dryRun);
+    console.log(hash);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'register-contract-artifacts') {
+    if (parsed.force) resetContractStageForForce(stages);
+    const pr = prdReviewPassed(stages);
+    if (!pr.ok) finish(EXIT.PRECHECK, { reason: pr.reason });
+    if (stages.stages.design?.status !== 'completed' && !parsed.force) {
+      console.error('register-contract-artifacts: design not completed');
+      finish(EXIT.PRECHECK, { reason: 'design_not_completed' });
+    }
+    const gate = contractBlockedByDesignHumanGate(stages);
+    if (!gate.ok && !parsed.force) {
+      console.error(`register-contract-artifacts blocked: ${gate.reason}`);
+      finish(EXIT.PRECHECK, { reason: 'design_human_gate' });
+    }
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!ids.length) finish(EXIT.PRECHECK, { reason: 'empty_feature_candidates' });
+    const artifacts = [];
+    for (const fid of ids) {
+      const paths = resolveContractArtifactPaths(root, fid);
+      const row = { feature_id: fid, ...paths };
+      const r = validateJson(v.validateArtifactItem, row, `artifacts[${fid}]`);
+      if (!r.ok) {
+        console.error(r.errors.join('\n'));
+        finish(EXIT.PRECHECK, { reason: 'artifact_row_invalid', feature_id: fid });
+      }
+      artifacts.push(row);
+    }
+    stages.stages.contract = stages.stages.contract || {};
+    stages.stages.contract.outputs = stages.stages.contract.outputs || {};
+    stages.stages.contract.outputs.artifacts = artifacts;
+    logDryRunSlice(parsed, { contract: { outputs: { artifacts } } });
+    writeStages(root, stages, parsed.dryRun);
+    console.log(JSON.stringify(artifacts, null, 2));
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'validate-contract') {
+    if (parsed.force) resetContractStageForForce(stages);
+    const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
+    if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (stages.stages.design?.status !== 'completed' || !stages.stages.design?.validation?.passed) {
+      if (!parsed.force) {
+        console.error('validate-contract blocked: design not completed');
+        finish(EXIT.PRECHECK, { reason: 'design_not_completed' });
+      }
+    }
+    const gate = contractBlockedByDesignHumanGate(stages);
+    if (!gate.ok && !parsed.force) {
+      console.error(`validate-contract blocked: ${gate.reason}`);
+      finish(EXIT.PRECHECK, { reason: 'design_human_gate' });
+    }
+    const artifacts = stages.stages.contract?.outputs?.artifacts || [];
+    if (!artifacts.length) {
+      console.error('validate-contract: no artifacts; run register-contract-artifacts');
+      finish(EXIT.PRECHECK, { reason: 'no_artifacts' });
+    }
+    const timeoutMs = readTimeoutSeconds(root, 'contract_s') * 1000;
+    stages.stages.contract.outputs = stages.stages.contract.outputs || {};
+    stages.stages.contract.outputs.timed_out = false;
+    stages.stages.contract.outputs.timeout_reason = null;
+
+    const checkNames = ['types', 'api', 'schema', 'test_spec', 'design_snapshot'];
+    let anyMissing = false;
+    let anyFailed = false;
+    const agg = Object.fromEntries(
+      checkNames.map((name) => [name, { name, status: 'passed', errors: [] }])
+    );
+    const bump = (name, status, err) => {
+      const c = agg[name];
+      if (status === 'failed') {
+        c.status = 'failed';
+        if (err) c.errors.push(err);
+        anyFailed = true;
+      } else if (status === 'skipped' && c.status !== 'failed') {
+        c.status = 'skipped';
+        if (err) c.errors.push(err);
+      } else if (status === 'pending' && c.status === 'passed') {
+        c.status = 'pending';
+      }
+    };
+
+    const anyTsArtifact = artifacts.some((a) => {
+      if (ids.length && !ids.includes(a.feature_id)) return false;
+      const t = a.types || '';
+      return t.endsWith('.ts') || t.endsWith('.tsx');
+    });
+    const tsconfigPath = path.join(root, 'tsconfig.json');
+    if (anyTsArtifact && fs.existsSync(tsconfigPath)) {
+      const tr = runWithTimeout('npx', ['tsc', '--noEmit'], root, timeoutMs);
+      if (tr.error && tr.error.code === 'ETIMEDOUT') {
+        stages.stages.contract.outputs.timed_out = true;
+        stages.stages.contract.outputs.timeout_reason = 'tsc --noEmit timed out';
+        stages.stages.contract.outputs.duration_ms = timeoutMs;
+        const flatChecks = checkNames.map((n) => agg[n]);
+        stages.stages.contract.validation = stages.stages.contract.validation || {};
+        stages.stages.contract.validation.checks = flatChecks;
+        stages.stages.contract.validation.passed = false;
+        logDryRunSlice(parsed, { contract: { outputs: stages.stages.contract.outputs, validation: stages.stages.contract.validation } });
+        writeStages(root, stages, parsed.dryRun);
+        finish(EXIT.TIMEOUT, { timed_out: true, tool: 'tsc' });
+      }
+      if (tr.status !== 0) {
+        const msg = (tr.stderr || tr.stdout || tr.error?.message || 'tsc failed').trim().slice(0, 2000);
+        bump('types', 'failed', `project tsc --noEmit: ${msg}`);
+      }
+    } else if (anyTsArtifact) {
+      bump('types', 'skipped', 'no tsconfig.json at project root; types file existence only');
+    }
+
+    for (const art of artifacts) {
+      if (ids.length && !ids.includes(art.feature_id)) continue;
+      const prefix = `[${art.feature_id}]`;
+      const req = ['types', 'api', 'schema', 'test_spec', 'design_snapshot'];
+      for (const k of req) {
+        const rel = art[k];
+        if (!rel) {
+          bump(k, 'failed', `${prefix} path empty`);
+          anyMissing = true;
+          continue;
+        }
+        const abs = path.join(root, ...rel.split('/'));
+        if (!fs.existsSync(abs)) {
+          bump(k, 'failed', `${prefix} missing file: ${rel}`);
+          anyMissing = true;
+          continue;
+        }
+        if (k === 'design_snapshot') {
+          let snap;
+          try {
+            snap = readJson(abs);
+          } catch (e) {
+            bump(k, 'failed', `${prefix} ${e.message}`);
+            continue;
+          }
+          const vr = validateJson(v.validateDesignSnapshot, snap, rel);
+          if (!vr.ok) vr.errors.forEach((e) => bump(k, 'failed', `${prefix} ${e}`));
+        } else if (k === 'api') {
+          const text = fs.readFileSync(abs, 'utf8');
+          if (!looksLikeOpenApiDoc(text)) {
+            bump(k, 'failed', `${prefix} api file does not look like OpenAPI`);
+          } else {
+            const swagger = runWithTimeout('swagger-cli', ['validate', abs], root, timeoutMs);
+            if (swagger.status === 0) {
+              if (!openApiHasXSmokePathLevel(text)) {
+                agg.api.errors.push(
+                  `${prefix} recommend path-level x-smoke for ai-publish-dev3 (design3 §4)`
+                );
+              }
+            } else if (swagger.error && swagger.error.code === 'ETIMEDOUT') {
+              stages.stages.contract.outputs.timed_out = true;
+              stages.stages.contract.outputs.timeout_reason = 'swagger-cli validate timed out';
+              stages.stages.contract.outputs.duration_ms = timeoutMs;
+              const flatChecks = checkNames.map((n) => agg[n]);
+              stages.stages.contract.validation = stages.stages.contract.validation || {};
+              stages.stages.contract.validation.checks = flatChecks;
+              stages.stages.contract.validation.passed = false;
+              logDryRunSlice(parsed, { contract: { outputs: stages.stages.contract.outputs } });
+              writeStages(root, stages, parsed.dryRun);
+              finish(EXIT.TIMEOUT, { timed_out: true, tool: 'swagger-cli' });
+            } else if (swagger.error && swagger.error.code === 'ENOENT') {
+              bump(k, 'skipped', `${prefix} swagger-cli not in PATH; OpenAPI header heuristic only`);
+              if (!openApiHasXSmokePathLevel(text)) {
+                agg.api.errors.push(`${prefix} recommend path-level x-smoke (design3 §4)`);
+              }
+            } else if (swagger.status !== 0) {
+              const msg = (swagger.stderr || swagger.stdout || '').trim() || swagger.error?.message;
+              bump(k, 'failed', `${prefix} swagger-cli: ${msg}`);
+            }
+          }
+        } else if (k === 'types') {
+          if (agg.types.status === 'failed' || agg.types.status === 'skipped') continue;
+          bump(k, 'passed', null);
+        } else if (k === 'schema') {
+          const body = fs.readFileSync(abs, 'utf8').trim();
+          if (!body) bump(k, 'failed', `${prefix} empty schema file`);
+        } else if (k === 'test_spec') {
+          const body = fs.readFileSync(abs, 'utf8').trim();
+          if (!body) {
+            bump(k, 'failed', `${prefix} empty test_spec`);
+          } else if (rel.endsWith('.md')) {
+            if (!/^#+\s/m.test(body)) {
+              bump(k, 'failed', `${prefix} test_spec markdown should contain at least one heading`);
+            }
+          } else if (rel.endsWith('.yaml') || rel.endsWith('.yml')) {
+            /* YAML 结构校验不设 schema（design3 §6.2）；仅非空 */
+          }
+        }
+      }
+    }
+    const flatChecks = checkNames.map((n) => agg[n]);
+    stages.stages.contract = stages.stages.contract || {};
+    stages.stages.contract.validation = stages.stages.contract.validation || {};
+    stages.stages.contract.validation.checked_at = isoNow();
+    stages.stages.contract.validation.checks = flatChecks;
+    const anySkipped = flatChecks.some((c) => c.status === 'skipped');
+    stages.stages.contract.validation.passed =
+      !anyMissing && !anyFailed && !stages.stages.contract.outputs.timed_out;
+    stages.stages.contract.validation.summary =
+      anyFailed || anyMissing
+        ? 'contract validation failed'
+        : anySkipped
+          ? 'contract validation passed with skipped checks (see errors arrays for warnings)'
+          : 'contract validation passed';
+    if (stages.stages.contract.validation.passed) {
+      const ha0 = stages.stages.contract.outputs?.human_approval?.status;
+      if (ha0 === 'approved' || ha0 === 'not_required') {
+        stages.stages.contract.status = 'completed';
+        stages.stages.contract.completed_at = isoNow();
+      } else {
+        stages.stages.contract.status = 'blocked';
+      }
+    } else {
+      stages.stages.contract.status = 'failed';
+    }
+    logDryRunSlice(parsed, {
+      contract: { validation: stages.stages.contract.validation, status: stages.stages.contract.status },
+    });
+    writeStages(root, stages, parsed.dryRun);
+    if (stages.stages.contract.outputs.timed_out) finish(EXIT.TIMEOUT, { timed_out: true });
+    if (anyMissing) finish(EXIT.PRECHECK, { reason: 'missing_artifact_files' });
+    if (anyFailed) finish(EXIT.QUALITY, { reason: 'contract_checks_failed' });
+    finish(EXIT.OK);
+  }
+
+  function touchHumanApproval(status, extra) {
+    stages.stages.contract = stages.stages.contract || {};
+    stages.stages.contract.outputs = stages.stages.contract.outputs || {};
+    stages.stages.contract.outputs.human_approval = {
+      status,
+      approved_by: extra.approved_by ?? '',
+      approved_at: extra.approved_at ?? null,
+      notes: extra.notes ?? '',
+    };
+    logDryRunSlice(parsed, {
+      contract: { outputs: { human_approval: stages.stages.contract.outputs.human_approval } },
+    });
+    writeStages(root, stages, parsed.dryRun);
+  }
+
+  if (parsed.cmd === 'approve-contract') {
+    const by = parsed.approvedBy || process.env.USER || process.env.USERNAME || '';
+    touchHumanApproval('approved', {
+      approved_by: by,
+      approved_at: isoNow(),
+      notes: parsed.notes != null ? parsed.notes : '',
+    });
+    if (stages.stages.contract.validation?.passed) {
+      stages.stages.contract.status = 'completed';
+      stages.stages.contract.completed_at = isoNow();
+    } else {
+      stages.stages.contract.status = 'blocked';
+    }
+    logDryRunSlice(parsed, {
+      contract: { status: stages.stages.contract.status, outputs: { human_approval: stages.stages.contract.outputs.human_approval } },
+    });
+    writeStages(root, stages, parsed.dryRun);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'reject-contract') {
+    if (parsed.notes == null || String(parsed.notes).trim() === '') {
+      console.error('reject-contract requires --notes=<text>');
+      finish(EXIT.PRECHECK, { reason: 'missing_notes' });
+    }
+    touchHumanApproval('rejected', { notes: parsed.notes });
+    stages.stages.contract.status = 'failed';
+    logDryRunSlice(parsed, { contract: { status: 'failed' } });
+    writeStages(root, stages, parsed.dryRun);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'mark-contract-not-required') {
+    touchHumanApproval('not_required', { notes: parsed.notes != null ? parsed.notes : '' });
+    if (stages.stages.contract.validation?.passed) {
+      stages.stages.contract.status = 'completed';
+      stages.stages.contract.completed_at = isoNow();
+    } else {
+      stages.stages.contract.status = 'blocked';
+    }
+    logDryRunSlice(parsed, { contract: { status: stages.stages.contract.status } });
+    writeStages(root, stages, parsed.dryRun);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'hash-contract-inputs') {
+    const arts = stages.stages.contract?.outputs?.artifacts || [];
+    const files = {};
+    for (const a of arts) {
+      for (const k of ['types', 'api', 'schema', 'test_spec', 'design_snapshot']) {
+        const rel = a[k];
+        if (!rel) continue;
+        const abs = path.join(root, ...rel.split('/'));
+        if (fs.existsSync(abs)) files[rel] = sha256Hex(fs.readFileSync(abs, 'utf8'));
+      }
+    }
+    const hash = sha256Hex(JSON.stringify({ artifacts: arts, files }));
+    stages.stages.contract = stages.stages.contract || {};
+    stages.stages.contract.inputs = stages.stages.contract.inputs || {};
+    stages.stages.contract.inputs.summary_hash = hash;
+    logDryRunSlice(parsed, { contract: { inputs: { summary_hash: hash } } });
+    writeStages(root, stages, parsed.dryRun);
+    console.log(hash);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'validate-design-review') {
+    const ha = stages.stages.contract?.outputs?.human_approval?.status;
+    if (ha !== 'approved' && ha !== 'not_required') {
+      console.error(`validate-design-review blocked: human_approval.status=${ha}`);
+      finish(EXIT.PRECHECK, { reason: 'human_approval_not_ready', human_approval: ha });
+    }
+    if (!stages.stages.contract?.validation?.passed) {
+      console.error('validate-design-review blocked: contract.validation.passed is false');
+      finish(EXIT.PRECHECK, { reason: 'contract_validation_failed' });
+    }
+    if (stages.stages.contract?.status !== 'completed' && !parsed.force) {
+      console.error('validate-design-review blocked: contract.status is not completed');
+      finish(EXIT.PRECHECK, { reason: 'contract_not_completed' });
+    }
+    const gaps = stages.stages.design_review?.outputs?.gaps;
+    let blocking = 0;
+    if (Array.isArray(gaps)) {
+      for (const g of gaps) {
+        if (g && (g.blocking === true || g.severity === 'blocking')) blocking += 1;
+      }
+    }
+    const arts = stages.stages.contract?.outputs?.artifacts || [];
+    const errors = [];
+    for (const art of arts) {
+      const snapRel = art.design_snapshot;
+      if (!snapRel) {
+        errors.push(`[${art.feature_id}] missing design_snapshot path`);
+        continue;
+      }
+      const snapAbs = path.join(root, ...snapRel.split('/'));
+      let snap;
+      try {
+        snap = readJson(snapAbs);
+      } catch (e) {
+        errors.push(`${snapRel}: ${e.message}`);
+        continue;
+      }
+      const vr = validateJson(v.validateDesignSnapshot, snap, snapRel);
+      if (!vr.ok) errors.push(...vr.errors);
+      const spec = stages.stages.design?.outputs?.design_specs?.find((d) => d.feature_id === art.feature_id);
+      if (spec && snap.feature_id && spec.feature_id && snap.feature_id !== spec.feature_id) {
+        errors.push(`snapshot/design_specs feature_id mismatch for ${art.feature_id}`);
+      }
+      if (spec && snap.client_target && spec.client_target && snap.client_target !== spec.client_target) {
+        errors.push(`snapshot/design_specs client_target mismatch for ${art.feature_id}`);
+      }
+    }
+    if (blocking > 0) errors.push(`blocking_gaps_count=${blocking}`);
+    stages.stages.design_review = stages.stages.design_review || {};
+    stages.stages.design_review.validation = stages.stages.design_review.validation || {};
+    stages.stages.design_review.validation.checked_at = isoNow();
+    stages.stages.design_review.validation.blocking_gaps_count = blocking;
+    stages.stages.design_review.validation.passed = errors.length === 0 && blocking === 0;
+    stages.stages.design_review.validation.summary = errors.length ? errors.join('; ') : 'design-review checks OK';
+    if (!stages.stages.design_review.validation.passed) {
+      stages.stages.design_review.status = 'failed';
+    }
+    logDryRunSlice(parsed, {
+      design_review: { validation: stages.stages.design_review.validation, status: stages.stages.design_review.status },
+    });
+    writeStages(root, stages, parsed.dryRun);
+    if (errors.length || blocking > 0) finish(EXIT.QUALITY, { blocking_gaps_count: blocking });
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'write-design-review') {
+    if (!stages.stages.design_review?.validation?.passed && !parsed.force) {
+      console.error('write-design-review blocked: validate-design-review first');
+      finish(EXIT.PRECHECK, { reason: 'validate_design_review_required' });
+    }
+    const t0 = Date.now();
+    stages.stages.design_review.outputs = stages.stages.design_review.outputs || {};
+    stages.stages.design_review.outputs.decision = 'passed';
+    stages.stages.design_review.outputs.can_enter_codegen = true;
+    stages.stages.design_review.outputs.duration_ms = Date.now() - t0;
+    stages.stages.design_review.status = 'completed';
+    stages.stages.design_review.completed_at = isoNow();
+    logDryRunSlice(parsed, {
+      design_review: {
+        status: stages.stages.design_review.status,
+        outputs: {
+          decision: stages.stages.design_review.outputs.decision,
+          can_enter_codegen: stages.stages.design_review.outputs.can_enter_codegen,
+        },
+      },
+    });
+    writeStages(root, stages, parsed.dryRun);
+    finish(EXIT.OK);
+  }
+
+  if (parsed.cmd === 'hash-design-review-inputs') {
+    const arts = stages.stages.contract?.outputs?.artifacts || [];
+    const specs = stages.stages.design?.outputs?.design_specs || [];
+    const files = {};
+    for (const a of arts) {
+      for (const k of ['types', 'api', 'schema', 'test_spec', 'design_snapshot']) {
+        const rel = a[k];
+        if (!rel) continue;
+        const abs = path.join(root, ...rel.split('/'));
+        if (fs.existsSync(abs)) files[rel] = sha256Hex(fs.readFileSync(abs, 'utf8'));
+      }
+    }
+    for (const s of specs) {
+      if (s.spec_path) {
+        const abs = path.join(root, ...String(s.spec_path).split('/'));
+        if (fs.existsSync(abs)) files[s.spec_path] = sha256Hex(fs.readFileSync(abs, 'utf8'));
+      }
+    }
+    const hash = sha256Hex(JSON.stringify({ artifacts: arts, design_specs: specs, files }));
+    stages.stages.design_review = stages.stages.design_review || {};
+    stages.stages.design_review.inputs = stages.stages.design_review.inputs || {};
+    stages.stages.design_review.inputs.summary_hash = hash;
+    logDryRunSlice(parsed, { design_review: { inputs: { summary_hash: hash } } });
+    writeStages(root, stages, parsed.dryRun);
+    console.log(hash);
+    finish(EXIT.OK);
+  }
+
+  console.error('Internal error: unhandled subcommand');
+  finish(EXIT.PRECHECK, { reason: 'internal' });
+}
+
+process.on('SIGINT', () => {
+  process.exit(EXIT.CANCEL);
+});
+
+main();

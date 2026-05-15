@@ -1,0 +1,102 @@
+{
+  "$id": "https://skill-v3.local/schemas/design-spec.v3.schema.json",
+  "title": "DesignSpecFileV3",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "feature_id",
+    "client_target",
+    "status"
+  ],
+  "properties": {
+    "feature_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "ready_for_contract",
+        "approved",
+        "superseded"
+      ]
+    },
+    "spec_path": {
+      "type": "string"
+    },
+    "file_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "new_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "modify_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reuse_existing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "api_outline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "data_outline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shared_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}
