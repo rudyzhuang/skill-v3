@@ -105,7 +105,7 @@ ai-prd3/
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed |
 | `write-prd` | 在校验已通过的前提下写 `stages.prd` 完成态 + §9 hash |
 | `validate-prd-review` | 前置门闸 + 门闸终检（可读模式） |
-| `write-prd-review` | 合并 LLM 产出的结构化 JSON 到 `stages.prd_review` + §9 hash |
+| `write-prd-review` | 合并 LLM 产出的结构化 JSON 到 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希；终检见 **§8.3**） |
 
 **约定**：`validate-*` 失败时退出码 **1**，且须更新**当前阶段**在 `stages.json` 中的块：例如 `validate-prd` 失败须写 **`stages.prd`**；`validate-prd-review` 失败须写 **`stages.prd_review`**——`status=failed`，`validation.passed=false`，不得保持 `running`（详见 §7.4 / §8.4 语义）。
 
@@ -361,7 +361,8 @@ summary_hash = SHA256( concat(parts) )
 
 - **配置键**：`docs/config.dev.json` → `timeouts.stages.prd_s` 与 **`timeouts.stages.prd_review_s`**（注意 **`prd_review`** 带下划线 + `_s` 后缀，与 `config.dev.json.template` 一致）。默认均为 **600**（秒）。  
 - **实现**：超时须在 **cjs** 内实现（`run-with-timeout.cjs`）；触发后退出码 **3**，并写当前阶段的 `outputs.timed_out`、`outputs.duration_ms`、`outputs.timeout_reason`（如 `stage_timeout`）。  
-- **日志**：在 `.agent-sessions/<session_id>.log` 记录命令行、各脚本退出码、关键路径（`input-spec.md` §6）。
+- **日志**（`input-spec.md` §6）：**`run.cjs`** 向 **`.agent-sessions/ai-prd3.ndjson`** 追加 NDJSON（`invoke` / `exit` / 子步骤失败等）；若 CLI 传入 **`--session-id=<id>`**（或环境变量 **`AI_SESSION_ID`**），同时向 **`.agent-sessions/<id>.log`** 追加人类可读行（含子命令、退出码、`argv` 摘要）。  
+- **用户中断**：**`run.cjs`** 收到 **SIGINT** → **退出码 2**（与 **§7.4**「用户取消」对齐；亦见 **`SKILL.md`**）。
 
 ---
 
@@ -380,7 +381,7 @@ summary_hash = SHA256( concat(parts) )
 | `conditional_passed` 且 `conditions` 非空且未置 `passed` | 不满足 §8.4 之 **passed** 语义，终检退出 1 |
 | 手工重跑 prd / prd-review 无确认 | 退出 1 |
 | 英文 prd-spec 声明端但缺 **`## 7. Target-Specific Requirements`** 下 **`### <slug>`** | `validate-prd` 退出 1 |
-| 改 prd-spec 一字后未重跑 prd | （若实现 drift）`prd` 完成态应失效；**最低**要求：hash 与文件内容一致可追溯 |
+| 改 prd-spec 一字后未重跑 prd | **`validate-prd`** 首步 **`prd-validate-spec`**：若 **`stages.prd` 已完成**且 **`prd-spec.md`** 的 SHA-256 ≠ **`inputs.summary_hash`** → **退出 1**（`prd_spec_drift`）；须 **`validate-prd` + `write-prd`** 或 **`bootstrap --force`** 后重做 prd |
 
 ---
 
@@ -450,6 +451,8 @@ summary_hash = SHA256( concat(parts) )
 - [ ] **`config.*.json` 密钥扫描**（**附录 B**）在 `preflight` / `validate-config` 中的调用方式写入 `SKILL.md`。  
 - [ ] 与 **ai-design3**、**ai-auto3** 的下一步话术（等同本文 **§8.7**；prd 完成后的门闸见 **§7.3**）。  
 - [ ] 禁止项（等同本文 §8.2）。  
+- [ ] **`--allow-fill-missing-keys`**（**§7.2**）、**`--session-id` / `AI_SESSION_ID`**、**§11** 日志路径（**`ai-prd3.ndjson`**、**`<session_id>.log`**）。  
+- [ ] **SIGINT → 退出 2**（**§7.4**）；**prd-spec 漂移**与 **`validate-prd`** 行为（见 **§12** 末行）。  
 - [ ] 重跑与 `--force` 约定（等同本文 §7.5、§8.6）。
 
 ---
@@ -458,6 +461,7 @@ summary_hash = SHA256( concat(parts) )
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.2 | 2026-05-15 | **§4.2** 澄清 `write-prd-review` 与 **§8.3** 哈希语义；**§11** 增补 **`ai-prd3.ndjson`**、**`--session-id`**.log、**SIGINT→2**；**§12** 漂移用例定稿；**附录 C** 增补 **§7.2** / 日志 / 漂移 / **§7.4** 勾选项。 |
 | 0.1 | 2026-05-15 | 文档评审修订：§0 与 **附录 A/B/C** 分工写清；**§7.4** 超时引用修正为 **§11**；**§15** 补全 **`client_targets` / `prd_review`** 字段边界；**附录 A** 补 **§4.3.1** `prd` 完成态；**附录 C** 补超时与 **附录 B** 扫描勾选项；**§14 T2** 与 **`input-spec.md` §3.2** 语义对齐；页脚增 **`config.env.template`**、**`prd-review-output` schema** |
 
 ---

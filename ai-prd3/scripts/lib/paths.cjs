@@ -16,6 +16,7 @@ function parseArgs(argv) {
     json: null,
     timeoutSec: null,
     noTimeout: false,
+    sessionId: '',
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -25,6 +26,8 @@ function parseArgs(argv) {
     else if (a === '--no-timeout') args.noTimeout = true;
     else if (a.startsWith('--lang=')) args.lang = a.slice('--lang='.length);
     else if (a === '--allow-fill-missing-keys') args.allowFillMissingKeys = true;
+    else if (a.startsWith('--session-id=')) args.sessionId = a.slice('--session-id='.length).trim();
+    else if (a === '--session-id') args.sessionId = String(argv[++i] || '').trim();
     else if (a.startsWith('--json=')) args.json = a.slice('--json='.length);
     else if (a.startsWith('--timeout-sec=')) args.timeoutSec = Number(a.slice('--timeout-sec='.length), 10);
     else if (!a.startsWith('-')) args._.push(a);

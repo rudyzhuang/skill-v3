@@ -1,6 +1,6 @@
 ---
 name: ai-prd3
-version: "0.2.0"
+version: "0.2.1"
 description: >-
   Skill V3 第三代 PRD 与需求评审（prd-review）：维护 docs/inputs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md，
   更新 .pipeline/stages.json 的 prd 与 prd_review 及 inputs.summary_hash。在用户提到 ai-prd3、第三代 PRD、Skill V3 prd、
@@ -56,6 +56,8 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 **常用选项**：
 
 - `--force`：`write-prd` / `write-prd-review` 覆盖已完成门闸；**`bootstrap`** 在 **`prd` 已完成**时须加 `--force` 才允许再次执行（`prd3.md` §7.5）。**`bootstrap --force`** 在重置 `prd` 的同时会将 **`prd_review`** 置回未完成态，避免门闸双真源。
+- `--allow-fill-missing-keys`：仅 **`bootstrap`**。当 **`docs/config.*.json`** 已存在但相对 skill 模板**缺键**时，做 **additive** 补齐（不覆盖已有键值）；不传则 **退出 1**（`prd3.md` §7.2）。
+- `--session-id=<id>`：写入 **`.agent-sessions/ai-prd3.ndjson`** 与 **`.agent-sessions/<id>.log`**（`prd3.md` §11）；亦可设环境变量 **`AI_SESSION_ID`**。
 - `--no-timeout` 或环境变量 **`AI_PRD3_NO_TIMEOUT=1`**：禁用子进程超时（冒烟/调试）。
 - `--lang=cn|en`：`bootstrap` 选用 prd-spec 模板。
 - `--json=<path>`：`write-prd-review` 的合并输入（绝对路径或相对项目根）。
@@ -64,13 +66,17 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 
 **超时（`prd3.md` §11）**：`run.cjs` 对受控子进程使用 `lib/run-with-timeout.cjs`，默认超时秒数来自 **`docs/config.dev.json` → `timeouts.stages.prd_s` / `prd_review_s`**。超时：**退出码 3**，并写当前阶段 `outputs.timed_out` / `duration_ms` / `timeout_reason`（`lib/stage-status.cjs`）。
 
+**可观测性（`prd3.md` §11）**：`run.cjs` 在子命令起止向 **`.agent-sessions/ai-prd3.ndjson`** 追加 NDJSON；若提供 **`--session-id`**（或 **`AI_SESSION_ID`**），同时追加人类可读行到 **`.agent-sessions/<session_id>.log`**（`lib/session-log.cjs`）。
+
+**prd-spec 漂移**：`prd-validate-spec.cjs` 在 **`stages.prd` 已为 `completed` 且 `validation.passed`** 时，若磁盘 **`prd-spec.md`** 的 SHA-256 与 **`stages.prd.inputs.summary_hash`** 不一致 → **退出 1**（须重跑 `validate-prd` + `write-prd` 或 `bootstrap --force` 后重做 prd）。
+
 ## 4. 退出码（`prd3.md` §10）
 
 | 码 | 含义 |
 | --- | --- |
 | 0 | 成功 |
 | 1 | 前置失败、解析/校验/结构 JSON/敏感扫描失败等 |
-| 2 | 用户取消（预留，当前未统一映射） |
+| 2 | 用户中断：**`run.cjs`** 收到 **SIGINT**（Ctrl+C）时 **退出 2** 并写会话日志（`prd3.md` §7.4） |
 | 3 | **子命令执行超时**（见 §3） |
 
 ## 5. 与下游的衔接话术（`prd3.md` §8.7）
@@ -110,8 +116,9 @@ node ai-prd3/scripts/smoke.cjs
 - [x] §0 指向 **`docs/spec/prd3.md`**。
 - [x] 覆盖 / 非覆盖阶段。
 - [x] I/O 路径表、`run.cjs` 子命令表、退出码与**超时**、附录 B 调用说明。
+- [x] **`--allow-fill-missing-keys`**、**`--session-id` / `AI_SESSION_ID`**、**§11** `.agent-sessions/ai-prd3.ndjson` 与 `<session_id>.log`；**SIGINT → 退出 2**；**prd-spec 漂移**（`validate-prd` 首步）。
 - [x] 与 **ai-design3**、**ai-auto3** 衔接话术；禁止项；重跑与 `--force`（含 bootstrap 门闸）。
 
 ---
 
-*连续两轮评审：功能与 `prd3.md` 对齐项已落在 `scripts/*.cjs` 与 `smoke.cjs`；若规格变更请走 `prd3.md` §0 维护流程。*
+*连续两轮评审（2026-05-15）：`node ai-prd3/scripts/smoke.cjs` 连续两次通过；对照 `prd3.md` §4.2 / §7.2 / §11 / §12 与 `SKILL.md` 附录 C 已闭合此前缺口。规格变更请走 `prd3.md` §0 维护流程。*

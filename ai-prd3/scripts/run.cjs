@@ -1,11 +1,13 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { parseArgs, requireProject, skillDirFrom, prdSpecPath } = require('./lib/paths.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
 const { spawnSyncWithTimeout, readStageTimeoutSec } = require('./lib/run-with-timeout.cjs');
 const { markPrdFailed, markPrdTimeout, markPrdReviewTimeout } = require('./lib/stage-status.cjs');
+const { appendSessionLog } = require('./lib/session-log.cjs');
 
 function useTimeout(args) {
   if (args.noTimeout) return false;
@@ -42,10 +44,48 @@ function runNodeScript(scriptDir, scriptName, project, args, extraArgs = [], tim
 
 function main() {
   const args = parseArgs(process.argv);
-  const sub = args._[0];
+  const sub = args._[0] || '';
+  const sessionId = args.sessionId || process.env.AI_SESSION_ID || '';
+
+  process.on('SIGINT', () => {
+    try {
+      if (args.project && path.isAbsolute(args.project)) {
+        const root = path.resolve(args.project);
+        if (fs.existsSync(root)) {
+          appendSessionLog(root, {
+            subcommand: sub,
+            event: 'sigint',
+            session_id: sessionId,
+            exit_code: 2,
+          });
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    process.exit(2);
+  });
+
   const project = requireProject(args);
   const skillDir = skillDirFrom(__filename);
   const scriptDir = path.join(skillDir, 'scripts');
+
+  function done(code) {
+    appendSessionLog(project, {
+      subcommand: sub || '',
+      event: 'exit',
+      session_id: sessionId,
+      exit_code: code,
+    });
+    process.exit(code);
+  }
+
+  appendSessionLog(project, {
+    subcommand: sub || 'help',
+    event: 'invoke',
+    session_id: sessionId,
+    argv: process.argv.slice(2),
+  });
 
   if (!sub || sub === 'help' || sub === '-h') {
     console.log(`用法: node scripts/run.cjs <子命令> --project=<绝对路径> [选项]
@@ -58,12 +98,15 @@ function main() {
   --force  覆盖已完成阶段（prd / prd-review）；bootstrap 在 prd 已完成时须加此选项
   --no-timeout  禁用 config 中的阶段超时（冒烟/调试可用；亦支持环境变量 AI_PRD3_NO_TIMEOUT=1）
   --lang=cn|en  bootstrap 选用 prd-spec 模板语言
+  --allow-fill-missing-keys  bootstrap：config 相对模板缺键时做 additive 补齐（prd3.md §7.2）
+  --session-id=<id>  写入 .agent-sessions/ai-prd3.ndjson 与 <id>.log（prd3.md §11）
   --json=<path>  write-prd-review 合并用 JSON（绝对路径或相对项目根）
 
 超时（prd3.md §11）：默认读取 docs/config.dev.json → timeouts.stages.prd_s / prd_review_s（秒），
 子进程超时将写 stages.*.outputs.timed_out 并以退出码 3 结束。
+用户中断（Ctrl+C）→ 退出码 2（prd3.md §7.4 / SKILL.md）。
 `);
-    process.exit(sub ? 0 : 1);
+    done(sub ? 0 : 1);
   }
 
   if (sub === 'bootstrap') {
@@ -71,17 +114,24 @@ function main() {
     if (args.lang === 'en') extra.push('--lang=en');
     else extra.push('--lang=cn');
     if (args.force) extra.push('--force');
+    if (args.allowFillMissingKeys) extra.push('--allow-fill-missing-keys');
     const r = runNodeScript(scriptDir, 'prd-bootstrap.cjs', project, args, extra, 'prd');
-    if (r.timedOut) process.exit(3);
-    process.exit(r.status === 0 ? 0 : r.status || 1);
+    appendSessionLog(project, {
+      subcommand: 'bootstrap',
+      event: 'child_done',
+      session_id: sessionId,
+      script: 'prd-bootstrap.cjs',
+      exit_code: r.timedOut ? 3 : r.status,
+    });
+    if (r.timedOut) done(3);
+    done(r.status === 0 ? 0 : r.status || 1);
   }
 
   if (sub === 'parse-targets') {
-    const fs = require('fs');
     const spec = prdSpecPath(project);
     if (!fs.existsSync(spec)) {
       console.error('缺少', spec);
-      process.exit(1);
+      done(1);
     }
     const text = fs.readFileSync(spec, 'utf8');
     let p = parseClientTargets(text);
@@ -91,52 +141,59 @@ function main() {
     }
     if (!p.ok) {
       console.error(JSON.stringify({ ok: false, error: p.error }, null, 2));
-      process.exit(1);
+      done(1);
     }
     console.log(JSON.stringify({ declared: p.slugs, legacy: !!p.legacy }, null, 2));
-    process.exit(0);
+    done(0);
   }
 
   if (sub === 'validate-prd') {
     const steps = ['prd-validate-spec.cjs', 'prd-validate-derived.cjs', 'prd-validate-config.cjs'];
     for (const s of steps) {
       const r = runNodeScript(scriptDir, s, project, args, [], 'prd');
-      if (r.timedOut) process.exit(3);
+      if (r.timedOut) done(3);
       if (r.status !== 0) {
         console.error(r.stderr || r.stdout);
         markPrdFailed(project, `validate_failed:${s}`);
-        process.exit(r.status || 1);
+        appendSessionLog(project, {
+          subcommand: 'validate-prd',
+          event: 'validate_step_failed',
+          session_id: sessionId,
+          script: s,
+          exit_code: r.status || 1,
+        });
+        done(r.status || 1);
       }
     }
-    process.exit(0);
+    done(0);
   }
 
   if (sub === 'write-prd') {
     const extra = args.force ? ['--force'] : [];
     const r = runNodeScript(scriptDir, 'prd-write-stage.cjs', project, args, extra, 'prd');
-    if (r.timedOut) process.exit(3);
-    process.exit(r.status === 0 ? 0 : r.status || 1);
+    if (r.timedOut) done(3);
+    done(r.status === 0 ? 0 : r.status || 1);
   }
 
   if (sub === 'validate-prd-review') {
     const r = runNodeScript(scriptDir, 'prd-review-validate.cjs', project, args, [], 'prd_review');
-    if (r.timedOut) process.exit(3);
-    process.exit(r.status === 0 ? 0 : r.status || 1);
+    if (r.timedOut) done(3);
+    done(r.status === 0 ? 0 : r.status || 1);
   }
 
   if (sub === 'write-prd-review') {
     if (!args.json) {
       console.error('缺少 --json=');
-      process.exit(1);
+      done(1);
     }
     const extra = [`--json=${args.json}`, ...(args.force ? ['--force'] : [])];
     const r = runNodeScript(scriptDir, 'prd-review-write-stage.cjs', project, args, extra, 'prd_review');
-    if (r.timedOut) process.exit(3);
-    process.exit(r.status === 0 ? 0 : r.status || 1);
+    if (r.timedOut) done(3);
+    done(r.status === 0 ? 0 : r.status || 1);
   }
 
   console.error('未知子命令:', sub);
-  process.exit(1);
+  done(1);
 }
 
 main();

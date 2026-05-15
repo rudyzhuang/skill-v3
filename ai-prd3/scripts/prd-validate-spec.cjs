@@ -1,7 +1,8 @@
 'use strict';
 
 const fs = require('fs');
-const { parseArgs, requireProject, prdSpecPath } = require('./lib/paths.cjs');
+const crypto = require('crypto');
+const { parseArgs, requireProject, prdSpecPath, stagesPath } = require('./lib/paths.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
 
 const H2_PER_TARGET_CN = /^##\s+7\.\s+各端专属需求\s*$/m;
@@ -42,6 +43,33 @@ function main() {
     process.exit(1);
   }
   const md = fs.readFileSync(specPath, 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  const stagesFile = stagesPath(root);
+  if (fs.existsSync(stagesFile)) {
+    try {
+      const stagesDoc = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
+      const prd = stagesDoc.stages?.prd;
+      const stored = prd?.inputs?.summary_hash;
+      if (
+        prd?.status === 'completed' &&
+        prd?.validation?.passed === true &&
+        typeof stored === 'string' &&
+        /^[a-f0-9]{64}$/.test(stored)
+      ) {
+        const curHash = crypto.createHash('sha256').update(Buffer.from(md, 'utf8')).digest('hex');
+        if (curHash !== stored) {
+          console.error(
+            'validate-spec: prd_spec_drift: prd-spec.md 与 stages.prd.inputs.summary_hash 不一致；请重跑 validate-prd + write-prd，或 bootstrap --force 后重做 prd'
+          );
+          process.exit(1);
+        }
+      }
+    } catch (e) {
+      console.error('validate-spec: stages_drift_check_error', String(e.message || e));
+      process.exit(1);
+    }
+  }
+
   let parsed = parseClientTargets(md);
   let summaryExtra = '';
   if (!parsed.ok) {

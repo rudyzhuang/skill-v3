@@ -7,6 +7,7 @@ const { execSync } = require('child_process');
 const { parseArgs, requireProject, skillDirFrom } = require('./lib/paths.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
+const { fillMissingFromTemplate, wouldFillChange } = require('./lib/config-fill.cjs');
 
 function getGitRemoteUrl(root) {
   try {
@@ -66,6 +67,26 @@ function main() {
   copyIfMissing(path.join(tplRoot, 'config.dev.json.template'), cfgDev);
   copyIfMissing(path.join(tplRoot, 'config.release.json.template'), cfgRel);
   copyIfMissing(path.join(tplRoot, 'config.env.template'), cfgEnv);
+
+  const devTplPath = path.join(tplRoot, 'config.dev.json.template');
+  const relTplPath = path.join(tplRoot, 'config.release.json.template');
+  for (const [label, cfgPath, tplPath] of [
+    ['config.dev.json', cfgDev, devTplPath],
+    ['config.release.json', cfgRel, relTplPath],
+  ]) {
+    const cur = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8'));
+    if (!wouldFillChange(cur, tpl)) continue;
+    if (!args.allowFillMissingKeys) {
+      console.error(
+        `bootstrap: ${label} 相对模板存在缺失键，拒绝静默改写（prd3.md §7.2）。请传 --allow-fill-missing-keys 做 additive 补齐。`
+      );
+      process.exit(1);
+    }
+    const filled = fillMissingFromTemplate(cur, tpl);
+    fs.writeFileSync(cfgPath, `${JSON.stringify(filled, null, 2)}\n`, 'utf8');
+    console.warn(`bootstrap: 已对 ${label} 做相对模板的 additive 补齐`);
+  }
 
   const stagesFile = path.join(projectRoot, '.pipeline', 'stages.json');
   const stagesTpl = path.join(tplRoot, 'stages.json.template');
