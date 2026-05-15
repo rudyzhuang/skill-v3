@@ -27,6 +27,11 @@ disable-model-invocation: true
 - **上游（codegen）**：仅当 **`stages.contract`** 与 **`stages.design_review`** 满足 `docs/spec/code3.md` §7.2 时可执行 codegen。
 - **下游**：**ai-publish-dev3** 消费 **`stages.build.outputs.artifacts[]`** 与 **`docs/config.dev.json`** 中的 deploy 映射；测试失败时的续跑入口由 **ai-auto3** 或人工读取 **`rollback_to`** 决定（本 skill 不直接调用上游子 skill）。
 
+## codegen 与 Cursor Agent（规划真源）
+
+- **worktree + 分相 Agent、环境变量、CI 跳过策略、状态字段** 以 **`docs/spec/code3.md` §7.4–§7.12** 为准（对齐上一代 **ai-codegen2**，状态落在 **`stages.codegen.outputs.worktrees[]`** 与 **`outputs.agent`**）。  
+- **`codegen.cjs`** 过渡实现完成后，应拆分 **`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**（规划名），**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
+
 ## 业务项目路径（相对 `<project_root>/`）
 
 | 路径 | 说明 |
@@ -62,10 +67,13 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 ## 冒烟自测（本仓）
 
 ```bash
+node ai-code3/scripts/self-test-secret-scan.cjs   # 附录 B 启发式单测（亦可单独跑）
 node ai-code3/scripts/smoke.cjs
 ```
 
-将 `fixtures/smoke-project/` 复制到临时目录、`git init` 基线提交后执行 `preflight` + `all --stub-remaining`。
+`smoke.cjs` 会先跑 secret-scan 单测，再将 `fixtures/smoke-project/` 复制到临时目录、`git init` 基线提交后执行 `preflight` + `all --stub-remaining`。
+
+分阶段实施与两轮评审门禁见 **`docs/plans/ai-code3-implementation-plan.md`**。
 
 ## 退出码（与 `docs/input-spec.md` §5 一致）
 

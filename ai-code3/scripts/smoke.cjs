@@ -28,6 +28,13 @@ function git(tmp, args) {
 }
 
 function main() {
+  const selfTest = path.join(skillRoot, 'scripts', 'self-test-secret-scan.cjs');
+  const st = spawnSync(process.execPath, [selfTest], { stdio: 'inherit', cwd: skillRoot });
+  if (st.status !== 0) {
+    console.error('self-test-secret-scan failed');
+    process.exit(1);
+  }
+
   if (!fs.existsSync(fixtureDir)) {
     console.error('missing fixture', fixtureDir);
     process.exit(1);
