@@ -9,12 +9,30 @@
 | **与 `docs/templates/` 的关系** | **JSON / Markdown 字段形状**以 **`docs/templates/stages.json.template`**、**`docs/templates/config.dev.json.template`**（及 release 对档）为准。本文 **§19** 列出 **`stages.json`** 读写子集；**模板字段速查**见 **附录 C**（与 **prd3.md §18 附录 C** 字母含义一致：实现辅助与验收勾选项）；模板增删字段时，**同一维护周期**内更新本文 §19、附录 C 与相关脚本契约。 |
 | **`inputs.summary_hash`（全局门闸）** | `input-spec.md` §4.4 要求各阶段维护 `stages.<stage>.inputs.summary_hash`。**`docs/templates/stages.json.template` v1 已在各 `stages.*.inputs` 下提供 `summary_hash` 占位**；ai-code3 在完成各阶段成功路径时须按本文 **§13** 写入/更新非空哈希（与 `input-spec.md` §9.1 additive 规则一致）。 |
 | **与上一版 skill 的关系** | **不得**把 v2 仓库路径、SQLite `*_state`、业务仓内旧脚本契约写入 v3 默认实现；经验映射见 **§2**。 |
+| **实现覆盖快照（评审用）** | **§0.1** 给出「规格能力 vs 当前 **`ai-code3/scripts`**」摘要；**全文目标形态**仍以 **§7–§12** 为准，未达标项须继续实现而非从规格删除。 |
 
 **维护流程（需求变更时）**：
 
 1. 在本文修改行为/校验/门闸描述。  
 2. 若涉及文件形状，同步 **`docs/templates/`** 与（必要时）**`docs/input-spec.md`**。  
-3. 再改 **ai-code3** 实现与测试用例（**§16**）。
+3. 再改 **ai-code3** 实现与测试用例（**§16**）；**同步更新 §0.1**，避免实现与评审表漂移。
+
+---
+
+## 0.1 实现覆盖快照（`ai-code3/scripts`）
+
+| 能力 | 主要章节 | 与当前脚本对齐 | 说明 |
+| --- | --- | --- | --- |
+| `run.cjs` 串联、`summary_hash` 跳过、`failed_stage=` | §4、附录 A.3、§13 | **是** | |
+| `preflight`：根、`config.dev.json`、**`stages.json`**、schema、**config.* secret-scan** | §4.1、附录 B | **是** | **不**含 **§7.2** 上游门闸（各阶段脚本自校） |
+| `codegen`：§7.2 门闸 + 主仓 **diff-guard** | §7.2–§7.3 | **是** | **否**：worktree 创建、二次契约守护、Agent、`outputs.agent`（§7.4 目标） |
+| `typecheck` | §8 | **是** | 含 T1 全 skip→0 |
+| `test` | §9 | **部分** | 同命令重试；无 Agent fix-loop |
+| `code-review` | §10 | **部分** | 无 LLM；`passed`+`validation.passed` 时刷新 hash；否则 stub 或 blocked |
+| `merge-push` | §11、§11.4 | **是** | stub 路径除外 |
+| `build` | §12 | **部分** | 单命令 + 简化 artifacts |
+| 附录 B 单测 / merge 自测 / smoke | 附录 B、§16 | **是** | 见 **`ai-code3/scripts/self-test-*.cjs`**、`smoke.cjs` |
+| §15 心跳 | §15 | **否** | |
 
 ---
 
@@ -88,13 +106,13 @@ ai-code3/
 | 脚本 | 职责 |
 | --- | --- |
 | `run.cjs` | 解析 `--project`、`--from-stage`、`--to-stage`、`--feature`、`--force-rerun`、`--dry-run`、`--session-id`；串联子流程；统一退出码；日志中带 `failed_stage=` |
-| `preflight.cjs` | 校验项目根、`docs/config.dev.json`、`.pipeline/stages.json` 可读及上游门闸；失败 **退出码 1** |
-| `codegen.cjs` | **git worktree** 建/复用、契约与设计快照注入、**Cursor Agent（CLI 或 SDK）** 分相调度、可选确定性骨架、**diff-guard**、心跳与超时、回写 **`stages.codegen`**（算法见 **§7.4–§7.12**） |
+| `preflight.cjs` | 校验项目根、**`docs/config.dev.json`** 存在且可读、**`.pipeline/stages.json`** 可读及 **`_schema.version`**；对 **`config.dev.json` / `config.release.json`（若存在）** 执行 **附录 B** 式 **secret-scan**；**不**在此处校验 **§7.2** codegen 上游门闸（由 **`codegen.cjs`** 等阶段脚本执行时校验）；失败 **退出码 1** |
+| `codegen.cjs` | **目标形态（§7.4–§7.12）**：**git worktree** 建/复用、设计快照、**Cursor Agent** 分相、可选骨架、**diff-guard**、心跳与超时、回写 **`stages.codegen`**。**当前仓库过渡实现**：§7.2 门闸 + **主仓**契约路径 **diff-guard** 通过后写回 **`completed`**（无 Agent / 无二次 worktree diff-guard）；详见 **§0.1** |
 | `typecheck.cjs` | 静态检查探测与执行；回写 **`stages.typecheck`** |
 | `test.cjs` | 测试与 fix-loop；回写 **`stages.test`**、`rollback_to` |
-| `code-review.cjs` | 合并 LLM 结构化结论；回写 **`stages.code_review`** |
+| `code-review.cjs` | **目标**：合并 **LLM** 结构化结论并回写 **`stages.code_review`**。**当前仓库**：不调用 LLM；若 **`outputs.decision`** 为 **`passed`**、**`validation.passed`** 为 **`true`** 且 **`critical_issues===0`** 则刷新 **`summary_hash`** / **`completed_at`**；**`passed_with_warnings`** → 退出 **4**；否则 **blocked**（或 **`--stub-remaining`** 占位） |
 | `merge-push.cjs` | **`lib/merge-git.cjs`** 组合 **`git merge --no-ff` / `git push`**、锁；干净工作区在加锁**前**校验；**`--stub-remaining`** 占位；回写 **`stages.merge_push`**（细节 **§11.4**） |
-| `build.cjs` | 按端与子平台构建；回写 **`stages.build`** |
+| `build.cjs` | **目标**：按 **§12.2** 多端 **`client_targets`×`sub_platforms`** 构建。**当前仓库**：优先顶层 **`build.commands.build`** + 简化 **`artifacts[]`**（详见 **§0.1**）；超时与锁已部分对齐 |
 | `lib/stages-io.cjs` | 原子写/文件锁、`_schema.version`、**`input-spec.md` §9.1** additive 规则 |
 | `lib/run-with-timeout.cjs` | SIGTERM 宽限 → SIGKILL；超时 **退出码 3**；`timed_out` / `duration_ms` / `timeout_reason` |
 | `lib/summary-hash.cjs` | **§13** 与 **附录 A · A.3** 跳过判定 |
@@ -593,7 +611,9 @@ ai-code3/
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.7 | 2026-05-15 | **§0.1 实现覆盖快照**；**§4.1** 修正 **`preflight`/`codegen`/`code-review`/`build`** 与当前仓库脚本一致（目标 vs 过渡/部分实现分述） |
 | 0.6 | 2026-05-15 | **§11 merge-push**：补充 **§11.4** 与仓库脚本一致的默认实现说明（真 merge / push、干净树门闸、`merge-git.cjs`） |
+| 0.5 | 2026-05-15 | **codegen 扩展方案**：§7.4–§7.12（worktree + Cursor Agent 对齐 v2 **ai-codegen2**）；§4.1 目录与 lib 职责；§14 退出码 **4** 含 codegen 约定；附录 A/C **codegen** 行；附录 C **`outputs.agent`**；§16 增补验收行 |
 | 0.4 | 2026-05-15 | 附录字母与 **prd3** 对齐：**附录 A** = `input-spec` 摘录；**附录 B** = `config.*.json` 密钥/键名扫描；**附录 C** = 模板速查 + **`SKILL.md`** 清单；全文交叉引用已更新 |
 | 0.3 | 2026-05-15 | 与 **`docs/spec/prd3.md` 同构**：章节重组（§0–§19 + 附录）；系统化摘录 **`input-spec.md`**（**0.4** 起该摘录固定为 **附录 A**，与 prd3 字母含义一致）；§0 与模板 **`summary_hash`** 占位描述对齐 prd3 |
 | 0.2 | 2026-05-15 | 评审修订：§0 SSOT、门闸收紧、`push_status`、summary_hash 等 |
