@@ -1,0 +1,58 @@
+{
+  "_schema": { "name": "skill-v3-project-config", "version": 1, "environment": "dev" },
+  "project": { "name": "fixture", "project_id": "fx", "root_path": "", "default_client_targets": ["website"] },
+  "pipeline": {
+    "autorun": { "allow_destructive_deploy": false }
+  },
+  "build": {
+    "package_manager": "auto",
+    "commands": { "install": "", "typecheck": "", "test": "", "build": "", "test_max_fix_attempts": 3 },
+    "artifacts_dir": "dist",
+    "client_targets": {}
+  },
+  "timeouts": {
+    "autorun_total_s": 7200,
+    "stages": {
+      "deploy_s": 1800,
+      "smoke_s": 300
+    },
+    "subcommand": {
+      "default_s": 600,
+      "graceful_shutdown_s": 5,
+      "heartbeat_interval_s": 30
+    }
+  },
+  "deploy": {
+    "enabled": true,
+    "environment": "dev",
+    "provider": "manual",
+    "region": "",
+    "project_or_account": "",
+    "services": [
+      {
+        "client_target": "website",
+        "service_name": "fixture-web",
+        "resource_type": "static_site",
+        "runtime": "",
+        "region": "",
+        "domain": "example.com",
+        "healthcheck_path": "/",
+        "create_if_missing": false,
+        "resource_config": {}
+      }
+    ]
+  },
+  "smoke": {
+    "enabled": true,
+    "base_url": "https://example.com",
+    "safe_only": true,
+    "checks": [
+      { "name": "root", "method": "GET", "path": "/", "expected_status": 200 }
+    ]
+  },
+  "security": {
+    "secret_env_path": "docs/config.env",
+    "forbidden_json_key_patterns": ["secret", "token", "api_key", "apikey", "password", "credential", "private_key"]
+  },
+  "metadata": { "created_by": "fixture", "created_at": null, "updated_at": null }
+}

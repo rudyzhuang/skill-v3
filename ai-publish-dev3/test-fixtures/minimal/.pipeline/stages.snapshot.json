@@ -1,0 +1,40 @@
+{
+  "_schema": { "name": "skill-v3-stages", "version": 1 },
+  "stages": {
+    "merge_push": {
+      "status": "completed",
+      "validation": { "passed": true },
+      "outputs": {}
+    },
+    "build": {
+      "status": "completed",
+      "validation": { "passed": true },
+      "outputs": {
+        "artifacts": [
+          {
+            "client_target": "website",
+            "sub_platform": "",
+            "build_type": "fixture",
+            "command": "",
+            "artifact_path": "fixtures/artifact.txt",
+            "status": "success",
+            "log_path": ""
+          }
+        ]
+      }
+    },
+    "deploy": {
+      "status": "not_started",
+      "environment": "dev",
+      "validation": { "passed": false },
+      "inputs": { "summary_hash": "", "artifacts": [] },
+      "outputs": { "services": [], "deploy_url": "" }
+    },
+    "smoke": {
+      "status": "not_started",
+      "validation": { "passed": false },
+      "inputs": { "summary_hash": "" },
+      "outputs": { "checks": [] }
+    }
+  }
+}

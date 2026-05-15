@@ -1,0 +1,608 @@
+{
+  "_schema": {
+    "name": "skill-v3-stages",
+    "version": 1,
+    "description": "Project-side pipeline state. This file is the recoverable source for local skill DB state."
+  },
+  "project": {
+    "project_id": "",
+    "root_path": "",
+    "name": "",
+    "git": {
+      "remote": "",
+      "default_branch": "main"
+    }
+  },
+  "pipeline": {
+    "current_stage": "prd",
+    "last_completed_stage": null,
+    "updated_at": null,
+    "updated_by": "ai-prd3"
+  },
+  "client_targets": {
+    "declared": [],
+    "generated": [],
+    "allowed_values": [
+      "website",
+      "admin",
+      "backend",
+      "miniapp",
+      "mobile",
+      "desktop",
+      "agent"
+    ],
+    "_doc": "Parse client_targets from docs/inputs/prd-spec.md: first H2 titled exactly ## 端 (Client Targets) (CN) or ## Client Targets (EN); take the first unordered list whose items are allowed slugs (see allowed_values). Markdown anchor for CN heading: #client-targets.",
+    "derivation_source": "docs/inputs/prd-spec.md#client-targets"
+  },
+  "stages": {
+    "prd": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "source_prd_spec": "docs/inputs/prd-spec.md",
+        "raw_input_refs": []
+      },
+      "outputs": {
+        "config_dev": "docs/config.dev.json",
+        "config_release": "docs/config.release.json",
+        "config_env": "docs/config.env",
+        "client_targets": [],
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "required_files": [
+          {
+            "path": "docs/inputs/prd-spec.md",
+            "exists": false,
+            "valid": false
+          },
+          {
+            "path": "docs/config.dev.json",
+            "exists": false,
+            "valid": false
+          },
+          {
+            "path": "docs/config.release.json",
+            "exists": false,
+            "valid": false
+          },
+          {
+            "path": "docs/config.env",
+            "exists": false,
+            "valid": false
+          }
+        ],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [],
+      "blocking_issues": []
+    },
+    "prd_review": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "prd",
+        "source_prd_spec": "docs/inputs/prd-spec.md",
+        "feature_lists": []
+      },
+      "outputs": {
+        "decision": "pending",
+        "can_enter_design": false,
+        "current_phase": "mvp",
+        "next_skill_manual": "ai-design3",
+        "next_skill_auto_after_review": "ai-auto3",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "review": {
+        "summary": "",
+        "phase_plan": [
+          {
+            "phase": "mvp",
+            "feature_ids": [],
+            "goal": "",
+            "exit_criteria": []
+          }
+        ],
+        "priority_changes": [],
+        "cross_phase_dependencies": [],
+        "config_change_suggestions": {
+          "dev": [],
+          "release": []
+        },
+        "suggested_prd_spec_changes": []
+      },
+      "blocking_issues": [],
+      "conditions": [],
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "blocking_issues_count": 0,
+        "conditions_resolved": false,
+        "design_inputs_ready": false,
+        "config_secret_scan_passed": false,
+        "warnings": []
+      }
+    },
+    "design": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "prd_review",
+        "feature_ids": [],
+        "feature_lists": [],
+        "config_dev": "docs/config.dev.json",
+        "config_release": "docs/config.release.json"
+      },
+      "outputs": {
+        "design_specs": [],
+        "summary": "",
+        "needs_human_review": false,
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "blocking_issues": []
+    },
+    "contract": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "design",
+        "design_specs": []
+      },
+      "outputs": {
+        "artifacts": [
+          {
+            "feature_id": "",
+            "types": "",
+            "api": "",
+            "schema": "",
+            "test_spec": "",
+            "design_snapshot": ""
+          }
+        ],
+        "human_approval": {
+          "status": "pending",
+          "approved_by": "",
+          "approved_at": null,
+          "notes": ""
+        },
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "checks": [
+          {
+            "name": "types",
+            "status": "pending",
+            "errors": []
+          },
+          {
+            "name": "api",
+            "status": "pending",
+            "errors": []
+          },
+          {
+            "name": "schema",
+            "status": "pending",
+            "errors": []
+          },
+          {
+            "name": "test_spec",
+            "status": "pending",
+            "errors": []
+          },
+          {
+            "name": "design_snapshot",
+            "status": "pending",
+            "errors": []
+          }
+        ],
+        "warnings": []
+      },
+      "blocking_issues": []
+    },
+    "design_review": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "contract",
+        "design_specs": [],
+        "contract_artifacts": []
+      },
+      "outputs": {
+        "decision": "pending",
+        "can_enter_codegen": false,
+        "gaps": [],
+        "alignment_summary": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "blocking_gaps_count": 0,
+        "warnings": []
+      }
+    },
+    "codegen": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "design_review",
+        "contract_artifacts": []
+      },
+      "outputs": {
+        "worktrees": [
+          {
+            "feature_id": "",
+            "branch": "",
+            "worktree_path": "",
+            "commit": "",
+            "files_expected": [],
+            "files_changed": [],
+            "test_files_expected": [],
+            "test_files_changed": []
+          }
+        ],
+        "impl_codegen_status": "pending",
+        "test_codegen_status": "pending",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "contract_diff_guard_passed": false,
+        "warnings": []
+      },
+      "error": ""
+    },
+    "typecheck": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "codegen",
+        "worktrees": []
+      },
+      "outputs": {
+        "tools": [
+          {
+            "name": "tsc",
+            "status": "skipped",
+            "command": "",
+            "exit_code": null,
+            "errors": []
+          },
+          {
+            "name": "eslint",
+            "status": "skipped",
+            "command": "",
+            "exit_code": null,
+            "errors": []
+          },
+          {
+            "name": "python",
+            "status": "skipped",
+            "command": "",
+            "exit_code": null,
+            "errors": []
+          }
+        ],
+        "skip_reason": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    },
+    "test": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "typecheck",
+        "worktrees": []
+      },
+      "outputs": {
+        "command": "",
+        "attempts": 0,
+        "result": "pending",
+        "focused": false,
+        "log_path": "",
+        "failure_summary": "",
+        "bug_signature": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      },
+      "rollback_to": null
+    },
+    "code_review": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "test",
+        "contract_artifacts": [],
+        "worktrees": []
+      },
+      "outputs": {
+        "decision": "pending",
+        "critical_issues": 0,
+        "warnings": 0,
+        "checklist": [
+          {
+            "key": "new_files_exist",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "no_codegen_skeleton",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "interfaces_implemented",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "api_routes_match",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "reuse_patterns_used",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "constraints_followed",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "api_base_url_correct",
+            "passed": false,
+            "violations": []
+          },
+          {
+            "key": "cors_configured",
+            "passed": false,
+            "violations": []
+          }
+        ],
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    },
+    "merge_push": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "code_review",
+        "worktrees": [],
+        "target_branch": "main"
+      },
+      "outputs": {
+        "merge_status": "pending",
+        "target_branch": "main",
+        "merge_commit": "",
+        "push_requested": false,
+        "push_status": "not_requested",
+        "conflict_files": [],
+        "error": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    },
+    "build": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "merge_push",
+        "client_targets": []
+      },
+      "outputs": {
+        "artifacts": [
+          {
+            "client_target": "",
+            "sub_platform": "",
+            "build_type": "",
+            "command": "",
+            "artifact_path": "",
+            "status": "pending",
+            "log_path": ""
+          }
+        ],
+        "skipped_targets": [],
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    },
+    "deploy": {
+      "status": "not_started",
+      "environment": "dev",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "build",
+        "config": "docs/config.dev.json",
+        "secret_env": "docs/config.env",
+        "artifacts": []
+      },
+      "outputs": {
+        "environment": "dev",
+        "provider": "",
+        "services": [
+          {
+            "client_target": "",
+            "service_name": "",
+            "resource_type": "",
+            "url": "",
+            "status": "pending",
+            "log_path": ""
+          }
+        ],
+        "deploy_url": "",
+        "commit": "",
+        "error": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "config_valid": false,
+        "credentials_available": false,
+        "warnings": []
+      }
+    },
+    "smoke": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "deploy",
+        "base_url": "",
+        "checks_source": []
+      },
+      "outputs": {
+        "checks": [
+          {
+            "name": "",
+            "method": "GET",
+            "path": "",
+            "expected_status": 200,
+            "actual_status": null,
+            "passed": false,
+            "latency_ms": null,
+            "error": ""
+          }
+        ],
+        "failed_paths": [],
+        "skip_reason": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    },
+    "report": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "stages_snapshot": ".pipeline/stages.json",
+        "logs": []
+      },
+      "outputs": {
+        "overall_result": "pending",
+        "report_path": "",
+        "summary": "",
+        "next_steps": [],
+        "blockers": [],
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    }
+  },
+  "logs": {
+    "session_logs": [],
+    "pipeline_logs": []
+  }
+}
