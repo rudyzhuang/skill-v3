@@ -41,8 +41,8 @@ node scripts/run.cjs --project=/abs/path/to/repo \
 
 | 子脚本 / 库 | 职责 |
 | --- | --- |
-| `preflight.cjs` | `config.dev.json`、`config.env` 可解析、forbidden 键扫描、`merge_push`/`build` 门闸、`artifact_ref` 优先的一对一产物映射；非 **manual** / **exit8-test（仅自测）** 的 provider 预检拒绝（`publish3.md` §7.1） |
-| `deploy.cjs` | `deploy-dev` PID 锁；**`provider=manual`** 时写回 `stages.deploy`（无云 API）；**`exit8-test`** 在 `AI_PUBLISH_DEV3_SELFTEST=1` 时模拟 **退出码 8**；其它 provider **退出 1**（待扩展真实云 `lib/providers/*`） |
+| `preflight.cjs` | `config.dev.json`、`config.env`、forbidden、`merge_push`/`build`、artifact 一对一；**`provider=cloudflare`** 时强制 **`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`** 非空；允许 **manual** / **cloudflare** / 自测 **exit8-test**（`publish3.md` §7.1） |
+| `deploy.cjs` | `deploy-dev` PID 锁；**`manual`** / **`cloudflare`**；**`exit8-test`**（`AI_PUBLISH_DEV3_SELFTEST=1`）模拟 **退出码 8**；Cloudflare 实现见 **`lib/providers/cloudflare.cjs`**（Pages/Workers + 域名/DNS/SSL，对齐 ai-deploy2） |
 | `smoke.cjs` | `smoke` PID 锁；**`config.smoke.checks[]`** 与 **`api.yaml` `x-smoke`** 合并（`lib/collect-x-smoke.cjs`，需 `npm ci` 安装 `js-yaml`）；**GET/HEAD** 与显式 **`safe`/`safe_post`** 折叠后的 **safe POST**（`lib/http-smoke.cjs`）；未通过 **退出码 4**；超时 **退出码 3**；写回 `stages.smoke` |
 | `init.cjs` | 可选占位：打印模板路径指引，不写密钥（`publish3.md` §4.1） |
 | `lib/stages-io.cjs` | 原子写回 `stages.json` |
@@ -73,8 +73,8 @@ node scripts/run.cjs --project=/abs/path/to/repo \
 
 | 项 | 说明 |
 | --- | --- |
-| 真实云 **provider** | **Cloudflare/AWS/…** 未实现；业务 `deploy.provider` 须 **`manual`**，否则 **退出 1**（`publish3.md` §4.1）。 |
-| **`deploy` 云失败 → 退出 8** | 真实映射待 provider；自测可用 **`exit8-test`** + 环境变量 **`AI_PUBLISH_DEV3_SELFTEST=1`** 验证 **8** 与 `stages.deploy` 失败写回。 |
+| 真实云 **provider** | **AWS/阿里云/…** 未实现；**`cloudflare`** 已实现（见 `lib/providers/cloudflare.cjs` 与 `templates/README.md`）。 |
+| **`deploy` 云失败 → 退出 8** | Cloudflare API / `wrangler` 非零退出等映射为 **8**；配置/门闸类仍为 **1**。自测仍可用 **`exit8-test`**。 |
 | **`manual` deploy 硬超时** | `manual` 为同步短任务，无法在单线程内被强制中断；**`runWithTimeout`** 对 **HTTP smoke** 可靠；未来云 SDK/子进程应在边界套用超时。 |
 
 自测：`scripts/selftest.sh`（在 **`ai-publish-dev3/`** 执行 **`npm ci`** 安装 `js-yaml`；需网络访问 **example.com**）。

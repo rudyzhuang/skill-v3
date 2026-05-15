@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { stagesPath } = require('./lib/paths.cjs');
 const { planManualDeploy } = require('./lib/providers/manual.cjs');
+const { executeCloudflareAndWriteStages } = require('./lib/providers/cloudflare.cjs');
 const { updateStages } = require('./lib/stages-io.cjs');
 const { sha256Stable, deploySummaryInput, hashConfigDeploySubtree } = require('./lib/summary-hash.cjs');
 const { collectConsumedArtifacts } = require('./lib/artifacts.cjs');
@@ -149,11 +150,11 @@ async function runDeploy(projectRoot, opts = {}) {
   const allowExit8Test =
     process.env.AI_PUBLISH_DEV3_SELFTEST === '1' && String(providerRaw).toLowerCase() === 'exit8-test';
 
-  if (!allowExit8Test && provider !== 'manual') {
+  if (!allowExit8Test && provider !== 'manual' && provider !== 'cloudflare') {
     return {
       code: 1,
       failed_step: 'deploy',
-      message: `deploy.provider="${config.deploy.provider}" 尚无自动化实现；请改用 manual 或扩展 scripts/lib/providers/（publish3.md §4.1）。`,
+      message: `deploy.provider="${config.deploy.provider}" 尚无自动化实现；请改用 manual、cloudflare 或扩展 scripts/lib/providers/（publish3.md §4.1）。`,
     };
   }
 
@@ -240,6 +241,8 @@ async function runDeploy(projectRoot, opts = {}) {
     const timeoutMs = stageTimeoutSeconds(config, 'deploy_s') * 1000;
     const hbMs = heartbeatIntervalMs(config);
 
+    const buildArts = (bu && bu.outputs && bu.outputs.artifacts) || [];
+
     const tw = await runWithTimeout(
       {
         ms: timeoutMs,
@@ -247,8 +250,19 @@ async function runDeploy(projectRoot, opts = {}) {
         label: 'deploy',
         onHeartbeat: () => log(`alive: deploy pid=${process.pid}`),
       },
-      async () =>
-        new Promise((resolve, reject) => {
+      async () => {
+        if (provider === 'cloudflare') {
+          return executeCloudflareAndWriteStages(
+            projectRoot,
+            config,
+            buildArts,
+            consumed,
+            summaryHash,
+            stPath,
+            log
+          );
+        }
+        return new Promise((resolve, reject) => {
           setImmediate(() => {
             try {
               const planned = planManualDeploy(config.deploy.services || []);
@@ -301,7 +315,8 @@ async function runDeploy(projectRoot, opts = {}) {
               reject(e);
             }
           });
-        })
+        });
+      }
     );
 
     if (!tw.ok) {
@@ -356,6 +371,10 @@ async function runDeploy(projectRoot, opts = {}) {
         failed_step: 'deploy',
         message: tw.error ? tw.error.message : 'deploy 失败',
       };
+    }
+
+    if (tw.result && typeof tw.result.code === 'number' && tw.result.code !== 0) {
+      return tw.result;
     }
 
     log('deploy end ok');
