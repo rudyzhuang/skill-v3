@@ -11,6 +11,11 @@
  *
  * 模板根目录默认为本仓库（脚本所在 skill-v3 根）下的 docs/templates。
  * 覆盖：--templates-root=/path/to/skill-v3
+ *
+ * 当前脚本覆盖范围（其余请手工对照 input-spec §9.3.2）：
+ * - 文件：inventory.json、deployment_plan.json、feature_list.json→md、scripts/config.env→docs/config.env
+ * - SQLite：review_state / design_state / contract_state / codegen_state / test_state（需本机 sqlite3 CLI）
+ * - 未自动合并的表：typecheck_state、review_code_state、merge 以外的 deploy/smoke/release 等，需后续手工或扩展脚本
  */
 
 'use strict';
@@ -65,8 +70,15 @@ function parseArgs(argv) {
     else if (a.startsWith('--project=')) out.project = a.slice('--project='.length);
     else if (a.startsWith('--templates-root=')) out.templatesRoot = a.slice('--templates-root='.length);
     else if (a.startsWith('--db=')) out.db = a.slice('--db='.length);
-    else if (a.startsWith('--answers-json='))
-      out.answersJson = JSON.parse(a.slice('--answers-json='.length));
+    else if (a.startsWith('--answers-json=')) {
+      const raw = a.slice('--answers-json='.length);
+      if (raw.startsWith('@')) {
+        const fp = path.resolve(raw.slice(1));
+        out.answersJson = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      } else {
+        out.answersJson = JSON.parse(raw);
+      }
+    }
     else if (a.startsWith('--feature-details='))
       out.featureDetailMode = a.slice('--feature-details='.length);
     else if (a.startsWith('--provider-override='))
@@ -86,12 +98,14 @@ skill-v3 migrate v2 → v3（input-spec §9.3）
 常用：
   --commit              默认仅 dry-run；加此参数才写入文件
   --templates-root=     含 docs/templates 的 skill-v3 根（默认：本脚本上级目录）
-  --db=                 显式指定 v2 SQLite（默认探测 .ai-pipeline/pipeline.db）
+  --db=                 显式指定 v2 SQLite（默认 .ai-pipeline/pipeline.db；多 .db 时会交互或需 answers）
   --non-interactive     不提问；需配合 --answers-json 消歧
-  --answers-json=       JSON，例如 {"inventory":"/abs/path/inventory.json","phase_map":"default"}
+  --answers-json=       JSON；路径可用 @/abs/path.json 从文件读取
   --provider-override=  当 v2 为 oracle 等 catalog 未收录时，写入 deploy.provider
-  --feature-details=all|none   feature_list.md 是否生成「Feature Details」分节（默认 all）
-  --list-choices        仅列出需人工消歧项后退出（退出码 2 表示仍有未决项）
+  --feature-details=all|none   feature_list.md 是否生成「Feature Details」（默认 all，大仓可 none）
+  --list-choices        列出常见消歧项后退出（多 inventory / 多 .db 时退出码 2）
+
+说明：SQLite 迁移依赖本机 sqlite3 可执行文件；未覆盖的表见脚本头部注释。
 `);
 }
 
@@ -681,7 +695,7 @@ function writeIfCommit(commit, dryLabel, targetPath, content, isBuffer) {
   else fs.writeFileSync(targetPath, content, 'utf8');
 }
 
-function copyTemplateFileIfMissing(commit, templatesRoot, relFromTemplatesDocs, projectPath, destRel) {
+function copyTemplateFileIfMissing(commit, dryLabel, templatesRoot, relFromTemplatesDocs, projectPath, destRel) {
   const src = path.join(templatesRoot, 'docs', 'templates', relFromTemplatesDocs);
   const dest = path.join(projectPath, destRel);
   if (exists(dest)) {
@@ -689,7 +703,7 @@ function copyTemplateFileIfMissing(commit, templatesRoot, relFromTemplatesDocs, 
     return;
   }
   const buf = fs.readFileSync(src);
-  writeIfCommit(commit, '[write]', dest, buf, true);
+  writeIfCommit(commit, dryLabel, dest, buf, true);
 }
 
 function minimalPrdSpec(clientTargets) {
@@ -941,7 +955,7 @@ async function main() {
   } else console.log(`[skip] 已存在 docs/config.release.json`);
 
   if (!exists(path.join(projectRoot, 'docs', 'config.env'))) {
-    copyTemplateFileIfMissing(args.commit, templatesRoot, 'config.env.template', projectRoot, 'docs/config.env');
+    copyTemplateFileIfMissing(args.commit, dryLabel, templatesRoot, 'config.env.template', projectRoot, 'docs/config.env');
   }
 
   const prdSpec = path.join(projectRoot, 'docs', 'inputs', 'prd-spec.md');
