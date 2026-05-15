@@ -86,7 +86,7 @@ ai-code3/
 | --- | --- |
 | `run.cjs` | 解析 `--project`、`--from-stage`、`--to-stage`、`--feature`、`--force-rerun`、`--dry-run`、`--session-id`；串联子流程；统一退出码；日志中带 `failed_stage=` |
 | `preflight.cjs` | 校验项目根、`docs/config.dev.json`、`.pipeline/stages.json` 可读及上游门闸；失败 **退出码 1** |
-| `codegen.cjs` | **git worktree** 建/复用、契约与设计快照注入、**Cursor Agent（CLI 或 SDK）** 分相调度、可选确定性骨架、**diff-guard**、心跳与超时、回写 **`stages.codegen`**（算法见 **§7.5–§7.12**） |
+| `codegen.cjs` | **git worktree** 建/复用、契约与设计快照注入、**Cursor Agent（CLI 或 SDK）** 分相调度、可选确定性骨架、**diff-guard**、心跳与超时、回写 **`stages.codegen`**（算法见 **§7.4–§7.12**） |
 | `typecheck.cjs` | 静态检查探测与执行；回写 **`stages.typecheck`** |
 | `test.cjs` | 测试与 fix-loop；回写 **`stages.test`**、`rollback_to` |
 | `code-review.cjs` | 合并 LLM 结构化结论；回写 **`stages.code_review`** |
@@ -163,14 +163,14 @@ ai-code3/
 - **worktree**：按 feature 创建/复用；路径写入 **`worktrees[]`**。  
 - **共享代码层**：若设计中指明多端共享修改，须遵守 **`input-spec.md` §8 阶段 3**（与 **`stages.design.outputs.design_specs[].shared_changes[]`** 对齐，字段以当时模板为准）。  
 - **diff-guard**：在业务仓**主工作区**对 `stages.contract.outputs.artifacts[]` 解析出的五类契约路径做 **`git diff --exit-code`**（或等价），**在进入会改写文件的 codegen 主路径之前**执行；失败 → **`validation.contract_diff_guard_passed=false`**，退出码 **5**。worktree 内生成结束后，**仍须**对同一批契约路径做「worktree 相对基线分支的 diff 中不得出现契约篡改」的二次守护（语义对齐 v2 **ai-codegen2** diff-guard；实现可合并为单次比较，但不得漏检）。  
-- **Agent 真实生成**：在隔离 worktree 的上下文中，分相调用 Agent 完成实现与测试代码落地；调度、超时、跳过与可观测性见 **§7.5–§7.12**。  
+- **Agent 真实生成**：在隔离 worktree 的上下文中，分相调用 Agent 完成实现与测试代码落地；调度、超时、跳过与可观测性见 **§7.4–§7.11**。  
 - **`inputs.summary_hash`**：见 **§13.1**（**不得**把 Agent 模型名或随机种子纳入哈希；哈希仅绑定确定性输入）。
 
 ### 7.4 扩展目标：从「占位完成」到「worktree + Agent 真实生成」
 
 当前 **`ai-code3/scripts/codegen.cjs`** 的过渡实现可在门闸通过后**直接**将 **`stages.codegen`** 标为完成；本节的**目标形态**是：在**不回头改契约**的前提下，为每个待生成 **`feature_id`** 建立（或复用）**git worktree**，注入契约与设计快照上下文，**调用 Cursor Agent** 在允许路径内写入实现与测试代码，并将分支、路径、变更文件列表、子阶段状态写回 **`stages.codegen.outputs`**，供 **typecheck** 及后续阶段消费。
 
-**非目标（仍由其它阶段承担）**：不在 codegen 内做完整业务测试套件（归 **§9**）；不把 **merge / push** 作为 codegen 成功必要条件（默认策略见 **§7.11**）；不把「全量云构建」放在 codegen（归 **§12**）。
+**非目标（仍由其它阶段承担）**：不在 codegen 内做完整业务测试套件（归 **§9**）；不把 **merge / push** 作为 codegen 成功必要条件（默认策略见 **§7.10**）；不把「全量云构建」放在 codegen（归 **§12**）。
 
 ### 7.5 与 v2（`ai-codegen2`）能力映射
 
@@ -208,11 +208,11 @@ ai-code3/
 - **跳过 Agent**：**`AI_CODE3_SKIP_AGENT=1`**（或兼容 **`AI_CODEGEN_SKIP_AGENT=1`**）时**不得**调用外部 Agent；仅执行 worktree + 骨架（若启用）；**`outputs.agent.skipped=true`** 与 **`skip_reason`** 写入 **`stages.json`**（见模板）；**`impl_codegen_status` / `test_codegen_status`** 不得假装 **`success`**——应 **`failed`** 或 **`skipped`**（与 **`input-spec.md` §7.1** 枚举一致），除非团队显式允许「骨架即完成」（须在 **`SKILL.md`** 声明为实验模式）。  
 - **日志**：每次 Agent 调用将 **request id / session 片段 / 失败摘要** 写入 **`.agent-sessions/`**；stdout/stderr 须含 **`failed_stage=codegen`** 与 **`feature_id=`**（多 feature 时）。
 
-### 7.10 分相流程（推荐实现顺序）
+### 7.9 分相流程（推荐实现顺序）
 
 对**单个 `feature_id`**，推荐顺序如下（可在 `codegen.cjs` 内拆函数，但对外仍单次 `run.cjs codegen`）：
 
-1. **`status=running`**：写 **`started_at`**，**`impl_codegen_status=test_codegen_status=pending`**（或进入 **`running`** 子状态，须与 **§7.1** 枚举一致）。  
+1. **`status=running`**：写 **`started_at`**，**`impl_codegen_status=test_codegen_status=pending`**（或进入 **`running`** 子状态，须与 **`input-spec.md` §7.1** 中 **`impl_codegen_status` / `test_codegen_status`** 枚举一致）。  
 2. **解析输入**：该 feature 的 **`artifacts[]`** 行（五类路径）+ **`design_snapshot` JSON**（**`file_plan`**、**`depends_on`**、路由/验收摘要）。若 **`design_snapshot`** 缺失且无法从 **`design_specs[].spec_path`** 推导 → **退出 1**。  
 3. **Worktree 就绪**：创建或挂载；记录 **`branch`**、**`worktree_path`**。  
 4. **（可选）确定性骨架**：`codegen-scaffold`；**lib-research** 类依赖安装若存在 **`lib-research.json`**，复用 **ai-design3** 同源助手脚本的策略（静默失败与否写入 **`validation.warnings`**）。  
@@ -223,19 +223,29 @@ ai-code3/
 9. **（可选）预科验**：tsc/eslint 快速探测；失败可 **退出 4** 或仅写 **`validation.warnings`**（默认不写死，避免与 typecheck 重复）。  
 10. **`summary_hash` 写入**、**`status=completed`**、**`validation.passed=true`**；若默认 **auto-commit**：将 **`commit`** 写入对应 **`worktrees[]`** 元素；**`--no-commit`** 时为空字符串并写 **`validation.warnings`**。
 
-### 7.11 配置、环境与 CI
+### 7.10 配置、环境与 CI
 
 - **阶段超时**：**`timeouts.stages.codegen_s`**（默认 **1800**，见 **`input-spec.md` §6.1**）。  
 - **心跳**：**`timeouts.subcommand.heartbeat_interval_s`**（默认 **30**）向会话日志追加 **`alive: stage=codegen`**。  
 - **CI 建议**：默认 **`AI_CODE3_SKIP_AGENT=1`** 跑「门闸 + worktree 创建 + 骨架」冒烟；**真实填码**在开发者本机或受凭证保护的 runner 上执行。  
 - **与 `merge-push` 的边界**：codegen **默认**在 worktree 内 **`git commit`**（与 v2 默认一致）；**禁止**在 codegen 内 **`git push`**。
 
-### 7.12 状态写回与下游对齐
+### 7.11 状态写回与下游对齐
 
 - **`stages.codegen.outputs.worktrees[]`**：每个元素须含模板所列字段；**`worktree_path`** 为绝对路径；**`commit`** 在 **`--no-commit`** 时允许空字符串。  
 - **`impl_codegen_status` / `test_codegen_status`**：对多 feature 聚合规则：**任一端 `failed` → 整体 `validation.passed=false`**；**`skipped`** / **`skipped_no_spec`** 须可解释并在 **`validation.summary`** 简述。  
 - **`outputs.agent`**：见 **`stages.json.template`**；记录 **`mode`**（如 **`cursor_cli` / `cursor_sdk` / `none`**）、**`model`**、是否 **`skipped`**。  
 - **下游 typecheck**：继续以 **`stages.codegen.outputs.worktrees[]`** 为唯一 worktree 列表真源（与当前 **`typecheck.cjs`** 一致）。
+
+### 7.12 失败与退出码
+
+| 情况 | 退出码 |
+| --- | ---: |
+| 前置/解析失败 | 1 |
+| 用户取消 | 2 |
+| 超时 / Agent 异常 | 3 |
+| 实现/测试生成质量门（如 **`files_expected`** 缺失、**`AI_CODE3_SKIP_AGENT`** 下未满足团队「骨架即完成」策略） | 4（若实现选用 **1**，须在 **`SKILL.md`** 固定并与 **§14** 一致） |
+| 契约被破坏（diff-guard） | 5 |
 
 ---
 
