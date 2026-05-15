@@ -16,6 +16,13 @@
     "working_branch_prefix": "ai",
     "allow_push": false
   },
+  "pipeline": {
+    "_doc": "Orchestration flags consumed by ai-auto3 autorun.cjs (dev config only). See docs/spec/publish3.md §5.1.1 and docs/spec/auto3.md §5.1.",
+    "autorun": {
+      "_doc": "When allow_destructive_deploy is false, autorun.cjs must not spawn ai-publish-dev3 deploy; missing key is treated as false (additive default). deploy.enabled alone is not sufficient.",
+      "allow_destructive_deploy": false
+    }
+  },
   "build": {
     "package_manager": "auto",
     "commands": {

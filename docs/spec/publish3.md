@@ -6,7 +6,7 @@
 | --- | --- |
 | **唯一实现参考源** | 实现 **`ai-publish-dev3`** 与 **`ai-publish-release3`** 的 **`SKILL.md`**、**`scripts/**/*.cjs`** 及随 skill 分发的 provider 适配逻辑时，**以本文为规范来源**（门闸、脚本拆分、退出码、`stages.json` 写回边界、release 子步骤）。不依赖口头约定。 |
 | **双 skill 定稿** | 第三代发布能力**固定**为两个独立 Cursor skill 目录：**`ai-publish-dev3`**（dev 环境 deploy + smoke）与 **`ai-publish-release3`**（release 环境 deploy + smoke + **release** 类内部子步骤）。**不**采用「单一 `ai-publish3` + `--env`」合并方案，以免默认参数与触发语义模糊带来的误发风险。本文档 **`publish3.md`** 仅为本族规格的**总文件名**，**不**对应第三个 skill 安装名。 |
-| **与 `docs/templates/` 的关系** | **`stages.json`** 中 **`deploy` / `smoke`** 字段形状、**`config.dev.json` / `config.release.json`** 中 **`deploy` / `smoke` / `release`**（仅 release 配置）等，以对应 **`*.template`** 为真源。本文 **§6**（`stages.json` 写回）、**§7**（门闸）列出须落实的子集；模板增删字段时，**同一维护周期**内同步更新本文与实现。 |
+| **与 `docs/templates/` 的关系** | **`stages.json`** 中 **`deploy` / `smoke`** 字段形状、**`config.dev.json` / `config.release.json`** 中 **`deploy` / `smoke` / `release`**（仅 release 配置）、**`config.dev.json.pipeline.autorun.allow_destructive_deploy`**（**ai-auto3** 调 dev deploy 专用）等，以对应 **`*.template`** 为真源。本文 **§6**（`stages.json` 写回）、**§7**（门闸）、**§5.1.1**（autorun deploy 键）列出须落实的子集；模板增删字段时，**同一维护周期**内同步更新本文与实现。 |
 | **与 `docs/input-spec.md` 的关系** | 全流水线语义（退出码表、日志目录、PID 锁 scope、超时三层模型、`x-smoke` 形状、**destructive** 阶段二次确认、`ai-auto3` 默认终点等）以 **`input-spec.md`** 为准；本文**摘录 publish 族直接依赖的硬约束**并落到可执行规划。若冲突，收束顺序：**先改 `input-spec` + 模板 → 再改本文 → 再改 skill**。 |
 | **`inputs.summary_hash`** | 与 `input-spec.md` §4.4 一致：deploy / smoke 在写回 `stages.json` 时应 **additive** 维护 `stages.deploy.inputs.summary_hash`、`stages.smoke.inputs.summary_hash`（若模板尚未展示该键，不因此单独升 `_schema.version`，见 `input-spec.md` §9.1）。哈希输入边界见 **§6.3**。 |
 | **与上一版（v2）的关系** | **不得**读取 `src/<client_target>/deployment_plan.json`、`inventory.json`、业务仓 `scripts/config.env`、v2 SQLite `deploy_state` / `smoke_state` / `release_state` 作为默认门闸；迁移见 `input-spec.md` §9.3。v2 的 **init / inventory** 交互可作为 **UX 参考**，由本族 skill 的 **可选子命令** 实现。 |
@@ -111,7 +111,7 @@ ai-publish-dev3/
 - 触发词（示例）：「ai-publish-dev3」「dev 部署」「冒烟」「正式发布」「ai-publish-release3」。  
 - **必读/必写文件路径表**（`docs/config.*.json`、`docs/config.env`、`.pipeline/stages.json`、契约 `api.yaml`）。  
 - **CLI 一览**（与 §4.3 一致）及**退出码表**（§9）。  
-- **destructive**：**`deploy` 在 dev / release 下均为 destructive**（`input-spec.md` §7.2 重跑矩阵）；**手工**触发 deploy 须有 **explicit confirm**；**`ai-auto3`** 调用 dev deploy 须在项目配置中有 **显式 opt-in**（同 §7.2），否则不得自动改线上资源。**release** 另须遵守 **§5.2**（`approval_required`、`--confirm-deploy` / explicit confirm 的组合门闸，含 `approval_required===false` 时仍不得零确认部署）。  
+- **destructive**：**`deploy` 在 dev / release 下均为 destructive**（`input-spec.md` §7.2 重跑矩阵）；**手工**触发 deploy 须有 **explicit confirm**；**`ai-auto3`** 调用 dev deploy 时，除 **`deploy.enabled`** 等业务开关外，还须 **`docs/config.dev.json.pipeline.autorun.allow_destructive_deploy === true`**（**§5.1.1**），否则 **autorun** 不得 spawn deploy、**退出码 1**。**release** 另须遵守 **§5.2**（`approval_required`、`--confirm-deploy` / explicit confirm 的组合门闸，含 `approval_required===false` 时仍不得零确认部署）。  
 - **与 `ai-auto3` 的关系**：dev skill 可被 autorun 调用；release skill **默认不**被 autorun 调用。
 
 ### 4.3 建议 CLI 形态
@@ -152,9 +152,20 @@ ai-publish-dev3/
 - **`deploy.enabled`**：若为 `false`，deploy 子步骤应 **skipped** 或 **blocked**（二选一做项目内一致约定，推荐：**skipped** 并写 `skip_reason`，且 **不**将整 skill 标为成功若用户显式要求部署——即 **显式 `--require-deploy`** 时 `enabled=false` → 退出 **1**）。  
 - **`smoke.enabled`**：若为 `false`，smoke 可跳过并记录原因；**autorun 默认序列**若要求冒烟，以 **`input-spec.md` §4.3** 与项目策略为准（建议在 dev 配置默认 **`smoke.enabled=true`**）。
 
+### 5.1.1 **`pipeline.autorun.allow_destructive_deploy`**（仅 `docs/config.dev.json`）
+
+| 项 | 约定 |
+| --- | --- |
+| **JSON 路径** | **`pipeline.autorun.allow_destructive_deploy`**（布尔） |
+| **模板默认** | **`false`**（见 **`docs/templates/config.dev.json.template`**） |
+| **老项目缺键** | 按 **`input-spec.md` §9.1** additive 视为 **`false`**（**ai-auto3** / 校验脚本应写回默认块，**不**静默当成 **true**） |
+| **语义** | 仅授权 **`ai-auto3` / `autorun.cjs`** 在自动序列中 **spawn `ai-publish-dev3` 执行 dev `deploy`**（及随后依赖 deploy 成功路径的 **`smoke`**，仍以 **`smoke.enabled`** 等为准）。**不**授权 **release** deploy；**不**替代手工触发的 **explicit confirm**（手工仍须 **SKILL** 所述确认流）。 |
+| **与 `deploy.enabled` 的关系** | **`deploy.enabled === true`** 且 **`allow_destructive_deploy !== true`** → **autorun** **不得**执行 dev deploy → **退出码 1**，并在 **report** 说明「缺少 `pipeline.autorun.allow_destructive_deploy`」或等价文案。**`deploy.enabled === false`** 时：不执行 deploy，本键**不**作为失败条件（无 deploy 则无 destructive 自动执行）。**注意**：本门闸在 **autorun 即将 spawn dev deploy 时**判定；**不**要求 **ai-auto3** 在开跑前（如尚处 **design** 段）即因 **`deploy.enabled=true` 且本键为 false** 而失败——允许「配置里打算部署、本轮自动编排只跑到 **build**」等用法。 |
+| **禁止** | 不得以 **`deploy.enabled === true`** 单独视为已满足 **autorun** 下的 **destructive** 二次授权（与 **`input-spec.md` §7.2**、**`docs/spec/auto3.md` §6.3** 一致）。 |
+
 ### 5.2 release 环境与二次确认
 
-- **`deploy`（dev 与 release）**：均属 **`input-spec.md` §7.2** 所列 **destructive**。**`ai-publish-dev3`** 的 `SKILL.md` 须写明：手工执行 deploy 前须 **explicit confirm**；被 **`ai-auto3`** 调用时，仅当配置中对该环境 deploy 已 **显式 opt-in** 方可执行，否则退出 **1**。  
+- **`deploy`（dev 与 release）**：均属 **`input-spec.md` §7.2** 所列 **destructive**。**`ai-publish-dev3`** 的 `SKILL.md` 须写明：手工执行 deploy 前须 **explicit confirm**；被 **`ai-auto3`** 调用执行 dev deploy 时，须 **`pipeline.autorun.allow_destructive_deploy === true`**（**§5.1.1**），否则 **autorun** **退出 1**、不得 spawn deploy。  
 - **`config.release.json.deploy.approval_required`**（模板字段）：为 `true` 时，**`ai-publish-release3`** 必须在 CLI 或交互中得到 **`--confirm-deploy`**（或等价机制，须在 `SKILL.md` 写明）才允许改 **release** 环境资源；缺失 → 退出 **1**。  
 - **`approval_required` 为 `false` 时**：仍**不得**默认无确认地执行 release deploy（**destructive**）；须至少有 **一次 explicit confirm**（可与 **`--confirm-deploy`** 复用为同一门闸，由实现决定，但须在 **`SKILL.md`** 写死行为）。  
 - **`ai-auto3` 默认不调用 release skill**（`input-spec.md` §4.3），降低误发风险；release 的 destructive 确认**不得**依赖 autorun 隐式通过。
@@ -294,7 +305,7 @@ ai-publish-dev3/
 - [ ] **smoke**：**GET/HEAD** 默认；**unsafe** 方法被默认拒绝。  
 - [ ] **超时** 写 **`timed_out`/`timeout_reason`/`duration_ms`**，退出 **3**。  
 - [ ] **release skill**：未满足 **§5.2**（含 **`approval_required` + `--confirm-deploy`** 及 **`approval_required===false` 时的 explicit confirm**）即尝试改 release 资源 → **1**；**`release_meta`** 在成功路径写回。  
-- [ ] **`SKILL.md`** 与本文 **§4–§10** 一致（含 **dev deploy 的 destructive 确认** 与 **autorun opt-in**）；**与 `ai-auto3` 调用契约**（dev 可被调、release 默认不调）已写明。
+- [ ] **`SKILL.md`** 与本文 **§4–§10** 一致（含 **dev deploy 的 destructive 确认** 与 **`pipeline.autorun.allow_destructive_deploy`**）；**与 `ai-auto3` 调用契约**（dev 可被调、release 默认不调）已写明。
 
 ---
 
@@ -309,6 +320,7 @@ ai-publish-dev3/
 | **v2 → v3 迁移** | `docs/input-spec.md` §9.3（`deploy_state` / `smoke_state` / `release_state`） |
 | **build 产物形态** | `docs/spec/code3.md` |
 | **x-smoke 与契约** | `docs/spec/design3.md` |
+| **ai-auto3 与 dev deploy 授权** | `docs/spec/auto3.md`、`docs/spec/publish3.md` §5.1.1、`docs/templates/config.dev.json.template` 中 **`pipeline.autorun.allow_destructive_deploy`** |
 
 ---
 
