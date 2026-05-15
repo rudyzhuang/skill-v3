@@ -25,35 +25,24 @@ This file is the single source of truth for the PRD stage. `ai-prd3` derives eac
 | --- | --- | --- |
 |  |  |  |
 
-## 4. Client Targets
+## Client Targets
 
-Declare every client target that must be generated for this project. `ai-prd3` only generates directories and files for targets explicitly listed here.
+Declare **`client_targets`** for this phase as a **single-level unordered list** (aligned with `stages.json` → `client_targets.declared`). `ai-prd3` only generates `docs/<client_target>/prd.md` and `docs/<client_target>/feature_list.md` for targets listed below.
 
-Allowed values:
+The Markdown anchor for this heading is **`#client-targets`**, matching `client_targets.derivation_source` (`docs/inputs/prd-spec.md#client-targets`).
+
+Allowed slugs only: `website`, `admin`, `backend`, `miniapp`, `mobile`, `desktop`, `agent`. Use one list item per line; wrapping each slug in backticks (for example `` `website` ``) is recommended for machine parsing.
 
 - `website`
-- `admin`
 - `backend`
-- `miniapp`
-- `mobile`
-- `desktop`
-- `agent`
-
-Required declaration:
-
-```yaml
-client_targets:
-  - website
-  - backend
-```
 
 Rules:
 
-- A target not listed in `client_targets` is treated as not in scope and must not be generated.
-- A listed target must have enough target-specific requirements in section 8 before `prd` can be marked complete.
-- If a feature spans multiple targets, list all related targets on that feature.
+- Targets not listed above are out of scope and must not receive generated directories.
+- Every listed target must be completed in section **7. Target-Specific Requirements** before `prd` can be marked complete.
+- If a feature spans multiple targets, list all related targets on that feature in section **6. Core Features**.
 
-## 5. Non-Functional Requirements
+## 4. Non-Functional Requirements
 
 | Category | Requirement | Priority |
 | --- | --- | --- |
@@ -64,14 +53,14 @@ Rules:
 | Accessibility |  |  |
 | Compatibility |  |  |
 
-## 6. Business Constraints
+## 5. Business Constraints
 
 - Timeline:
 - Budget / resource constraints:
 - Compliance constraints:
 - Operational constraints:
 
-## 7. Core Features
+## 6. Core Features
 
 Each feature ID should be stable and unique. Suggested format: `<TARGET_OR_DOMAIN>-<AREA>-NNN`, for example `WEB-AUTH-001` or `BACKEND-ORDER-001`.
 
@@ -79,9 +68,9 @@ Each feature ID should be stable and unique. Suggested format: `<TARGET_OR_DOMAI
 | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  | must | mvp |  |  |
 
-## 8. Target-Specific Requirements
+## 7. Target-Specific Requirements
 
-Create one subsection for every target declared in section 4. This template includes all supported targets; delete any target sections you do not need and keep only the targets declared in `client_targets`.
+Create one subsection for every target declared under **Client Targets** above. This template includes all supported targets; delete sections you do not need and keep only targets from that list.
 
 ### website
 
@@ -138,13 +127,13 @@ Create one subsection for every target declared in section 4. This template incl
 - Automation boundaries:
 - Notes:
 
-## 9. Delivery Boundary
+## 8. Delivery Boundary
 
 - MVP boundary:
 - Later phases:
 - Explicit tradeoffs:
 
-## 10. Deployment And Environment Notes
+## 9. Deployment And Environment Notes
 
 Non-secret resource requirements only. Secrets belong in `docs/config.env`.
 
@@ -163,16 +152,16 @@ Non-secret resource requirements only. Secrets belong in `docs/config.env`.
 - Domains:
 - External services:
 
-## 11. Open Questions
+## 10. Open Questions
 
 | Question | Owner | Blocking? | Resolution |
 | --- | --- | --- | --- |
 |  |  | yes |  |
 
-## 12. Validation Checklist
+## 11. Validation Checklist
 
-- [ ] `client_targets` is explicitly declared and uses only allowed values.
-- [ ] Every declared client target has target-specific requirements.
+- [ ] **Client Targets** section lists only allowed slugs.
+- [ ] Every declared target has a filled subsection in **7. Target-Specific Requirements**.
 - [ ] Every core feature has a stable ID, phase, priority, target list, and acceptance summary.
 - [ ] Non-functional requirements and delivery boundary are clear.
 - [ ] No secrets are included in this file.

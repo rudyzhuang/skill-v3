@@ -31,7 +31,8 @@
       "desktop",
       "agent"
     ],
-    "derivation_source": "docs/inputs/prd-spec.md#client_targets"
+    "_doc": "Parse client_targets from docs/inputs/prd-spec.md: first H2 titled exactly ## 端 (Client Targets) (CN) or ## Client Targets (EN); take the first unordered list whose items are allowed slugs (see allowed_values). Markdown anchor for CN heading: #client-targets.",
+    "derivation_source": "docs/inputs/prd-spec.md#client-targets"
   },
   "stages": {
     "prd": {
@@ -39,6 +40,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "source_prd_spec": "docs/inputs/prd-spec.md",
         "raw_input_refs": []
       },
@@ -88,6 +90,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "prd",
         "source_prd_spec": "docs/inputs/prd-spec.md",
         "feature_lists": []
@@ -138,6 +141,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "prd_review",
         "feature_ids": [],
         "feature_lists": [],
@@ -166,6 +170,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "design",
         "design_specs": []
       },
@@ -230,6 +235,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "contract",
         "design_specs": [],
         "contract_artifacts": []
@@ -256,6 +262,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "design_review",
         "contract_artifacts": []
       },
@@ -292,6 +299,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "codegen",
         "worktrees": []
       },
@@ -336,6 +344,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "typecheck",
         "worktrees": []
       },
@@ -364,6 +373,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "test",
         "contract_artifacts": [],
         "worktrees": []
@@ -430,6 +440,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "code_review",
         "worktrees": [],
         "target_branch": "main"
@@ -458,6 +469,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "merge_push",
         "client_targets": []
       },
@@ -491,6 +503,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "build",
         "config": "docs/config.dev.json",
         "secret_env": "docs/config.env",
@@ -530,6 +543,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "requires_stage": "deploy",
         "base_url": "",
         "checks_source": []
@@ -565,6 +579,7 @@
       "started_at": null,
       "completed_at": null,
       "inputs": {
+        "summary_hash": "",
         "stages_snapshot": ".pipeline/stages.json",
         "logs": []
       },
