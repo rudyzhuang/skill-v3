@@ -61,11 +61,14 @@ function runPreflight(projectRoot, opts = {}) {
 
   const deployEnabled = !!(config.deploy && config.deploy.enabled);
   if (deployEnabled) {
-    const provider = (config.deploy && config.deploy.provider) || 'manual';
-    if (deployEnabled && String(provider).toLowerCase() !== 'manual') {
+    const providerRaw = (config.deploy && config.deploy.provider) || 'manual';
+    const provider = String(providerRaw).toLowerCase();
+    const allowExit8Test =
+      process.env.AI_PUBLISH_DEV3_SELFTEST === '1' && String(providerRaw).toLowerCase() === 'exit8-test';
+    if (deployEnabled && !allowExit8Test && provider !== 'manual') {
       return {
         ok: false,
-        message: `preflight: deploy.provider="${provider}" 尚无自动化实现；请改为 manual 或扩展 providers（publish3.md §4.1）。`,
+        message: `preflight: deploy.provider="${providerRaw}" 尚无自动化实现；请改为 manual 或扩展 providers（publish3.md §4.1）。`,
       };
     }
 

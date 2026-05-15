@@ -1,0 +1,13 @@
+{
+  "name": "ai-publish-dev3-skill-scripts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CommonJS scripts for ai-publish-dev3 (YAML x-smoke parsing).",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

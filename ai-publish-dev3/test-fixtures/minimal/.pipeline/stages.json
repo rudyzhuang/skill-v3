@@ -23,6 +23,22 @@
         ]
       }
     },
+    "contract": {
+      "status": "completed",
+      "validation": { "passed": true },
+      "outputs": {
+        "artifacts": [
+          {
+            "feature_id": "fixture",
+            "types": "",
+            "api": "docs/api.yaml",
+            "schema": "",
+            "test_spec": "",
+            "design_snapshot": ""
+          }
+        ]
+      }
+    },
     "deploy": {
       "status": "not_started",
       "environment": "dev",

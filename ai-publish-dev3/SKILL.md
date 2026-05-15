@@ -41,16 +41,22 @@ node scripts/run.cjs --project=/abs/path/to/repo \
 
 | 子脚本 / 库 | 职责 |
 | --- | --- |
-| `preflight.cjs` | `config.dev.json`、`config.env` 可解析、forbidden 键扫描、`merge_push`/`build` 门闸、`artifact_ref` 优先的一对一产物映射、非 manual 的 provider 预检拒绝（`publish3.md` §7.1） |
-| `deploy.cjs` | `deploy-dev` PID 锁；**`provider=manual`** 时写回 `stages.deploy`（无云 API）；其它 provider **退出 1**（待扩展 `lib/providers/*`） |
-| `smoke.cjs` | `smoke` PID 锁；`smoke.checks[]` 的 **GET/HEAD** HTTP（`lib/http-smoke.cjs`）；未通过 **退出码 4**；写回 `stages.smoke`；**契约 x-smoke 合并未实现**（见下节「已知缺口」） |
+| `preflight.cjs` | `config.dev.json`、`config.env` 可解析、forbidden 键扫描、`merge_push`/`build` 门闸、`artifact_ref` 优先的一对一产物映射；非 **manual** / **exit8-test（仅自测）** 的 provider 预检拒绝（`publish3.md` §7.1） |
+| `deploy.cjs` | `deploy-dev` PID 锁；**`provider=manual`** 时写回 `stages.deploy`（无云 API）；**`exit8-test`** 在 `AI_PUBLISH_DEV3_SELFTEST=1` 时模拟 **退出码 8**；其它 provider **退出 1**（待扩展真实云 `lib/providers/*`） |
+| `smoke.cjs` | `smoke` PID 锁；**`config.smoke.checks[]`** 与 **`api.yaml` `x-smoke`** 合并（`lib/collect-x-smoke.cjs`，需 `npm ci` 安装 `js-yaml`）；**GET/HEAD** 与显式 **`safe`/`safe_post`** 折叠后的 **safe POST**（`lib/http-smoke.cjs`）；未通过 **退出码 4**；超时 **退出码 3**；写回 `stages.smoke` |
+| `init.cjs` | 可选占位：打印模板路径指引，不写密钥（`publish3.md` §4.1） |
 | `lib/stages-io.cjs` | 原子写回 `stages.json` |
-| `lib/summary-hash.cjs` | `inputs.summary_hash`（`publish3.md` §6.3 子集） |
+| `lib/summary-hash.cjs` | `inputs.summary_hash`（`publish3.md` §6.3，含合并后 x-smoke 规范化输入） |
 | `lib/artifacts.cjs` | `artifact_ref` 与 `(client_target, sub_platform)` 映射 |
 | `lib/config-env.cjs` | 解析 `docs/config.env`（占位校验入口） |
 | `lib/forbidden-scan.cjs` | `security.forbidden_json_key_patterns`；**`security.*` 模板键名不参与子串匹配**以免误报 `secret_env_path` |
+| `lib/run-with-timeout.cjs` | 子步骤超时（`publish3.md` §4.1、§9）；**smoke** 异步 HTTP 可可靠触发 **退出 3** |
+| `lib/timeouts.cjs` | 读取 `config.dev.json.timeouts.stages.deploy_s` / `smoke_s` 与 `subcommand.heartbeat_interval_s`（缺省与模板一致） |
+| `lib/session-log.cjs` | `.agent-sessions/<session_id>.log` 追加；与 **`alive:`** 心跳（由 `run-with-timeout` 定时回调写入） |
 
 `--invoked-by-autorun`：在即将执行 **deploy** 前校验 **`pipeline.autorun.allow_destructive_deploy`**。
+
+`--session-id`：未传时 `run.cjs` 自动生成 `sess-<timestamp>`，用于 **`.agent-sessions/<id>.log`** 与锁 JSON 记录。
 
 `--force-rerun`：忽略 **`publish3.md` §6.2** 的「已完成且 `summary_hash` 一致则跳过」。
 
@@ -63,17 +69,15 @@ node scripts/run.cjs --project=/abs/path/to/repo \
 
 与 `publish3.md` §9 一致；串联失败 stderr 输出 **`failed_step=deploy|smoke`**。完整表见 [reference.md](reference.md)。
 
-## 已知缺口（与 `publish3.md` / `input-spec.md` 对齐路线）
+## 已知限制与后续工作
 
-| 项 | 状态 |
+| 项 | 说明 |
 | --- | --- |
-| `lib/run-with-timeout.cjs`、超时 **退出 3**、`timed_out`/`timeout_reason`/`duration_ms` | 未实现 |
-| 云 provider、`deploy` 失败 **退出 8**（API/401/403） | 未实现（当前非 manual → **1**） |
-| 从 `stages.contract` / `api.yaml` 解析 **x-smoke** 与 checks 合并 | 未实现（`smoke.cjs` 仅 `smoke.checks[]`） |
-| `.agent-sessions` 日志、`alive:` 心跳 | 未实现 |
-| `init.cjs`（可选） | 未实现 |
+| 真实云 **provider** | **Cloudflare/AWS/…** 未实现；业务 `deploy.provider` 须 **`manual`**，否则 **退出 1**（`publish3.md` §4.1）。 |
+| **`deploy` 云失败 → 退出 8** | 真实映射待 provider；自测可用 **`exit8-test`** + 环境变量 **`AI_PUBLISH_DEV3_SELFTEST=1`** 验证 **8** 与 `stages.deploy` 失败写回。 |
+| **`manual` deploy 硬超时** | `manual` 为同步短任务，无法在单线程内被强制中断；**`runWithTimeout`** 对 **HTTP smoke** 可靠；未来云 SDK/子进程应在边界套用超时。 |
 
-自测：`scripts/selftest.sh`（需网络访问 **example.com** 以验证 HTTP smoke）。
+自测：`scripts/selftest.sh`（在 **`ai-publish-dev3/`** 执行 **`npm ci`** 安装 `js-yaml`；需网络访问 **example.com**）。
 
 ## 模板真源
 

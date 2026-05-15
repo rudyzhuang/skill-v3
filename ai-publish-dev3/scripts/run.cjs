@@ -8,6 +8,7 @@ const { runSmoke } = require('./smoke.cjs');
 async function main() {
   const args = parseRunArgs(process.argv, { environment: 'dev' });
   const root = requireProject(args.project);
+  const sessionId = args.sessionId || `sess-${Date.now()}`;
 
   const pf = runPreflight(root, { requireDeploy: args.requireDeploy });
   if (!pf.ok) {
@@ -45,9 +46,9 @@ async function main() {
       }
     }
 
-    const d = runDeploy(root, {
+    const d = await runDeploy(root, {
       dryRun: args.dryRun,
-      sessionId: args.sessionId,
+      sessionId,
       forceRerun: args.forceRerun,
     });
     if (d.message) console.error(d.message);
@@ -63,6 +64,7 @@ async function main() {
     requireSmoke: args.requireSmoke,
     deploySubstepSkipped,
     forceRerun: args.forceRerun,
+    sessionId,
   });
   if (s.message) console.error(s.message);
   if (s.code !== 0) {

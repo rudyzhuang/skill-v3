@@ -7,8 +7,8 @@ const { URL } = require('url');
 const MAX_REDIRECTS = 5;
 
 /**
- * 仅允许 GET/HEAD（publish3.md §7.3）。
- * @param {{ name?: string, method?: string, path: string, expected_status?: number }[]} checks
+ * GET/HEAD；非 GET/HEAD 仅当 `safe===true`（契约 x-smoke `safe` / `safe_post` 已折叠）允许（publish3.md §7.3、input-spec §8.13）。
+ * @param {{ name?: string, method?: string, path: string, expected_status?: number, safe?: boolean }[]} checks
  * @param {string} baseUrl
  * @returns {Promise<{ ok: boolean, failures: string[] }>}
  */
@@ -26,8 +26,11 @@ async function runHttpSmokeChecks(checks, baseUrl) {
 
   for (const c of checks) {
     const method = (c.method || 'GET').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD') {
-      failures.push(`检查项「${c.name || c.path}」方法 ${method} 被拒绝（仅允许 GET/HEAD，见 publish3.md §7.3）`);
+    const allowSafePost = method === 'POST' && c.safe === true;
+    if (method !== 'GET' && method !== 'HEAD' && !allowSafePost) {
+      failures.push(
+        `检查项「${c.name || c.path}」方法 ${method} 被拒绝（需 GET/HEAD 或 x-smoke safe/safe_post→safe，见 publish3.md §7.3）`
+      );
       continue;
     }
     const p = c.path && c.path.startsWith('/') ? c.path : `/${c.path || ''}`;
@@ -39,7 +42,7 @@ async function runHttpSmokeChecks(checks, baseUrl) {
       continue;
     }
     const expected = c.expected_status != null ? Number(c.expected_status) : 200;
-    const actual = await requestStatus(u.toString(), method);
+    const actual = await requestStatus(u.toString(), method, allowSafePost);
     if (actual !== expected) {
       failures.push(`${method} ${u.pathname} 期望 ${expected} 实际 ${actual === null ? 'ERR' : actual}`);
     }
@@ -50,7 +53,7 @@ async function runHttpSmokeChecks(checks, baseUrl) {
 /**
  * @returns {Promise<number|null>} status code or null on error
  */
-function requestStatus(targetUrl, method) {
+function requestStatus(targetUrl, method, withEmptyBody) {
   return new Promise((resolve) => {
     let redirects = 0;
 
@@ -59,7 +62,14 @@ function requestStatus(targetUrl, method) {
       const lib = u.protocol === 'https:' ? https : http;
       const req = lib.request(
         u,
-        { method, timeout: 20000, headers: { 'user-agent': 'ai-publish-dev3-smoke/1' } },
+        {
+          method,
+          timeout: 20000,
+          headers: {
+            'user-agent': 'ai-publish-dev3-smoke/1',
+            ...(withEmptyBody ? { 'content-length': '0' } : {}),
+          },
+        },
         (res) => {
           res.resume();
           const code = res.statusCode || 0;
@@ -87,7 +97,7 @@ function requestStatus(targetUrl, method) {
         resolve(null);
       });
       req.on('error', () => resolve(null));
-      req.end();
+      req.end(withEmptyBody ? '' : undefined);
     }
 
     go(targetUrl);

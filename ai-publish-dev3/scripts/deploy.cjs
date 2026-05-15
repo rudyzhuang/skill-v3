@@ -7,6 +7,9 @@ const { planManualDeploy } = require('./lib/providers/manual.cjs');
 const { updateStages } = require('./lib/stages-io.cjs');
 const { sha256Stable, deploySummaryInput, hashConfigDeploySubtree } = require('./lib/summary-hash.cjs');
 const { collectConsumedArtifacts } = require('./lib/artifacts.cjs');
+const { stageTimeoutSeconds, heartbeatIntervalMs } = require('./lib/timeouts.cjs');
+const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
+const { appendSessionLog } = require('./lib/session-log.cjs');
 
 const LOCK_SCOPE = 'deploy-dev';
 
@@ -43,6 +46,43 @@ function deployStageCompleted(dep, expectedHash, forceRerun) {
   return true;
 }
 
+function writeDeploySkipped(stPath, summaryHash, reason) {
+  const now = new Date().toISOString();
+  updateStages(stPath, (doc) => {
+    doc.stages = doc.stages || {};
+    const prev = doc.stages.deploy || {};
+    doc.stages.deploy = {
+      ...prev,
+      status: 'skipped',
+      environment: 'dev',
+      started_at: prev.started_at || now,
+      completed_at: now,
+      inputs: {
+        ...(prev.inputs || {}),
+        summary_hash: summaryHash || (prev.inputs && prev.inputs.summary_hash) || '',
+        requires_stage: 'build',
+        config: 'docs/config.dev.json',
+        secret_env: 'docs/config.env',
+        artifacts: (prev.inputs && prev.inputs.artifacts) || [],
+      },
+      outputs: {
+        ...(prev.outputs || {}),
+        skip_reason: reason,
+        timed_out: false,
+        timeout_reason: null,
+        duration_ms: null,
+        error: '',
+      },
+      validation: {
+        ...(prev.validation || {}),
+        passed: true,
+        checked_at: now,
+        summary: 'deploy skipped（非失败）',
+      },
+    };
+  });
+}
+
 /**
  * @param {string} projectRoot
  * @param {{
@@ -50,9 +90,9 @@ function deployStageCompleted(dep, expectedHash, forceRerun) {
  *   sessionId?: string|null,
  *   forceRerun?: boolean,
  * }} opts
- * @returns {{ code: number, failed_step?: string, message?: string }}
+ * @returns {Promise<{ code: number, failed_step?: string, message?: string }>}
  */
-function runDeploy(projectRoot, opts = {}) {
+async function runDeploy(projectRoot, opts = {}) {
   const cfgPath = path.join(projectRoot, 'docs', 'config.dev.json');
   const config = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   const stPath = stagesPath(projectRoot);
@@ -60,9 +100,30 @@ function runDeploy(projectRoot, opts = {}) {
   const dep = stages.stages && stages.stages.deploy;
   const bu = stages.stages && stages.stages.build;
   const arts = (bu && bu.outputs && bu.outputs.artifacts) || [];
+  const sessionId = opts.sessionId || null;
+  const log = (line) => {
+    try {
+      appendSessionLog(projectRoot, sessionId, line);
+    } catch {
+      /* ignore */
+    }
+  };
 
   if (!config.deploy || !config.deploy.enabled) {
-    return { code: 0, message: 'deploy skipped (deploy.enabled=false)' };
+    if (!opts.dryRun) {
+      const deployCfg = hashConfigDeploySubtree(projectRoot, cfgPath);
+      let consumed = [];
+      if (config.deploy && Array.isArray(config.deploy.services)) {
+        try {
+          consumed = collectConsumedArtifacts(config.deploy.services, arts);
+        } catch {
+          consumed = [];
+        }
+      }
+      const summaryHash = sha256Stable(deploySummaryInput(deployCfg, consumed));
+      writeDeploySkipped(stPath, summaryHash, 'deploy.enabled=false');
+    }
+    return { code: 0, message: 'deploy skipped (deploy.enabled=false)，已写回 stages.deploy.skip_reason' };
   }
 
   let consumed;
@@ -83,8 +144,12 @@ function runDeploy(projectRoot, opts = {}) {
     return { code: 0, message: 'dry-run: 跳过真实 deploy' };
   }
 
-  const provider = (config.deploy.provider || 'manual').toLowerCase();
-  if (provider !== 'manual') {
+  const providerRaw = config.deploy.provider || 'manual';
+  const provider = String(providerRaw).toLowerCase();
+  const allowExit8Test =
+    process.env.AI_PUBLISH_DEV3_SELFTEST === '1' && String(providerRaw).toLowerCase() === 'exit8-test';
+
+  if (!allowExit8Test && provider !== 'manual') {
     return {
       code: 1,
       failed_step: 'deploy',
@@ -111,7 +176,7 @@ function runDeploy(projectRoot, opts = {}) {
     JSON.stringify(
       {
         pid: process.pid,
-        session_id: opts.sessionId || null,
+        session_id: sessionId,
         started_at: new Date().toISOString(),
         skill: 'ai-publish-dev3',
       },
@@ -121,49 +186,180 @@ function runDeploy(projectRoot, opts = {}) {
     'utf8'
   );
 
+  log(`deploy start provider=${providerRaw} session=${sessionId || 'none'}`);
+
   try {
-    const planned = planManualDeploy(config.deploy.services || []);
-    const now = new Date().toISOString();
-    updateStages(stPath, (doc) => {
-      doc.stages = doc.stages || {};
-      const prev = doc.stages.deploy || {};
-      doc.stages.deploy = {
-        ...prev,
-        status: 'completed',
-        environment: 'dev',
-        started_at: prev.started_at || now,
-        completed_at: now,
-        inputs: {
-          ...(prev.inputs || {}),
-          summary_hash: summaryHash,
-          requires_stage: 'build',
-          config: 'docs/config.dev.json',
-          secret_env: 'docs/config.env',
-          artifacts: consumed.map((a) => ({
-            client_target: a.client_target,
-            sub_platform: a.sub_platform || '',
-            artifact_path: a.artifact_path,
-            status: a.status,
-          })),
-        },
-        outputs: {
-          ...(prev.outputs || {}),
+    if (allowExit8Test) {
+      const now = new Date().toISOString();
+      updateStages(stPath, (doc) => {
+        doc.stages = doc.stages || {};
+        const prev = doc.stages.deploy || {};
+        doc.stages.deploy = {
+          ...prev,
+          status: 'completed',
           environment: 'dev',
-          provider: 'manual',
-          services: planned.services,
-          deploy_url: planned.deploy_url,
-          commit: '',
-          error: '',
-        },
-        validation: {
-          ...(prev.validation || {}),
-          passed: true,
-          checked_at: now,
-          summary: 'manual deploy（无云 API 调用）',
-        },
+          started_at: prev.started_at || now,
+          completed_at: now,
+          inputs: {
+            ...(prev.inputs || {}),
+            summary_hash: summaryHash,
+            requires_stage: 'build',
+            config: 'docs/config.dev.json',
+            secret_env: 'docs/config.env',
+            artifacts: consumed.map((a) => ({
+              client_target: a.client_target,
+              sub_platform: a.sub_platform || '',
+              artifact_path: a.artifact_path,
+              status: a.status,
+            })),
+          },
+          outputs: {
+            ...(prev.outputs || {}),
+            environment: 'dev',
+            provider: 'exit8-test',
+            services: [],
+            deploy_url: '',
+            commit: '',
+            error: 'selftest: simulated cloud/hosting API failure → exit 8',
+            timed_out: false,
+            timeout_reason: null,
+            duration_ms: 0,
+          },
+          validation: {
+            ...(prev.validation || {}),
+            passed: false,
+            checked_at: now,
+            summary: 'deploy 失败（exit 8 路径校验）',
+          },
+        };
+      });
+      log('deploy end exit=8 (exit8-test fixture)');
+      return { code: 8, failed_step: 'deploy', message: 'exit8-test：模拟云/托管 API 失败（仅 AI_PUBLISH_DEV3_SELFTEST=1）' };
+    }
+
+    const timeoutMs = stageTimeoutSeconds(config, 'deploy_s') * 1000;
+    const hbMs = heartbeatIntervalMs(config);
+
+    const tw = await runWithTimeout(
+      {
+        ms: timeoutMs,
+        heartbeatMs: hbMs,
+        label: 'deploy',
+        onHeartbeat: () => log(`alive: deploy pid=${process.pid}`),
+      },
+      async () =>
+        new Promise((resolve, reject) => {
+          setImmediate(() => {
+            try {
+              const planned = planManualDeploy(config.deploy.services || []);
+              const now = new Date().toISOString();
+              const t0 = Date.now();
+              updateStages(stPath, (doc) => {
+                doc.stages = doc.stages || {};
+                const prev = doc.stages.deploy || {};
+                doc.stages.deploy = {
+                  ...prev,
+                  status: 'completed',
+                  environment: 'dev',
+                  started_at: prev.started_at || now,
+                  completed_at: now,
+                  inputs: {
+                    ...(prev.inputs || {}),
+                    summary_hash: summaryHash,
+                    requires_stage: 'build',
+                    config: 'docs/config.dev.json',
+                    secret_env: 'docs/config.env',
+                    artifacts: consumed.map((a) => ({
+                      client_target: a.client_target,
+                      sub_platform: a.sub_platform || '',
+                      artifact_path: a.artifact_path,
+                      status: a.status,
+                    })),
+                  },
+                  outputs: {
+                    ...(prev.outputs || {}),
+                    environment: 'dev',
+                    provider: 'manual',
+                    services: planned.services,
+                    deploy_url: planned.deploy_url,
+                    commit: '',
+                    error: '',
+                    timed_out: false,
+                    timeout_reason: null,
+                    duration_ms: Date.now() - t0,
+                  },
+                  validation: {
+                    ...(prev.validation || {}),
+                    passed: true,
+                    checked_at: now,
+                    summary: 'manual deploy（无云 API 调用）',
+                  },
+                };
+              });
+              resolve({ code: 0, message: 'deploy 完成（manual provider，已写回 stages.deploy）' });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        })
+    );
+
+    if (!tw.ok) {
+      if (tw.timedOut) {
+        const now = new Date().toISOString();
+        updateStages(stPath, (doc) => {
+          doc.stages = doc.stages || {};
+          const prev = doc.stages.deploy || {};
+          doc.stages.deploy = {
+            ...prev,
+            status: 'completed',
+            environment: 'dev',
+            started_at: prev.started_at || now,
+            completed_at: now,
+            inputs: {
+              ...(prev.inputs || {}),
+              summary_hash: summaryHash,
+              requires_stage: 'build',
+              config: 'docs/config.dev.json',
+              secret_env: 'docs/config.env',
+              artifacts: consumed.map((a) => ({
+                client_target: a.client_target,
+                sub_platform: a.sub_platform || '',
+                artifact_path: a.artifact_path,
+                status: a.status,
+              })),
+            },
+            outputs: {
+              ...(prev.outputs || {}),
+              timed_out: true,
+              timeout_reason: 'deploy',
+              duration_ms: tw.durationMs,
+              error: `timeout after ${tw.durationMs}ms`,
+            },
+            validation: {
+              ...(prev.validation || {}),
+              passed: false,
+              checked_at: now,
+              summary: 'deploy 超时',
+            },
+          };
+        });
+        log(`deploy timeout ${tw.durationMs}ms`);
+        return {
+          code: 3,
+          failed_step: 'deploy',
+          message: `deploy 超时（退出码 3，publish3.md §9）：${timeoutMs}ms`,
+        };
+      }
+      return {
+        code: 1,
+        failed_step: 'deploy',
+        message: tw.error ? tw.error.message : 'deploy 失败',
       };
-    });
-    return { code: 0, message: 'deploy 完成（manual provider，已写回 stages.deploy）' };
+    }
+
+    log('deploy end ok');
+    return tw.result;
   } catch (e) {
     return { code: 1, failed_step: 'deploy', message: `deploy 写回失败: ${e.message}` };
   } finally {
@@ -175,10 +371,11 @@ if (require.main === module) {
   const { parseRunArgs, requireProject } = require('./lib/paths.cjs');
   const args = parseRunArgs(process.argv, { environment: 'dev' });
   const root = requireProject(args.project);
-  const out = runDeploy(root, { dryRun: args.dryRun, sessionId: args.sessionId, forceRerun: args.forceRerun });
-  if (out.message) console.error(out.message);
-  if (out.failed_step) console.error(`failed_step=${out.failed_step}`);
-  process.exit(out.code);
+  runDeploy(root, { dryRun: args.dryRun, sessionId: args.sessionId, forceRerun: args.forceRerun }).then((out) => {
+    if (out.message) console.error(out.message);
+    if (out.failed_step) console.error(`failed_step=${out.failed_step}`);
+    process.exit(out.code);
+  });
 }
 
 module.exports = { runDeploy, LOCK_SCOPE };

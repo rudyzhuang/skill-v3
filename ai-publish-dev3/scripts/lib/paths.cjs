@@ -18,6 +18,7 @@ function parseRunArgs(argv, ctx) {
     requireDeploy: false,
     requireSmoke: false,
     explicitConfirm: false,
+    invokedByAutorun: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];

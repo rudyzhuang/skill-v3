@@ -29,10 +29,12 @@ function deploySummaryInput(configDeploy, consumedArtifacts) {
  * @param {object} smokeCfg config.smoke 子树
  * @param {string} baseUrl
  * @param {string} deployUrlHint
+ * @param {object[]} [xSmokeForHash] 已与 config 合并后的检查项（publish3.md §6.3）
  */
-function smokeSummaryInput(smokeCfg, baseUrl, deployUrlHint) {
+function smokeSummaryInput(smokeCfg, baseUrl, deployUrlHint, xSmokeForHash) {
   return {
     smoke_checks: smokeCfg.checks || [],
+    x_smoke_effective: xSmokeForHash || [],
     base_url: baseUrl || '',
     deploy_url: deployUrlHint || '',
   };

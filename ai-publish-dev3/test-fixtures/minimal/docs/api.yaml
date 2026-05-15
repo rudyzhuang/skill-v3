@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: FixtureAPI
+  version: 0.0.1
+paths:
+  /:
+    get:
+      summary: Root
+      x-smoke:
+        enabled: true
+        expected_status: 200

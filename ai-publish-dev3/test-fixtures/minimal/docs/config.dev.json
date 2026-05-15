@@ -46,9 +46,7 @@
     "enabled": true,
     "base_url": "https://example.com",
     "safe_only": true,
-    "checks": [
-      { "name": "root", "method": "GET", "path": "/", "expected_status": 200 }
-    ]
+    "checks": []
   },
   "security": {
     "secret_env_path": "docs/config.env",

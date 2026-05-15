@@ -6,6 +6,14 @@ const { stagesPath } = require('./lib/paths.cjs');
 const { updateStages } = require('./lib/stages-io.cjs');
 const { sha256Stable, smokeSummaryInput } = require('./lib/summary-hash.cjs');
 const { runHttpSmokeChecks } = require('./lib/http-smoke.cjs');
+const {
+  collectXSmokeChecks,
+  mergeSmokeChecks,
+  normalizeForHash,
+} = require('./lib/collect-x-smoke.cjs');
+const { stageTimeoutSeconds, heartbeatIntervalMs } = require('./lib/timeouts.cjs');
+const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
+const { appendSessionLog } = require('./lib/session-log.cjs');
 
 const LOCK_SCOPE = 'smoke';
 
@@ -59,9 +67,45 @@ function resolveSmokeBaseUrl(config, stages) {
   return '';
 }
 
+function writeSmokeSkipped(stPath, summaryHash, reason, checksSource) {
+  const now = new Date().toISOString();
+  updateStages(stPath, (doc) => {
+    doc.stages = doc.stages || {};
+    const prev = doc.stages.smoke || {};
+    doc.stages.smoke = {
+      ...prev,
+      status: 'skipped',
+      started_at: prev.started_at || now,
+      completed_at: now,
+      inputs: {
+        ...(prev.inputs || {}),
+        summary_hash: summaryHash,
+        requires_stage: 'deploy',
+        base_url: '',
+        checks_source: checksSource || [],
+      },
+      outputs: {
+        ...(prev.outputs || {}),
+        checks: [],
+        failed_paths: [],
+        skip_reason: reason,
+        timed_out: false,
+        timeout_reason: null,
+        duration_ms: null,
+      },
+      validation: {
+        ...(prev.validation || {}),
+        passed: true,
+        checked_at: now,
+        summary: 'smoke skipped（非失败）',
+      },
+    };
+  });
+}
+
 /**
  * @param {string} projectRoot
- * @param {{ dryRun?: boolean, requireSmoke?: boolean, deploySubstepSkipped?: boolean, forceRerun?: boolean }} opts
+ * @param {{ dryRun?: boolean, requireSmoke?: boolean, deploySubstepSkipped?: boolean, forceRerun?: boolean, sessionId?: string|null }} opts
  * @returns {Promise<{ code: number, failed_step?: string, message?: string }>}
  */
 async function runSmoke(projectRoot, opts = {}) {
@@ -71,21 +115,59 @@ async function runSmoke(projectRoot, opts = {}) {
   const deployEnabled = !!(config.deploy && config.deploy.enabled);
   const stPath = stagesPath(projectRoot);
   const stages = JSON.parse(fs.readFileSync(stPath, 'utf8'));
+  const sessionId = opts.sessionId || null;
+  const log = (line) => {
+    try {
+      appendSessionLog(projectRoot, sessionId, line);
+    } catch {
+      /* ignore */
+    }
+  };
 
   if (!smoke.enabled) {
     if (opts.requireSmoke) {
       return { code: 1, failed_step: 'smoke', message: 'smoke.enabled=false 但指定了 --require-smoke' };
     }
-    return { code: 0, message: 'smoke skipped (smoke.enabled=false)' };
+    if (!opts.dryRun) {
+      const dep = stages.stages && stages.stages.deploy;
+      const hint = (dep && dep.outputs && dep.outputs.deploy_url) || '';
+      const baseUrl = resolveSmokeBaseUrl(config, stages);
+      const emptyMerged = [];
+      const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(emptyMerged)));
+      writeSmokeSkipped(stPath, summaryHash, 'smoke.enabled=false', []);
+    }
+    return { code: 0, message: 'smoke skipped (smoke.enabled=false)，已写回 stages.smoke.skip_reason' };
   }
 
-  const checks = smoke.checks || [];
-  const xsmokeNote = '契约 x-smoke 合并：当前从 stages.contract 解析未实现，仅使用 smoke.checks[]（publish3.md §8）。';
-  if (checks.length === 0) {
+  const xs = collectXSmokeChecks(projectRoot, stages);
+  if (xs.warn) console.error(xs.warn);
+  const configChecks = smoke.checks || [];
+  const merged = mergeSmokeChecks(xs.checks, configChecks);
+  const checksSource = [];
+  if (xs.sources && xs.sources.length) checksSource.push('api.yaml:x-smoke');
+  if (configChecks.length) checksSource.push('config.smoke.checks');
+
+  if (merged.length === 0) {
     if (opts.requireSmoke) {
-      return { code: 1, failed_step: 'smoke', message: `无 smoke.checks 且 ${xsmokeNote} 仍视为无检查项；--require-smoke → 退出 1` };
+      return {
+        code: 1,
+        failed_step: 'smoke',
+        message: '无 smoke.checks 且无可用 x-smoke；--require-smoke → 退出 1（publish3.md §7.2）',
+      };
     }
-    return { code: 0, message: `smoke skipped（无 smoke.checks；${xsmokeNote}）` };
+    if (!opts.dryRun) {
+      const dep = stages.stages && stages.stages.deploy;
+      const hint = (dep && dep.outputs && dep.outputs.deploy_url) || '';
+      const baseUrl = resolveSmokeBaseUrl(config, stages);
+      const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(merged)));
+      writeSmokeSkipped(
+        stPath,
+        summaryHash,
+        '无 config.smoke.checks 且契约/约定路径未解析到 x-smoke',
+        checksSource
+      );
+    }
+    return { code: 0, message: 'smoke skipped（无检查项；publish3.md §7.2）' };
   }
 
   const dep = stages.stages && stages.stages.deploy;
@@ -102,16 +184,29 @@ async function runSmoke(projectRoot, opts = {}) {
           message: '--require-smoke 但 stages.deploy 未就绪（且本轮未执行 deploy）',
         };
       }
+      if (!opts.dryRun) {
+        const hint = (dep && dep.outputs && dep.outputs.deploy_url) || '';
+        const baseUrl = resolveSmokeBaseUrl(config, stages);
+        const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(merged)));
+        writeSmokeSkipped(
+          stPath,
+          summaryHash,
+          'stages.deploy 未就绪（deploy.enabled=false 或上游未部署；publish3.md §7.2）',
+          checksSource
+        );
+      }
       return {
         code: 0,
-        message: 'smoke skipped: stages.deploy 未就绪（deploy.enabled=false 或上游未部署；见 publish3.md §7.2）',
+        message: 'smoke skipped: stages.deploy 未就绪（已写回 skip_reason）',
       };
     }
     return { code: 1, failed_step: 'smoke', message: 'smoke 前置: stages.deploy 须已完成且 validation.passed=true' };
   }
 
   const baseUrl = resolveSmokeBaseUrl(config, stages);
-  const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, (dep.outputs && dep.outputs.deploy_url) || ''));
+  const summaryHash = sha256Stable(
+    smokeSummaryInput(smoke, baseUrl, (dep.outputs && dep.outputs.deploy_url) || '', normalizeForHash(merged))
+  );
   const sm = stages.stages && stages.stages.smoke;
   if (smokeStageCompleted(sm, summaryHash, opts.forceRerun)) {
     return { code: 0, message: 'smoke 已满足完成条件且 summary_hash 一致，跳过（未传 --force-rerun，见 publish3.md §6.2）' };
@@ -122,7 +217,11 @@ async function runSmoke(projectRoot, opts = {}) {
   }
 
   if (!baseUrl) {
-    return { code: 1, failed_step: 'smoke', message: '无法解析 smoke base URL（请设置 smoke.base_url 或确保 deploy 输出 deploy_url/services[].url）' };
+    return {
+      code: 1,
+      failed_step: 'smoke',
+      message: '无法解析 smoke base URL（请设置 smoke.base_url 或确保 deploy 输出 deploy_url/services[].url）',
+    };
   }
 
   const ld = lockDir(projectRoot);
@@ -143,7 +242,7 @@ async function runSmoke(projectRoot, opts = {}) {
     JSON.stringify(
       {
         pid: process.pid,
-        session_id: null,
+        session_id: sessionId,
         started_at: new Date().toISOString(),
         skill: 'ai-publish-dev3',
       },
@@ -153,9 +252,84 @@ async function runSmoke(projectRoot, opts = {}) {
     'utf8'
   );
 
+  log(`smoke start checks=${merged.length} session=${sessionId || 'none'}`);
+
+  const timeoutMs = stageTimeoutSeconds(config, 'smoke_s') * 1000;
+  const hbMs = heartbeatIntervalMs(config);
+
   try {
-    const httpResult = await runHttpSmokeChecks(checks, baseUrl);
+    const tw = await runWithTimeout(
+      {
+        ms: timeoutMs,
+        heartbeatMs: hbMs,
+        label: 'smoke',
+        onHeartbeat: () => log(`alive: smoke pid=${process.pid}`),
+      },
+      async () => runHttpSmokeChecks(merged, baseUrl)
+    );
+
     const now = new Date().toISOString();
+
+    if (!tw.ok && tw.timedOut) {
+      updateStages(stPath, (doc) => {
+        doc.stages = doc.stages || {};
+        const prev = doc.stages.smoke || {};
+        doc.stages.smoke = {
+          ...prev,
+          status: 'completed',
+          completed_at: now,
+          inputs: {
+            ...(prev.inputs || {}),
+            summary_hash: summaryHash,
+            requires_stage: 'deploy',
+            base_url: baseUrl,
+            checks_source: checksSource,
+          },
+          outputs: {
+            ...(prev.outputs || {}),
+            checks: merged.map((c) => ({
+              name: c.name || c.path,
+              method: c.method || 'GET',
+              path: c.path,
+              expected_status: c.expected_status != null ? Number(c.expected_status) : 200,
+              actual_status: null,
+              passed: false,
+              latency_ms: null,
+              error: 'timeout',
+            })),
+            failed_paths: merged.map((c) => c.path),
+            skip_reason: '',
+            timed_out: true,
+            timeout_reason: 'smoke',
+            duration_ms: tw.durationMs,
+          },
+          validation: {
+            ...(prev.validation || {}),
+            passed: false,
+            checked_at: now,
+            summary: 'smoke 超时',
+          },
+        };
+      });
+      log(`smoke timeout ${tw.durationMs}ms`);
+      return {
+        code: 3,
+        failed_step: 'smoke',
+        message: `smoke 超时（退出码 3，publish3.md §9）：${timeoutMs}ms`,
+      };
+    }
+
+    if (!tw.ok) {
+      return {
+        code: 1,
+        failed_step: 'smoke',
+        message: tw.error ? tw.error.message : 'smoke 内部错误',
+      };
+    }
+
+    const httpResult = tw.result;
+    const httpMs = tw.durationMs;
+
     if (!httpResult.ok) {
       updateStages(stPath, (doc) => {
         doc.stages = doc.stages || {};
@@ -169,22 +343,25 @@ async function runSmoke(projectRoot, opts = {}) {
             summary_hash: summaryHash,
             requires_stage: 'deploy',
             base_url: baseUrl,
-            checks_source: ['config.smoke.checks'],
+            checks_source: checksSource,
           },
           outputs: {
             ...(prev.outputs || {}),
-            checks: (checks || []).map((c) => ({
+            checks: merged.map((c) => ({
               name: c.name || c.path,
               method: c.method || 'GET',
               path: c.path,
-              expected_status: c.expected_status != null ? c.expected_status : 200,
+              expected_status: c.expected_status != null ? Number(c.expected_status) : 200,
               actual_status: null,
               passed: false,
               latency_ms: null,
               error: httpResult.failures.join('; '),
             })),
-            failed_paths: checks.map((c) => c.path),
+            failed_paths: merged.map((c) => c.path),
             skip_reason: '',
+            timed_out: false,
+            timeout_reason: null,
+            duration_ms: httpMs,
           },
           validation: {
             ...(prev.validation || {}),
@@ -213,22 +390,25 @@ async function runSmoke(projectRoot, opts = {}) {
           summary_hash: summaryHash,
           requires_stage: 'deploy',
           base_url: baseUrl,
-          checks_source: ['config.smoke.checks'],
+          checks_source: checksSource,
         },
         outputs: {
           ...(prev.outputs || {}),
-          checks: checks.map((c) => ({
+          checks: merged.map((c) => ({
             name: c.name || c.path,
             method: c.method || 'GET',
             path: c.path,
-            expected_status: c.expected_status != null ? c.expected_status : 200,
-            actual_status: c.expected_status != null ? c.expected_status : 200,
+            expected_status: c.expected_status != null ? Number(c.expected_status) : 200,
+            actual_status: c.expected_status != null ? Number(c.expected_status) : 200,
             passed: true,
             latency_ms: null,
             error: '',
           })),
           failed_paths: [],
           skip_reason: '',
+          timed_out: false,
+          timeout_reason: null,
+          duration_ms: httpMs,
         },
         validation: {
           ...(prev.validation || {}),
@@ -238,7 +418,8 @@ async function runSmoke(projectRoot, opts = {}) {
         },
       };
     });
-    return { code: 0, message: 'smoke 完成（HTTP GET/HEAD）' };
+    log('smoke end ok');
+    return { code: 0, message: 'smoke 完成（GET/HEAD 或 safe POST）' };
   } finally {
     tryRemoveSmokeLock(projectRoot);
   }
@@ -256,6 +437,7 @@ if (require.main === module) {
     requireSmoke: args.requireSmoke,
     forceRerun: args.forceRerun,
     deploySubstepSkipped,
+    sessionId: args.sessionId,
   }).then((out) => {
     if (out.message) console.error(out.message);
     if (out.failed_step) console.error(`failed_step=${out.failed_step}`);
