@@ -1,0 +1,25 @@
+{
+  "_schema": { "name": "skill-v3-project-config", "version": 1, "environment": "dev" },
+  "project": { "name": "smoke", "project_id": "smoke", "root_path": ".", "default_client_targets": ["website"] },
+  "git": { "remote": "origin", "default_branch": "main", "working_branch_prefix": "ai", "allow_push": false },
+  "build": {
+    "commands": {
+      "install": "",
+      "typecheck": "",
+      "test": "exit 0",
+      "build": "mkdir -p dist && echo ok > dist/website.stub",
+      "test_max_fix_attempts": 2
+    },
+    "artifacts_dir": "dist",
+    "client_targets": {}
+  },
+  "timeouts": {
+    "stages": {
+      "typecheck_s": 120,
+      "test_s": 120,
+      "build_s": 120
+    },
+    "subcommand": { "graceful_shutdown_s": 2 }
+  },
+  "security": { "forbidden_json_key_patterns": [] }
+}
