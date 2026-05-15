@@ -310,6 +310,7 @@ async function run(ctx) {
           projectRoot,
           phase: 'impl',
           timeoutMs: subMs,
+          featureId: row.feature_id,
         });
         if (ir.skipped) {
           agentMeta = { ...agentMeta, skipped: true, skip_reason: ir.reason || 'no_agent_bin' };
@@ -397,6 +398,7 @@ async function run(ctx) {
             projectRoot,
             phase: 'test',
             timeoutMs: subMs,
+            featureId: row.feature_id,
           });
           if (!tr.ok && !tr.skipped) {
             testStatus = 'failed';

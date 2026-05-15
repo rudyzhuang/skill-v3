@@ -139,7 +139,7 @@
 | `risks` | array | 需人工确认项；非空时可抬升 `outputs.needs_human_review` |
 | `shared_changes` | array | 共享层路径及影响说明（见 input-spec §8 阶段 3） |
 
-**与 codegen 的契约**：`file_plan` 应尽量避免多 feature 同时 `modify_files` 指向同一「汇总文件」；沿用 v2 SKILL 中的**插件式注册**最佳实践（流程与反模式说明见本机 `~/.cursor/skills/ai-design2/SKILL.md` 中「集成枢纽、`depends_on` 与合并冲突控制」一节）。**ai-code3** 的 **`codegen.cjs`** 在真实生成实现时，应以 **`design_snapshot`**（契约 **`design_snapshot`** 路径）中的 **`file_plan` / `depends_on` / 路由与验收摘要** 为硬边界，并与 **`stages.contract.outputs.artifacts[]`** 中该 **`feature_id`** 的五类契约路径一起注入 Agent 上下文（详见 **`docs/spec/code3.md` §7.4–§7.9**）。
+**与 codegen 的契约**：`file_plan` 应尽量避免多 feature 同时 `modify_files` 指向同一「汇总文件」；沿用 v2 SKILL 中的**插件式注册**最佳实践（流程与反模式说明见本机 `~/.cursor/skills/ai-design2/SKILL.md` 中「集成枢纽、`depends_on` 与合并冲突控制」一节）。**ai-code3** 的 **`codegen.cjs`** 在真实生成实现时，应以 **`design_snapshot`**（契约 **`design_snapshot`** 路径）中的 **`file_plan` / `depends_on` / 路由与验收摘要** 为硬边界，并与 **`stages.contract.outputs.artifacts[]`** 中该 **`feature_id`** 的五类契约路径一起注入 Agent 上下文（详见 **`docs/spec/code3.md` §7.5–§7.9**）。
 
 ---
 

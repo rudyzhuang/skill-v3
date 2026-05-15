@@ -1,0 +1,11 @@
+{
+  "name": "ai-code3",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Runtime deps for ai-code3 scripts (JSON Schema validation). Run npm ci in this directory before smoke/CI.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

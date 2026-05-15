@@ -1,0 +1,31 @@
+{
+  "$id": "https://skill-v3.local/schemas/code-review-output.v3.json",
+  "title": "ai-code3 code_review LLM output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "critical_issues", "warnings", "checklist"],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["passed", "failed", "passed_with_warnings", "pending"]
+    },
+    "critical_issues": { "type": "integer", "minimum": 0 },
+    "warnings": { "type": "integer", "minimum": 0 },
+    "checklist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "passed", "violations"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" },
+          "violations": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

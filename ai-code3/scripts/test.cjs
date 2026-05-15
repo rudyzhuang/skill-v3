@@ -6,6 +6,7 @@ const stagesIo = require('./lib/stages-io.cjs');
 const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
+const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -17,6 +18,46 @@ function stageTimeoutS(config, key, fallback) {
   const v = config?.timeouts?.stages?.[key];
   if (typeof v === 'number' && v > 0) return v;
   return fallback;
+}
+
+/**
+ * @param {object} doc
+ * @param {string} projectRoot
+ * @param {string[]} featureIdFilter
+ * @returns {{ worktree_path: string, feature_id: string }[]}
+ */
+function resolveTestTargets(doc, projectRoot, featureIdFilter) {
+  const cg = (doc.stages?.codegen?.outputs?.worktrees || []).filter((w) => w && w.worktree_path);
+  let rows = cg.map((w) => {
+    const raw = String(w.worktree_path);
+    const worktree_path = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(projectRoot, raw);
+    return {
+      worktree_path,
+      feature_id: String(w.feature_id || 'default'),
+    };
+  });
+  if (featureIdFilter.length) {
+    rows = rows.filter((r) => featureIdFilter.includes(r.feature_id));
+  }
+  if (rows.length === 0) {
+    const tc0 = (doc.stages?.typecheck?.inputs?.worktrees || [])[0];
+    const raw = tc0?.worktree_path ? String(tc0.worktree_path) : '';
+    const p = raw
+      ? path.isAbsolute(raw)
+        ? path.resolve(raw)
+        : path.resolve(projectRoot, raw)
+      : projectRoot;
+    rows = [{ worktree_path: p, feature_id: 'default' }];
+  }
+  return rows;
+}
+
+function skipTestFixAgent() {
+  return (
+    process.env.AI_CODE3_SKIP_AGENT === '1' ||
+    process.env.AI_CODE3_SKIP_TEST_FIX_AGENT === '1' ||
+    (!(process.env.AI_CODE3_AGENT_BIN || '').trim() && !(process.env.AI_CODEGEN_AGENT_BIN || '').trim())
+  );
 }
 
 async function run(ctx) {
@@ -41,12 +82,11 @@ async function run(ctx) {
   const config = loadDevConfig(projectRoot);
   const maxAttempts = config?.build?.commands?.test_max_fix_attempts ?? 3;
   const timeoutMs = stageTimeoutS(config, 'test_s', 1800) * 1000;
-  const cwd =
-    (doc.stages?.typecheck?.inputs?.worktrees || [])[0]?.worktree_path || projectRoot;
+  const agentSubMs = Math.max(60_000, Math.floor(timeoutMs / 4));
 
   const testCmd =
     config?.build?.commands?.test ||
-    (fs.existsSync(path.join(cwd, 'package.json')) ? 'npm test' : '');
+    (fs.existsSync(path.join(projectRoot, 'package.json')) ? 'npm test' : '');
 
   if (!testCmd) {
     const msg =
@@ -56,44 +96,112 @@ async function run(ctx) {
     return 1;
   }
 
+  const targets = resolveTestTargets(doc, projectRoot, options.featureIds || []);
+  const fixCmd = config?.build?.commands?.test_fix;
+  const noAgent = skipTestFixAgent();
+
   if (options.dryRun) {
-    console.error(`[dry-run] test cmd=${testCmd} (not executed)`);
+    console.error(
+      `[dry-run] test cmd=${testCmd} targets=${targets.map((t) => `${t.feature_id}:${t.worktree_path}`).join('; ')} test_fix_agent=${noAgent ? 'skipped' : 'on'}`
+    );
     return 0;
   }
 
-  let lastCode = 1;
-  let attempts = 0;
-  const fixCmd = config?.build?.commands?.test_fix;
   const sessionId = options.sessionId || '';
   let hb;
   if (sessionId) {
     const { appendHeartbeat } = require('./lib/session-log.cjs');
     hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'test', 'tick'), 30_000);
   }
+
+  const perFeature = [];
+  let overallTimedOut = false;
+  let allPassed = true;
+
   try {
-  for (let i = 0; i < maxAttempts; i++) {
-    attempts += 1;
-    const r = await runWithTimeout('sh', ['-c', testCmd], { cwd, timeoutMs });
-    lastCode = r.timedOut ? 3 : r.code;
-    if (r.timedOut) break;
-    if (r.code === 0) break;
-    if (fixCmd && i < maxAttempts - 1) {
-      const fr = await runWithTimeout('sh', ['-c', fixCmd], { cwd, timeoutMs });
-      if (fr.timedOut) {
-        lastCode = 3;
+    for (const row of targets) {
+      const cwd = row.worktree_path;
+      if (!fs.existsSync(cwd)) {
+        console.error(`failed_stage=test feature_id=${row.feature_id} missing worktree_path=${cwd}`);
+        allPassed = false;
+        perFeature.push({
+          feature_id: row.feature_id,
+          attempts: 0,
+          result: 'failed',
+          last_exit: 1,
+        });
+        break;
+      }
+
+      let lastCode = 1;
+      let attempts = 0;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        attempts += 1;
+        const r = await runWithTimeout('sh', ['-c', testCmd], { cwd, timeoutMs });
+        lastCode = r.timedOut ? 3 : r.code;
+        if (r.timedOut) {
+          overallTimedOut = true;
+          break;
+        }
+        if (r.code === 0) {
+          lastCode = 0;
+          break;
+        }
+        if (i < maxAttempts - 1) {
+          if (fixCmd) {
+            const fr = await runWithTimeout('sh', ['-c', fixCmd], { cwd, timeoutMs });
+            if (fr.timedOut) {
+              lastCode = 3;
+              overallTimedOut = true;
+              break;
+            }
+          }
+          if (!noAgent) {
+            const ar = await invokeAiCode3Agent({
+              worktreePath: cwd,
+              projectRoot,
+              phase: 'test_fix',
+              featureId: row.feature_id,
+              timeoutMs: agentSubMs,
+              extraEnv: {},
+            });
+            if (!ar.ok && ar.code === 3) {
+              lastCode = 3;
+              overallTimedOut = true;
+              break;
+            }
+          }
+        }
+      }
+
+      const passed = lastCode === 0 && !overallTimedOut;
+      perFeature.push({
+        feature_id: row.feature_id,
+        attempts,
+        result: passed ? 'passed' : overallTimedOut ? 'failed' : lastCode === 3 ? 'failed' : 'failed_max_attempts',
+        last_exit: lastCode,
+      });
+      if (!passed) {
+        allPassed = false;
         break;
       }
     }
-  }
   } finally {
     if (hb) clearInterval(hb);
   }
 
-  const passed = lastCode === 0;
-  const result = passed ? 'passed' : lastCode === 3 ? 'failed' : 'failed_max_attempts';
+  const lastRow = perFeature[perFeature.length - 1];
+  const lastCode = lastRow?.last_exit ?? 1;
+  const passed = allPassed;
+  const result = passed ? 'passed' : overallTimedOut || lastCode === 3 ? 'failed' : 'failed_max_attempts';
 
   const hash = summaryHash.computeUpstreamHashForStage(doc, 'test', projectRoot, options.featureIds);
-  const wtList = doc.stages?.typecheck?.inputs?.worktrees || [];
+  const wtList = targets.map((t) => ({
+    feature_id: t.feature_id,
+    worktree_path: t.worktree_path,
+    branch: '',
+  }));
 
   const now = new Date().toISOString();
   doc = stagesIo.updateStage(doc, 'test', {
@@ -109,13 +217,14 @@ async function run(ctx) {
     outputs: {
       ...doc.stages?.test?.outputs,
       command: testCmd,
-      attempts,
+      attempts: perFeature.reduce((a, p) => a + p.attempts, 0),
+      per_feature: perFeature,
       result,
       log_path: '',
-      failure_summary: passed ? '' : `exit ${lastCode}`,
+      failure_summary: passed ? '' : `per_feature=${JSON.stringify(perFeature)}`,
       duration_ms: 0,
-      timed_out: lastCode === 3,
-      timeout_reason: lastCode === 3 ? 'test_command' : null,
+      timed_out: overallTimedOut || lastCode === 3,
+      timeout_reason: overallTimedOut || lastCode === 3 ? 'test_command' : null,
     },
     validation: {
       ...doc.stages?.test?.validation,
@@ -126,14 +235,14 @@ async function run(ctx) {
       ? null
       : {
           suggest_stage: 'codegen',
-          reason: 'test failures after max fix attempts (see outputs.failure_summary)',
+          reason: 'test failures after max fix attempts (see outputs.failure_summary / per_feature)',
         },
   });
   stagesIo.writeStagesSync(projectRoot, doc);
 
   if (!passed) {
     console.error(`failed_stage=test result=${result}`);
-    return lastCode === 3 ? 3 : 4;
+    return overallTimedOut || lastCode === 3 ? 3 : 4;
   }
   return 0;
 }

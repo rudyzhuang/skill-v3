@@ -2,9 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const stagesIo = require('./lib/stages-io.cjs');
 const summaryHash = require('./lib/summary-hash.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
+const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
+const { validateCodeReviewOutput } = require('./lib/validate-code-review-output.cjs');
 
 async function run(ctx) {
   const { projectRoot, options } = ctx;
@@ -80,6 +83,126 @@ async function run(ctx) {
         ...cr0?.validation,
         passed,
         summary: `imported from AI_CODE3_CODE_REVIEW_JSON (${abs})`,
+      },
+    });
+    stagesIo.writeStagesSync(projectRoot, doc);
+    if (decision === 'passed_with_warnings') {
+      console.error('failed_stage=code_review passed_with_warnings treated as failure (strict default)');
+      return 4;
+    }
+    if (!passed) {
+      console.error(`failed_stage=code_review decision=${decision} critical=${crit}`);
+      return 4;
+    }
+    return 0;
+  }
+
+  const skipCrAgent =
+    process.env.AI_CODE3_SKIP_AGENT === '1' ||
+    (!(process.env.AI_CODE3_AGENT_BIN || '').trim() && !(process.env.AI_CODEGEN_AGENT_BIN || '').trim());
+
+  if (!importPath && !options.stubRemaining && !skipCrAgent) {
+    const configPath = path.join(projectRoot, 'docs', 'config.dev.json');
+    const config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
+    const sec = config?.timeouts?.stages?.code_review_s;
+    const timeoutMs = (typeof sec === 'number' && sec > 0 ? sec : 900) * 1000;
+
+    if (options.dryRun) {
+      console.error('[dry-run] code-review external agent + JSON Schema output');
+      return 0;
+    }
+
+    const outDir = path.join(projectRoot, '.agent-sessions');
+    fs.mkdirSync(outDir, { recursive: true });
+    const outPath = path.join(outDir, `code-review-out-${crypto.randomBytes(8).toString('hex')}.json`);
+    const fid =
+      options.featureIds && options.featureIds.length ? options.featureIds.join(',') : '';
+
+    const ar = await invokeAiCode3Agent({
+      worktreePath: projectRoot,
+      projectRoot,
+      phase: 'code_review',
+      featureId: fid,
+      timeoutMs,
+      extraEnv: { AI_CODE3_CODE_REVIEW_OUTPUT: outPath },
+    });
+
+    if (ar.skipped) {
+      console.error('failed_stage=code_review agent skipped unexpectedly');
+      return 1;
+    }
+    if (!ar.ok) {
+      return ar.code === 3 ? 3 : 4;
+    }
+    if (!fs.existsSync(outPath)) {
+      console.error(`failed_stage=code_review missing output file (set by agent): ${outPath}`);
+      return 4;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+    } catch (e) {
+      console.error(`failed_stage=code_review invalid JSON in output file: ${e.message}`);
+      try {
+        fs.unlinkSync(outPath);
+      } catch {}
+      return 4;
+    }
+    try {
+      fs.unlinkSync(outPath);
+    } catch {}
+
+    let vr;
+    try {
+      vr = validateCodeReviewOutput(payload);
+    } catch (e) {
+      console.error(`failed_stage=code_review schema_loader: ${e.message || e}`);
+      return 1;
+    }
+    if (!vr.ok) {
+      console.error(`failed_stage=code_review schema_errors=${vr.errors}`);
+      return 4;
+    }
+    payload = vr.data;
+
+    const decision = String(payload.decision || 'pending');
+    const allowed = new Set(['passed', 'failed', 'passed_with_warnings', 'pending']);
+    if (!allowed.has(decision)) {
+      console.error(`failed_stage=code_review invalid decision: ${decision}`);
+      return 4;
+    }
+    const crit = Number(payload.critical_issues) || 0;
+    const warns = Number(payload.warnings) || 0;
+    const checklist = Array.isArray(payload.checklist) ? payload.checklist : [];
+    const now = new Date().toISOString();
+    const hash = summaryHash.computeUpstreamHashForStage(doc, 'code_review', projectRoot, options.featureIds);
+    const cr0 = doc.stages?.code_review;
+    const passed = decision === 'passed' && crit === 0;
+
+    doc = stagesIo.updateStage(doc, 'code_review', {
+      status: passed ? 'completed' : 'failed',
+      started_at: cr0?.started_at || now,
+      completed_at: now,
+      inputs: {
+        ...cr0?.inputs,
+        summary_hash: hash,
+        requires_stage: 'test',
+        worktrees: doc.stages?.test?.inputs?.worktrees || [],
+      },
+      outputs: {
+        ...cr0?.outputs,
+        decision,
+        critical_issues: crit,
+        warnings: warns,
+        checklist,
+        duration_ms: 0,
+        timed_out: false,
+        timeout_reason: null,
+      },
+      validation: {
+        ...cr0?.validation,
+        passed,
+        summary: 'ai-code3/scripts/code-review.cjs (external agent + JSON Schema)',
       },
     });
     stagesIo.writeStagesSync(projectRoot, doc);

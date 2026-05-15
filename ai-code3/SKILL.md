@@ -1,6 +1,6 @@
 ---
 name: ai-code3
-version: "0.2.0"
+version: "0.3.0"
 description: >-
   Skill V3 代码流水线：在业务项目中驱动 codegen、typecheck、test、code-review、merge-push、build；
   状态真源为 .pipeline/stages.json；脚本为 Node CommonJS（.cjs）。
@@ -65,9 +65,7 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 
 **`codegen` 覆盖已放行结果**：若 **`stages.codegen`** 已为 **`completed`** 且 **`validation.passed=true`**，再次执行 codegen（非 dry-run、且未被「跳过」短路）须设置 **`AI_CODE3_CODEGEN_CONFIRM=yes`**，否则 **退出 1** 并写 **`blocked`**（`input-spec.md` §7.2 / `code3.md` §6 overwrite）。
 
-**`merge-push` 强制重跑**：`--force-rerun=merge_push` 时必须同时设置环境变量 **`AI_CODE3_MERGE_CONFIRM=yes`**，否则 **退出 1**（destructive explicit confirm，`input-spec.md` §7.2）。
-
-## 冒烟自测（本仓）
+**外部 Agent 统一环境**（**`AI_CODE3_AGENT_BIN`** / **`AI_CODEGEN_AGENT_BIN`**）：**`AI_CODE3_PHASE`**（`impl` | `test` | `test_fix` | `code_review`）、**`AI_CODE3_WORKTREE`**、**`AI_CODE3_PROJECT`**、可选 **`AI_CODE3_FEATURE_ID`**；**code_review** 相须将 JSON 写入 **`AI_CODE3_CODE_REVIEW_OUTPUT`**（见 **`prompts/code-review-agent.md`**）。stderr 约定含 **`failed_stage=`** 与（多 feature 时）**`feature_id=`**。
 
 ```bash
 node ai-code3/scripts/self-test-secret-scan.cjs
@@ -75,7 +73,7 @@ node ai-code3/scripts/self-test-merge-push.cjs
 node ai-code3/scripts/smoke.cjs
 ```
 
-`smoke.cjs` 会依次跑 secret-scan、**merge-push（真实 git）** 自测，再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
+`smoke.cjs` 会：在 **`ai-code3/`** 目录执行 **`npm ci`**（安装 **ajv** 等依赖）；依次跑 secret-scan、**merge-push（真实 git）** 自测、**`self-test-clean.cjs`**、**`self-test-preflight-upstream.cjs`**；再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
 
 分阶段实施与两轮评审门禁见 **`docs/plans/ai-code3-implementation-plan.md`**。
 

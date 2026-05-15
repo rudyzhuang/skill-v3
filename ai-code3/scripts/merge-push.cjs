@@ -227,6 +227,16 @@ async function run(ctx) {
   }
 
   try {
+    let hbMerge;
+    const sessionIdMp = options.sessionId || '';
+    if (sessionIdMp) {
+      const { appendHeartbeat } = require('./lib/session-log.cjs');
+      hbMerge = setInterval(
+        () => appendHeartbeat(projectRoot, sessionIdMp, 'merge_push', 'tick'),
+        30_000
+      );
+    }
+    try {
     doc = stagesIo.readStagesSync(projectRoot);
     const mergeStepMs = mergePushStageTimeoutMs(config);
     const featureBranches = mergeGit.listFeatureBranchesToMerge(projectRoot, doc, targetBranch);
@@ -426,6 +436,9 @@ async function run(ctx) {
     });
     stagesIo.writeStagesSync(projectRoot, doc);
     return 0;
+    } finally {
+      if (hbMerge) clearInterval(hbMerge);
+    }
   } finally {
     lock.release();
   }

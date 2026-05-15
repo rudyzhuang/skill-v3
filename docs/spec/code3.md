@@ -9,7 +9,7 @@
 | **与 `docs/templates/` 的关系** | **JSON / Markdown 字段形状**以 **`docs/templates/stages.json.template`**、**`docs/templates/config.dev.json.template`**（及 release 对档）为准。本文 **§19** 列出 **`stages.json`** 读写子集；**模板字段速查**见 **附录 C**（与 **prd3.md §18 附录 C** 字母含义一致：实现辅助与验收勾选项）；模板增删字段时，**同一维护周期**内更新本文 §19、附录 C 与相关脚本契约。 |
 | **`inputs.summary_hash`（全局门闸）** | `input-spec.md` §4.4 要求各阶段维护 `stages.<stage>.inputs.summary_hash`。**`docs/templates/stages.json.template` v1 已在各 `stages.*.inputs` 下提供 `summary_hash` 占位**；ai-code3 在完成各阶段成功路径时须按本文 **§13** 写入/更新非空哈希（与 `input-spec.md` §9.1 additive 规则一致）。 |
 | **与上一版 skill 的关系** | **不得**把 v2 仓库路径、SQLite `*_state`、业务仓内旧脚本契约写入 v3 默认实现；经验映射见 **§2**。 |
-| **实现覆盖快照（评审用）** | **§0.1** 给出「规格能力 vs 当前 **`ai-code3/scripts`**」摘要；**全文目标形态**仍以 **§7–§12** 为准，未达标项须继续实现而非从规格删除。 |
+| **实现覆盖快照（评审用）** | **§0.1** 为 **`ai-code3/scripts` 行为级**对照；**§7.4 起**为 codegen **扩展目标**正文，细项与 **§7.8–§7.12** 的穷尽验收以 **`docs/plans/ai-code3-implementation-plan.md` §4.3** 为准（可与 §0.1 同能力标 **部分** 而不矛盾）。 |
 
 **维护流程（需求变更时）**：
 
@@ -25,15 +25,15 @@
 | --- | --- | --- | --- |
 | `run.cjs` 串联、`summary_hash` 跳过、`failed_stage=` | §4、附录 A.3、§13 | **是** | |
 | `preflight`：根、`config.dev.json`、**`stages.json`**、schema、**config.* secret-scan** | §4.1、附录 B | **是** | **§7.2** 上游门闸：默认**不**跑；设 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 时与 **`lib/codegen-gates.cjs`** 对齐预检 |
-| `codegen`：§7.2 门闸 + 主仓 **diff-guard** + per-feature **worktree** + worktree 内契约 **二次 diff-guard** | §7.2–§7.4 | **是** | **`lib/codegen-worktree.cjs`**；**`lib/codegen-scaffold.cjs`**；**`lib/invoke-codegen-agent.cjs`**（**`AI_CODE3_AGENT_BIN`** 等）；**`outputs.agent`**；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_ALLOW_NO_AGENT_PASS`**；分相/完整 Cursor 集成仍以 **§7.8–§7.12** 为验收细项 |
+| `codegen`：§7.2 门闸 + 主仓 **diff-guard** + per-feature **worktree** + worktree 内契约 **二次 diff-guard** + 外部 Agent 钩子 | §7.2–§7.12（**§7.4** 为扩展目标总述；**§7.7–§7.9** 为 worktree/Agent/分相） | **是**（脚本核） / **部分**（§7.8–§7.12 编排细项） | **核**：**`lib/codegen-worktree.cjs`** / **`codegen-scaffold`** / **`invoke-ai-code3-agent`**（**`AI_CODE3_FEATURE_ID`**）、**`outputs.agent`**、**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_ALLOW_NO_AGENT_PASS`**；**细项**：编排/Cursor 全矩阵见 **`docs/plans/ai-code3-implementation-plan.md` §4.3** |
 | `typecheck` | §8 | **是** | 含 T1 全 skip→0 |
-| `test` | §9 | **部分** | 同命令重试；**`build.commands.test_fix`** 于重试间隙可选执行；无 Agent fix-loop |
-| `code-review` | §10 | **部分** | **`AI_CODE3_CODE_REVIEW_JSON`** 可导入写回；无内置 LLM；`passed`+`validation.passed` 时刷新 hash；**`passed_with_warnings`**→**4**；否则 stub 或 blocked |
-| `merge-push` | §11、§11.4 | **是** | stub 路径除外 |
+| `test` | §9 | **是** | 按 **`codegen.outputs.worktrees[]`**（可 **`--feature`** 过滤）逐 feature **cwd**；**`test_fix`** + **`AI_CODE3_PHASE=test_fix`** 外部 Agent；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_SKIP_TEST_FIX_AGENT`**；**`outputs.per_feature[]`** |
+| `code-review` | §10 | **是** | 优先级：**`AI_CODE3_CODE_REVIEW_JSON`** → 外部 Agent（**`AI_CODE3_PHASE=code_review`**，写 **`AI_CODE3_CODE_REVIEW_OUTPUT`**）+ **Ajv** 校验 **`templates/schemas/code-review-output.v3.schema.json`** → 人工预填 / stub |
+| `merge-push` | §11、§11.4 | **是** | stub 路径除外；**`--session-id`** 心跳 |
 | `build` | §12 | **是** | **`client_targets`×`sub_platforms`** 矩阵；逐条超时；**`artifacts[]`** 仍偏 CLI 路径汇总（与 §12.3 字段级对齐可继续收紧） |
 | **`clean` / `clean-worktrees`** | §4.3 | **是** | **`clean.cjs`**；**`git worktree remove`**；须 **`AI_CODE3_CLEAN_CONFIRM=yes`**；**绕过** preflight |
-| 附录 B 单测 / merge 自测 / smoke | 附录 B、§16 | **是** | 见 **`ai-code3/scripts/self-test-*.cjs`**、`smoke.cjs` |
-| §15 心跳 | §15 | **部分** | **`--session-id=`** 时 **codegen / test / build** 向 **`.agent-sessions/<id>.log`** 追加 tick（**`lib/session-log.cjs`**） |
+| 附录 B 单测 / merge 自测 / smoke（含 **clean**、**preflight 上游门闸**、`npm ci`） | 附录 B、§16 | **是** | 见 **`self-test-*.cjs`**、**`smoke.cjs`** |
+| §15 心跳 | §15 | **是** | **`--session-id=`** 时 **codegen / test / build / merge_push** |
 
 ---
 
@@ -82,8 +82,13 @@
 ai-code3/
 ├── SKILL.md
 ├── SPEC.md                    # 可选：安装到 ~/.cursor/skills 时指向本仓 docs/spec/code3.md
-├── prompts/                   # 可选：codegen（impl/test）、code-review、test 修复循环等
-│   └── codegen-impl.md
+├── package.json               # 运行时依赖（**ajv** / **ajv-formats**）；**`smoke.cjs`** 前执行 **`npm ci`**
+├── templates/
+│   └── schemas/
+│       └── code-review-output.v3.schema.json  # §18 T2：code_review LLM JSON 校验（与 docs/templates 对档）
+├── prompts/
+│   ├── codegen-impl.md
+│   └── code-review-agent.md   # 可选：说明 **AI_CODE3_CODE_REVIEW_OUTPUT** 与 Schema 字段
 └── scripts/
     ├── run.cjs                # 建议：唯一 CLI 入口，分发子命令
     ├── preflight.cjs
@@ -93,7 +98,11 @@ ai-code3/
     ├── code-review.cjs
     ├── merge-push.cjs
     ├── build.cjs
-    ├── clean.cjs              # 清理 .pipeline/worktrees/v3-fc-*（destructive）
+    ├── clean.cjs
+    ├── self-test-secret-scan.cjs
+    ├── self-test-merge-push.cjs
+    ├── self-test-clean.cjs
+    ├── self-test-preflight-upstream.cjs
     └── lib/
         ├── stages-io.cjs      # 读合并写 stages.json；schema 版本；additive 缺省补齐
         ├── run-with-timeout.cjs
@@ -102,8 +111,10 @@ ai-code3/
         ├── merge-git.cjs     # §11：merge/push 组合（merge-push.cjs 调用）
         ├── codegen-gates.cjs         # §7.2 门闸（preflight / codegen 复用）
         ├── codegen-worktree.cjs      # worktree 列表、创建/复用 v3-fc-*
-        ├── codegen-scaffold.cjs      # §7.6 / §7.9：确定性骨架（file_plan）
-        ├── invoke-codegen-agent.cjs  # §7.8–§7.9：外部 Agent 二进制封装
+        ├── codegen-scaffold.cjs      # §7.5（v2 骨架映射）/ §7.9 步骤 4：确定性骨架（file_plan）
+        ├── invoke-ai-code3-agent.cjs  # 统一外部 Agent：**AI_CODE3_PHASE** / **FEATURE_ID** / **WORKTREE** / **PROJECT**
+        ├── invoke-codegen-agent.cjs   # 薄封装 → **invoke-ai-code3-agent**（codegen 历史名）
+        ├── validate-code-review-output.cjs  # Ajv 编译 **code-review-output.v3.schema.json**
         └── session-log.cjs           # §15：心跳追加 .agent-sessions/<session>.log
 ```
 
@@ -113,11 +124,11 @@ ai-code3/
 | --- | --- |
 | `run.cjs` | 解析 `--project`、`--from-stage`、`--to-stage`、`--feature`、`--force-rerun`、`--dry-run`、`--session-id`；**`clean`/`clean-worktrees` 先于 preflight 短路**；其余子命令串联；统一退出码；日志中带 `failed_stage=` |
 | `preflight.cjs` | 校验项目根、**`docs/config.dev.json`** 存在且可读、**`.pipeline/stages.json`** 可读及 **`_schema.version`**；对 **`config.dev.json` / `config.release.json`（若存在）** 执行 **附录 B** 式 **secret-scan**；可选 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 调用 **`lib/codegen-gates.cjs`** 预检 **§7.2**；失败 **退出码 1** |
-| `codegen.cjs` | **§7.2** 门闸；主仓 + 各 feature **worktree** 契约路径 **diff-guard**；**`lib/codegen-scaffold.cjs`**；**`lib/invoke-codegen-agent.cjs`**（可 **`AI_CODE3_SKIP_AGENT`**）；回写 **`stages.codegen.outputs.worktrees[]`**、**`outputs.agent`**；详见 **§0.1** 与 **§7.8–§7.12** 细项验收 |
+| `codegen.cjs` | **§7.2** 门闸；主仓 + 各 feature **worktree** 契约路径 **diff-guard**；**`lib/codegen-scaffold.cjs`**；**`lib/invoke-ai-code3-agent.cjs`**（可 **`AI_CODE3_SKIP_AGENT`**）；回写 **`stages.codegen.outputs.worktrees[]`**、**`outputs.agent`**；详见 **§0.1** 与 **§7.8–§7.12** 细项验收 |
 | `typecheck.cjs` | 静态检查探测与执行；回写 **`stages.typecheck`** |
-| `test.cjs` | 测试与 fix-loop；回写 **`stages.test`**、`rollback_to` |
-| `code-review.cjs` | **目标**：合并 **LLM** 结构化结论并回写 **`stages.code_review`**。**当前仓库**：可选 **`AI_CODE3_CODE_REVIEW_JSON`** 导入；不内置 LLM；若 **`outputs.decision`** 为 **`passed`**、**`validation.passed`** 为 **`true`** 且 **`critical_issues===0`** 则刷新 **`summary_hash`** / **`completed_at`**；**`passed_with_warnings`** → 退出 **4**；否则 **blocked**（或 **`--stub-remaining`** 占位） |
-| `merge-push.cjs` | **`lib/merge-git.cjs`** 组合 **`git merge --no-ff` / `git push`**、锁；干净工作区在加锁**前**校验；**`--stub-remaining`** 占位；回写 **`stages.merge_push`**（细节 **§11.4**） |
+| `test.cjs` | **§9**：按 **feature worktree** 跑 **`build.commands.test`**；**`test_fix`** + **`test_fix` Agent**（**`AI_CODE3_PHASE=test_fix`**）；回写 **`stages.test`**（含 **`outputs.per_feature[]`**）、**`rollback_to`** |
+| `code-review.cjs` | **`AI_CODE3_CODE_REVIEW_JSON`** 优先；否则 **外部 Agent** 写 **`AI_CODE3_CODE_REVIEW_OUTPUT`** + **Ajv** 与 **`templates/schemas/code-review-output.v3.schema.json`**；**`passed_with_warnings`** → **4**；再否则人工预填 / **`--stub-remaining`** |
+| `merge-push.cjs` | **`lib/merge-git.cjs`** 组合 **`git merge --no-ff` / `git push`**、锁；**`--session-id`** 心跳；**`--stub-remaining`** 占位；回写 **`stages.merge_push`**（细节 **§11.4**） |
 | `build.cjs` | 按 **§12.2** **`client_targets`×`sub_platforms`** 矩阵执行 **`build.commands.build`** 与各条 **`sub_platforms[].build`** / per-target **`build`**；**`--session-id`** 心跳；回写 **`stages.build.outputs.artifacts[]`** |
 | `clean.cjs` | **`git worktree remove --force`** 清理 **`.pipeline/worktrees/v3-fc-*`**；须 **`AI_CODE3_CLEAN_CONFIRM=yes`** |
 | `lib/stages-io.cjs` | 原子写/文件锁、`_schema.version`、**`input-spec.md` §9.1** additive 规则 |
@@ -126,8 +137,8 @@ ai-code3/
 | `lib/secret-scan.cjs` | **附录 B**：`config.*.json` 键名/值形态扫描；由 **preflight** 可选调用 |
 | `lib/merge-git.cjs` | **§11**：解析 worktrees 分支、顺序 merge、冲突收集 **`merge --abort`**、可选 **push**（供 **`merge-push.cjs`** 调用） |
 | `lib/codegen-gates.cjs` | **§7.2**：上游门闸断言（返回错误消息或 **`null`**）；**preflight**（可选）与 **codegen** 复用 |
-| `lib/codegen-worktree.cjs` | **§7.4**：`git worktree` 列表、**`v3-fc-*`** 创建/复用、绝对路径锚定 |
-| `lib/codegen-scaffold.cjs` | **§7.6 / §7.9**：确定性占位与目录（**不得**含 Agent 调用） |
+| `lib/codegen-worktree.cjs` | **§7.7**：`git worktree` 列表、**`v3-fc-*`** 创建/复用、绝对路径锚定 |
+| `lib/codegen-scaffold.cjs` | **§7.5 / §7.9**：确定性占位与目录（**不得**含 Agent 调用） |
 | `lib/invoke-codegen-agent.cjs` | **§7.8–§7.9**：在 worktree 根目录上下文调用外部 Agent；超时/退出码映射 **§7.12** |
 | `lib/session-log.cjs` | **§15**：**`.agent-sessions/<session>.log`** 心跳追加 |
 
@@ -230,7 +241,7 @@ ai-code3/
 
 1. **`codegen.cjs` + `lib/*.cjs`**：读 **`stages.json`**、解析 **`artifacts[]`**、创建/挂载 worktree、`git` 状态检查、**diff-guard**、子进程超时、**`run-with-timeout.cjs`**、心跳写 **`.agent-sessions/<session_id>.log`**、收集 **`files_changed`**、更新 **`stages.codegen.status`**（**`running` → `completed` \| `failed`**）、**`inputs.summary_hash`**。  
 2. **Agent**：仅在「已给出明确文件边界与契约只读上下文」的前提下，对 **worktree 根目录** 做编辑；**禁止**让 Agent 执行「代替 diff-guard」或「代替 schema 校验」的叙述。  
-3. **`SKILL.md` / `prompts/*.md`**：给人与 IDE Agent 的操作说明与提示词模板；**可**与脚本内嵌 prompt 并存，但**同一相**须单一真源（建议：**脚本引用 `prompts/codegen-impl.md` / `codegen-test.md`**）。
+3. **`SKILL.md` / `prompts/*.md`**：给人与 IDE Agent 的操作说明与提示词模板；**可**与脚本内嵌 prompt 并存，但**同一相**须单一真源（建议：**脚本引用 `prompts/codegen-impl.md`**；测试相可复用该文件或另增 **`prompts/codegen-test.md`** 并纳入 skill 发布清单）。
 
 ### 7.7 Worktree 策略
 
@@ -428,7 +439,7 @@ ai-code3/
 
 - **配置键**：`docs/config.dev.json` → **`timeouts.stages.codegen_s`**、**`typecheck_s`**、**`test_s`**、**`code_review_s`**、**`merge_push_s`**、**`build_s`**（键名与 **`config.dev.json.template`** 一致）。  
 - **子命令超时**：`timeouts.subcommand.*`；不得超过当前阶段超时；超时 → **退出码 3**，并写 **`outputs.timed_out` / `duration_ms` / `timeout_reason`**（**附录 A · A.6**）。  
-- **心跳**：**codegen** / **test** / **build** 长时阶段按 **`heartbeat_interval_s`** 写入 **`.agent-sessions/<session_id>.log`**。  
+- **心跳**：**codegen** / **test** / **build** / **merge_push** 长时阶段按 **`heartbeat_interval_s`** 写入 **`.agent-sessions/<session_id>.log`**（须传 **`--session-id=`**）。  
 - **手工单跑**：受阶段超时约束；**不受** **`autorun_total_s`** 约束（无外层 autorun）。  
 - **日志与锁路径**：见 **附录 A · A.5**；**merge-push**、可选 **build** 锁 scope 与锁文件 JSON 行格式。
 
@@ -451,7 +462,9 @@ ai-code3/
 | build **website** 有 **`artifact_path`**；**backend** 可 **`not_applicable`** | |
 | 人为缩短 **`typecheck_s`** 挂起子命令 | **退出 3** 且 **`timed_out=true`** |
 | 跳过三条件满足后再次运行 | 打印「本阶段已完成」、不重复改 git |
-| **`--force-rerun=merge_push`** 无确认 | **退出 1** 或拒绝执行 |
+| **preflight** 上游门闸（`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`）失败 | **退出 1**；stderr 含 **`codegen_upstream_gate`** |
+| **clean** 移除 **v3-fc-*** worktree（`AI_CODE3_CLEAN_CONFIRM=yes`） | worktree 目录删除；**`self-test-clean.cjs`** |
+| **code_review** LLM 输出 JSON 未通过 **Ajv**（`templates/schemas/code-review-output.v3.schema.json`） | **退出 4** |
 
 ---
 
@@ -469,7 +482,7 @@ ai-code3/
 | ID | 内容 | 关闭条件 |
 | --- | --- | --- |
 | T1 | typecheck「工具全缺失」时 **退出 1** 与 **`skipped`+退出 0** 二选一 | 写入 **`SKILL.md`** + 本文 **§8.2** 定稿一句 |
-| T2 | LLM 产出 JSON 的 **JSON Schema** 是否随 skill 分发 | 已定稿路径并入 **§4.1** 目录树 |
+| T2 | LLM 产出 JSON 的 **JSON Schema** 是否随 skill 分发 | **已关闭**：**`ai-code3/templates/schemas/code-review-output.v3.schema.json`**（与 **`docs/templates/schemas/`** 对档）；**Ajv** 见 **`ai-code3/package.json`** |
 
 ---
 

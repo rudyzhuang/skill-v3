@@ -26,12 +26,16 @@ function runNode(args) {
   return r.status ?? 1;
 }
 
-function git(tmp, args) {
-  const r = spawnSync('git', ['-C', tmp, ...args], { stdio: 'inherit' });
-  return r.status ?? 1;
-}
-
 function main() {
+  const npmCi = spawnSync('npm', ['ci', '--ignore-scripts'], {
+    cwd: skillRoot,
+    stdio: 'inherit',
+  });
+  if (npmCi.status !== 0) {
+    console.error('npm ci in ai-code3 failed (required for JSON Schema / smoke)');
+    process.exit(1);
+  }
+
   const secretTest = path.join(skillRoot, 'scripts', 'self-test-secret-scan.cjs');
   const st = spawnSync(process.execPath, [secretTest], { stdio: 'inherit', cwd: skillRoot });
   if (st.status !== 0) {
@@ -43,6 +47,20 @@ function main() {
   const mt = spawnSync(process.execPath, [mergeTest], { stdio: 'inherit', cwd: skillRoot });
   if (mt.status !== 0) {
     console.error('self-test-merge-push failed');
+    process.exit(1);
+  }
+
+  const cleanTest = path.join(skillRoot, 'scripts', 'self-test-clean.cjs');
+  const ct = spawnSync(process.execPath, [cleanTest], { stdio: 'inherit', cwd: skillRoot });
+  if (ct.status !== 0) {
+    console.error('self-test-clean failed');
+    process.exit(1);
+  }
+
+  const pfUp = path.join(skillRoot, 'scripts', 'self-test-preflight-upstream.cjs');
+  const pu = spawnSync(process.execPath, [pfUp], { stdio: 'inherit', cwd: skillRoot });
+  if (pu.status !== 0) {
+    console.error('self-test-preflight-upstream failed');
     process.exit(1);
   }
 
@@ -74,6 +92,11 @@ function main() {
   if (runNode(['all', '--stub-remaining', proj]) !== 0) process.exit(1);
 
   console.error(`smoke OK (fixture copy at ${tmp})`);
+}
+
+function git(tmp, args) {
+  const r = spawnSync('git', ['-C', tmp, ...args], { stdio: 'inherit' });
+  return r.status ?? 1;
 }
 
 main();

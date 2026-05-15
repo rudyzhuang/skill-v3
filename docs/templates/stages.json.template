@@ -283,7 +283,13 @@
         "test_codegen_status": "pending",
         "duration_ms": null,
         "timed_out": false,
-        "timeout_reason": null
+        "timeout_reason": null,
+        "agent": {
+          "mode": "",
+          "model": "",
+          "skipped": false,
+          "skip_reason": ""
+        }
       },
       "validation": {
         "passed": false,
