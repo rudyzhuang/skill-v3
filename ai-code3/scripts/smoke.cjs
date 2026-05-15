@@ -28,10 +28,17 @@ function git(tmp, args) {
 }
 
 function main() {
-  const selfTest = path.join(skillRoot, 'scripts', 'self-test-secret-scan.cjs');
-  const st = spawnSync(process.execPath, [selfTest], { stdio: 'inherit', cwd: skillRoot });
+  const secretTest = path.join(skillRoot, 'scripts', 'self-test-secret-scan.cjs');
+  const st = spawnSync(process.execPath, [secretTest], { stdio: 'inherit', cwd: skillRoot });
   if (st.status !== 0) {
     console.error('self-test-secret-scan failed');
+    process.exit(1);
+  }
+
+  const mergeTest = path.join(skillRoot, 'scripts', 'self-test-merge-push.cjs');
+  const mt = spawnSync(process.execPath, [mergeTest], { stdio: 'inherit', cwd: skillRoot });
+  if (mt.status !== 0) {
+    console.error('self-test-merge-push failed');
     process.exit(1);
   }
 

@@ -67,11 +67,12 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 ## 冒烟自测（本仓）
 
 ```bash
-node ai-code3/scripts/self-test-secret-scan.cjs   # 附录 B 启发式单测（亦可单独跑）
+node ai-code3/scripts/self-test-secret-scan.cjs
+node ai-code3/scripts/self-test-merge-push.cjs
 node ai-code3/scripts/smoke.cjs
 ```
 
-`smoke.cjs` 会先跑 secret-scan 单测，再将 `fixtures/smoke-project/` 复制到临时目录、`git init` 基线提交后执行 `preflight` + `all --stub-remaining`。
+`smoke.cjs` 会依次跑 secret-scan、**merge-push（真实 git）** 自测，再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
 
 分阶段实施与两轮评审门禁见 **`docs/plans/ai-code3-implementation-plan.md`**。
 

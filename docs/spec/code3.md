@@ -63,7 +63,7 @@
 ai-code3/
 ├── SKILL.md
 ├── SPEC.md                    # 可选：安装到 ~/.cursor/skills 时指向本仓 docs/spec/code3.md
-├── prompts/                   # 可选：code-review、test 修复循环等
+├── prompts/                   # 可选：codegen（impl/test）、code-review、test 修复循环等
 └── scripts/
     ├── run.cjs                # 建议：唯一 CLI 入口，分发子命令
     ├── preflight.cjs
@@ -77,7 +77,10 @@ ai-code3/
         ├── stages-io.cjs      # 读合并写 stages.json；schema 版本；additive 缺省补齐
         ├── run-with-timeout.cjs
         ├── summary-hash.cjs
-        └── secret-scan.cjs   # 附录 B；preflight 可选调用
+        ├── secret-scan.cjs   # 附录 B；preflight 可选调用
+        ├── merge-git.cjs     # §11：merge/push 组合（merge-push.cjs 调用）
+        ├── codegen-scaffold.cjs      # 规划：确定性骨架（design_snapshot + 契约路径）
+        └── invoke-codegen-agent.cjs  # 规划：封装 Cursor CLI / @cursor/sdk；分相 impl|test
 ```
 
 **脚本职责表**（文件名允许微调，但 **门闸 / 状态写回 / 子进程** 不得合并成不可测试的黑盒）：
@@ -90,12 +93,15 @@ ai-code3/
 | `typecheck.cjs` | 静态检查探测与执行；回写 **`stages.typecheck`** |
 | `test.cjs` | 测试与 fix-loop；回写 **`stages.test`**、`rollback_to` |
 | `code-review.cjs` | 合并 LLM 结构化结论；回写 **`stages.code_review`** |
-| `merge-push.cjs` | 合并/推送、锁；回写 **`stages.merge_push`** |
+| `merge-push.cjs` | **`lib/merge-git.cjs`** 组合 **`git merge --no-ff` / `git push`**、锁；干净工作区在加锁**前**校验；**`--stub-remaining`** 占位；回写 **`stages.merge_push`**（细节 **§11.4**） |
 | `build.cjs` | 按端与子平台构建；回写 **`stages.build`** |
 | `lib/stages-io.cjs` | 原子写/文件锁、`_schema.version`、**`input-spec.md` §9.1** additive 规则 |
 | `lib/run-with-timeout.cjs` | SIGTERM 宽限 → SIGKILL；超时 **退出码 3**；`timed_out` / `duration_ms` / `timeout_reason` |
 | `lib/summary-hash.cjs` | **§13** 与 **附录 A · A.3** 跳过判定 |
 | `lib/secret-scan.cjs` | **附录 B**：`config.*.json` 键名/值形态扫描；由 **preflight** 可选调用 |
+| `lib/merge-git.cjs` | **§11**：解析 worktrees 分支、顺序 merge、冲突收集 **`merge --abort`**、可选 **push**（供 **`merge-push.cjs`** 调用） |
+| `lib/codegen-scaffold.cjs` | **§7.6 / §7.9**：确定性占位与目录（**不得**含 Agent 调用） |
+| `lib/invoke-codegen-agent.cjs` | **§7.8–§7.9**：在 worktree 根目录上下文调用 Agent；超时/退出码映射 **§7.12** |
 
 **最小可行路径（MVP）**：可先将逻辑内联在 `run.cjs`，但 **SKILL.md** 须承诺最终目录结构与入口，避免长期单文件不可维护。
 
@@ -313,6 +319,15 @@ ai-code3/
 
 合并冲突 → **6**；推送失败 → **7**。
 
+### 11.4 默认实现要点（与 `ai-code3/scripts` 同步）
+
+以下描述 **Skill 仓库当前脚本** 行为，便于核对 SSOT；若与上文条款冲突，以 **§0 维护流程** 收束。
+
+- **干净树门闸**：进入真实 merge 前，业务仓 **`git status --porcelain` 须为空**（须先提交或暂存含 `.pipeline/stages.json` 的变更）。**PID 锁**在干净检查**通过之后**再创建，避免 **`.agent-sessions/`** 未纳入 `.gitignore` 时误伤门闸。  
+- **待合并分支**：优先读取 **`stages.codegen.outputs.worktrees[]`**；若为空则 **`stages.code_review.inputs.worktrees[]`**。对每个元素解析 **`branch`**；若缺省则在对应 **`worktree_path`** 上执行 **`git rev-parse --abbrev-ref HEAD`**。与 **`target_branch`**（`docs/config.dev.json` 的 **`git.default_branch`** 或 `merge_push.inputs.target_branch`，默认 **`main`**）相同的分支跳过合并。其余分支在 **`projectRoot`** 上按序执行 **`git merge --no-ff`**；冲突则 **`git merge --abort`**，写 **`merge_status=conflict`**，**退出 6**。  
+- **推送**：**`git.allow_push=true`** 时执行 **`git push <remote> <target_branch>`**（**`git.remote`**，默认 **`origin`**）；未配置 remote → **退出 7**；push 非零退出 → **7**；子进程超时下限由 **`timeouts.stages.merge_push_s`** 推导为单次 git 调用的超时毫秒数（见 **`scripts/lib/merge-git.cjs`**）。**`--stub-remaining`** 仍为占位合并，不执行真实 git。  
+- **实现文件**：**`merge-push.cjs`** + **`lib/merge-git.cjs`**；合并自测 **`scripts/self-test-merge-push.cjs`**。
+
 ---
 
 ## 12. 阶段：`build`
@@ -365,7 +380,7 @@ ai-code3/
 | 1 | 前置失败、schema、门闸、配置缺失 |
 | 2 | 用户取消 |
 | 3 | 超时 / 外部工具或 Agent 异常（可重试） |
-| 4 | 质量门失败（typecheck / test / code-review / build） |
+| 4 | 质量门失败（**codegen** 在采用 **§7.12** 退出 **4** 的约定时归入本条；以及 **typecheck** / **test** / **code-review** / **build**） |
 | 5 | 契约被破坏（diff-guard） |
 | 6 | Git 合并冲突 |
 | 7 | Git 推送失败 |
@@ -392,6 +407,8 @@ ai-code3/
 | 无 `.pipeline/stages.json` | **退出 1**，stderr 可定位路径 |
 | **design-review** 非 `passed` 启动 codegen | **退出 1** |
 | 契约文件被 touch 后 diff-guard | **退出 5**，`contract_diff_guard_passed=false` |
+| **`AI_CODE3_SKIP_AGENT=1`** 且未启用「骨架即完成」实验策略 | **`outputs.agent.skipped=true`**；**`impl_codegen_status`** 不得伪 **`success`**；整体 **退出 4** 或 **1**（与 **§7.12** / **`SKILL.md`** 一致） |
+| **`--feature`** 指定 id 成功跑通 Agent 两相 | **`worktrees[]`** 中对应元素 **`worktree_path`** 为绝对路径且目录存在；**`files_changed`** 非空或与团队约定一致 |
 | typecheck 全 skip | 有 **`skip_reason`**；工具失败 | **退出 4**（若实现选 **1** 须在 `SKILL.md` 固定） |
 | test 耗尽 **`test_max_fix_attempts`** | **`result`** 为 **`failed_max_attempts`** 或等价；**`rollback_to`** 有建议 |
 | code-review **`critical_issues>0`** | **退出 4**；不改写 **test** 结果字段 |
@@ -428,7 +445,7 @@ ai-code3/
 
 **顶层**：`pipeline`（可选更新 **`current_stage`** / **`updated_by`** / **`updated_at`**，若实现统一编排指针）、`stages.codegen`、`stages.typecheck`、`stages.test`、`stages.code_review`、`stages.merge_push`、`stages.build`、`logs`（若写入会话索引）。
 
-各阶段须维护：**`status`**、**`started_at`** / **`completed_at`**（或失败时的时间戳策略）、**`inputs`**（含 **`requires_stage`**、**`summary_hash`**）、**`outputs`**（含 **`duration_ms`**、**`timed_out`**、**`timeout_reason`**）、**`validation`**。
+各阶段须维护：**`status`**、**`started_at`** / **`completed_at`**（或失败时的时间戳策略）、**`inputs`**（含 **`requires_stage`**、**`summary_hash`**）、**`outputs`**（含 **`duration_ms`**、**`timed_out`**、**`timeout_reason`**）、**`validation`**。**codegen** 的 **`outputs`** 还须包含 **`worktrees[]`** 与 **`agent`**（见 **`docs/templates/stages.json.template`**）。
 
 ---
 
@@ -483,7 +500,7 @@ ai-code3/
 
 | 阶段 | 要点 |
 | --- | --- |
-| **codegen** | 输入为已校验契约；输出为实现与测试生成状态；**严禁**改契约（diff-guard） |
+| **codegen** | 输入为已校验契约 + **`design_snapshot`/`file_plan`**；**git worktree** 隔离；**Cursor Agent** 分相生成；输出 **`worktrees[]`**、**`outputs.agent`**、**`impl_codegen_status` / `test_codegen_status`**；**严禁**改契约（主仓 + worktree **diff-guard**，见 **§7.3 / §7.9**） |
 | **typecheck** | 不跑单元测试；工具缺失须可解释跳过 |
 | **test** | fix-loop 有上限；**`rollback_to`** |
 | **code-review** | 对照契约完整性；**critical** 阻断合并 |
@@ -514,7 +531,7 @@ ai-code3/
 
 ### A.11 阶段约束草案摘录（§8）
 
-- **阶段 6 codegen**：隔离实现；**契约保护**；测试代码同步；状态写 **`stages.codegen`**。  
+- **阶段 6 codegen**：**worktree** 隔离；**Agent** 真实填码（可 CI 跳过）；**契约保护**（双检 diff-guard）；测试代码同步；状态写 **`stages.codegen`**（含 **`outputs.agent`**，见 **§7.11**）。  
 - **阶段 7 typecheck**：工具探测；失败阻断 **test**。  
 - **阶段 8 test**：**`max_fix_attempts`**；失败归因与 **`rollback_to`**；**不**在修复中改契约。  
 - **阶段 9 code-review**：清单与分级；**字段隔离**。  
@@ -550,7 +567,7 @@ ai-code3/
 
 实现时应以 **`docs/templates/stages.json.template`** 全文为准。
 
-- **codegen**：`inputs.requires_stage: "design_review"`，`outputs.worktrees[]`，**`validation.contract_diff_guard_passed`**  
+- **codegen**：`inputs.requires_stage: "design_review"`，`outputs.worktrees[]`，**`outputs.agent`**（**`mode` / `model` / `skipped` / `skip_reason`**），**`validation.contract_diff_guard_passed`**  
 - **typecheck**：`inputs.worktrees`，**`outputs.tools[]`**  
 - **test**：**`rollback_to`**，**`outputs.result`**  
 - **code_review**：**`outputs.checklist[]`** 默认 **`key`** 列表  
@@ -576,10 +593,11 @@ ai-code3/
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
-| 0.1 | 2026-05-15 | 初稿 |
-| 0.2 | 2026-05-15 | 评审修订：§0 SSOT、门闸收紧、`push_status`、summary_hash 等 |
-| 0.3 | 2026-05-15 | 与 **`docs/spec/prd3.md` 同构**：章节重组（§0–§19 + 附录）；系统化摘录 **`input-spec.md`**（**0.4** 起该摘录固定为 **附录 A**，与 prd3 字母含义一致）；§0 与模板 **`summary_hash`** 占位描述对齐 prd3 |
+| 0.6 | 2026-05-15 | **§11 merge-push**：补充 **§11.4** 与仓库脚本一致的默认实现说明（真 merge / push、干净树门闸、`merge-git.cjs`） |
 | 0.4 | 2026-05-15 | 附录字母与 **prd3** 对齐：**附录 A** = `input-spec` 摘录；**附录 B** = `config.*.json` 密钥/键名扫描；**附录 C** = 模板速查 + **`SKILL.md`** 清单；全文交叉引用已更新 |
+| 0.3 | 2026-05-15 | 与 **`docs/spec/prd3.md` 同构**：章节重组（§0–§19 + 附录）；系统化摘录 **`input-spec.md`**（**0.4** 起该摘录固定为 **附录 A**，与 prd3 字母含义一致）；§0 与模板 **`summary_hash`** 占位描述对齐 prd3 |
+| 0.2 | 2026-05-15 | 评审修订：§0 SSOT、门闸收紧、`push_status`、summary_hash 等 |
+| 0.1 | 2026-05-15 | 初稿 |
 
 ---
 
