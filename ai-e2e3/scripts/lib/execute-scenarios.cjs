@@ -136,7 +136,9 @@ async function executeScenarios(opts) {
         const prep = mobileReady[platform];
         if (!prep.ok) {
           row.error = prep.error || 'mobile device/build/install failed';
-          row.step_failed = 'mobile_device';
+          row.step_failed = prep.unresolvable ? 'mobile_env_unsatisfied' : 'mobile_device';
+          row.unresolvable = !!prep.unresolvable;
+          row.blocker = prep.blocker || '';
         } else if (stub || process.env.AI_E2E3_SKIP_AGENT === '1') {
           row.passed = true;
           row.error = '';

@@ -183,6 +183,20 @@ async function runUiE2e(projectRoot, opts = {}) {
     doc.pipeline.updated_by = 'ai-e2e3';
   });
 
+  const envBlocked = results.some((r) => r.unresolvable || r.step_failed === 'mobile_env_unsatisfied');
+  if (!allOk && envBlocked) {
+    const first = results.find((r) => r.unresolvable);
+    console.error('failed_step=ui_e2e');
+    console.error(first?.error || 'mobile environment unsatisfied');
+    console.error('blocker=mobile_env_unsatisfied');
+    return {
+      code: 1,
+      message: first?.error || 'ui_e2e: 环境不满足（不可解）',
+      failed_step: 'ui_e2e',
+      unresolvable: true,
+    };
+  }
+
   if (!allOk) {
     console.error('failed_step=ui_e2e');
     return { code: 4, message: `ui_e2e: ${failedN} scenario(s) failed`, failed_step: 'ui_e2e' };
