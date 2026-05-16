@@ -204,6 +204,19 @@ function main(argv) {
   }
 
   const server = createServer(opts);
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(
+        `ai-dash3: 端口 ${opts.port} 已被占用（${opts.host}:${opts.port}）。\n` +
+          `  若已是本看板：直接在浏览器打开 http://${opts.host}:${opts.port}/\n` +
+          `  若要重启：lsof -ti :${opts.port} | xargs kill\n` +
+          `  或换端口：node .../run.cjs serve --port=9474 --open`
+      );
+      process.exit(1);
+    }
+    console.error(String(err.message || err));
+    process.exit(1);
+  });
   server.listen(opts.port, opts.host, () => {
     const url = `http://${opts.host}:${opts.port}/`;
     process.stdout.write(`ai-dash3 web: ${url}\n`);
