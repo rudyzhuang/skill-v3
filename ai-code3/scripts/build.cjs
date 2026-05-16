@@ -56,7 +56,13 @@ async function run(ctx) {
     config?.build?.commands?.build || pipelineTooling.defaultNpmBuildCommand(projectRoot);
 
   const clientTargets = config?.build?.client_targets;
-  const declared = config?.project?.default_client_targets || Object.keys(clientTargets || {});
+  const defaultTargets = config?.project?.default_client_targets;
+  const declared =
+    Array.isArray(defaultTargets) && defaultTargets.length > 0
+      ? defaultTargets
+      : doc.client_targets?.declared?.length
+        ? doc.client_targets.declared
+        : Object.keys(clientTargets || {});
 
   if (options.dryRun) {
     console.error(`[dry-run] build cmd=${buildCmd || '(none)'} targets=${declared.join(',')}`);
