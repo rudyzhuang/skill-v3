@@ -154,7 +154,14 @@ function shouldSkipTestAgentPhase(testSpecAbs) {
 }
 
 function writeIfMissing(absPath, content) {
-  if (fs.existsSync(absPath)) return false;
+  if (fs.existsSync(absPath)) {
+    try {
+      const prev = fs.readFileSync(absPath, 'utf8');
+      if (prev === content) return false;
+    } catch {
+      /* ignore and overwrite */
+    }
+  }
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
   fs.writeFileSync(absPath, content, 'utf8');
   return true;
@@ -181,11 +188,20 @@ function ensureNoAgentHealthScaffold(worktreePath) {
         `const http = require('http');\n` +
         `const PORT = Number(process.env.BACKEND_PORT || 3001);\n` +
         `const server = http.createServer((req, res) => {\n` +
-        `  if (req.url === '/api/health' && req.method === 'GET') {\n` +
-        `    res.setHeader('Content-Type', 'application/json');\n` +
-        `    res.setHeader('Access-Control-Allow-Origin', '*');\n` +
-        `    res.end(JSON.stringify({ status: 'healthy', service: 'backend', timestamp: new Date().toISOString() }));\n` +
-        `    return;\n` +
+        `  if (req.method === 'GET' && req.url && req.url.startsWith('/api/')) {\n` +
+        `    const now = new Date().toISOString();\n` +
+        `    const routes = {\n` +
+        `      '/api/health': { status: 'healthy', service: 'backend', timestamp: now },\n` +
+        `      '/api/version': { version: '0.1.0', build: 'no-agent-scaffold', timestamp: now },\n` +
+        `      '/api/time': { now, timezone: 'UTC' },\n` +
+        `      '/api/ping': { pong: true, timestamp: now }\n` +
+        `    };\n` +
+        `    if (routes[req.url]) {\n` +
+        `      res.setHeader('Content-Type', 'application/json');\n` +
+        `      res.setHeader('Access-Control-Allow-Origin', '*');\n` +
+        `      res.end(JSON.stringify(routes[req.url]));\n` +
+        `      return;\n` +
+        `    }\n` +
         `  }\n` +
         `  res.statusCode = 404;\n` +
         `  res.end('not found');\n` +
@@ -197,7 +213,40 @@ function ensureNoAgentHealthScaffold(worktreePath) {
     writeIfMissing(
       path.join(worktreePath, 'website', 'index.html'),
       `<!doctype html>\n<html><head><meta charset="utf-8"><title>Health</title></head>\n` +
-        `<body><h1>Health Status</h1><pre id="out">loading...</pre><script src="/app.js"></script></body></html>\n`
+        `<body><h1>Health Home</h1><p>请选择页面：</p><ul>` +
+        `<li><a href="/page-health.html">Health</a></li>` +
+        `<li><a href="/page-version.html">Version</a></li>` +
+        `<li><a href="/page-time.html">Time</a></li>` +
+        `<li><a href="/page-ping.html">Ping</a></li>` +
+        `</ul></body></html>\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'page-health.html'),
+      `<!doctype html>\n<html><head><meta charset="utf-8"><title>Health Page</title></head>\n` +
+        `<body data-endpoint="/api/health"><h1>Health Page</h1><a href="/">Back Home</a><pre id="out">loading...</pre><script src="/app.js"></script></body></html>\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'page-version.html'),
+      `<!doctype html>\n<html><head><meta charset="utf-8"><title>Version Page</title></head>\n` +
+        `<body data-endpoint="/api/version"><h1>Version Page</h1><a href="/">Back Home</a><pre id="out">loading...</pre><script src="/app.js"></script></body></html>\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'page-time.html'),
+      `<!doctype html>\n<html><head><meta charset="utf-8"><title>Time Page</title></head>\n` +
+        `<body data-endpoint="/api/time"><h1>Time Page</h1><a href="/">Back Home</a><pre id="out">loading...</pre><script src="/app.js"></script></body></html>\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'page-ping.html'),
+      `<!doctype html>\n<html><head><meta charset="utf-8"><title>Ping Page</title></head>\n` +
+        `<body data-endpoint="/api/ping"><h1>Ping Page</h1><a href="/">Back Home</a><pre id="out">loading...</pre><script src="/app.js"></script></body></html>\n`
     )
   ) touched += 1;
   if (
@@ -205,9 +254,11 @@ function ensureNoAgentHealthScaffold(worktreePath) {
       path.join(worktreePath, 'website', 'app.js'),
       `(async function(){\n` +
         `  const out = document.getElementById('out');\n` +
+        `  if (!out) return;\n` +
         `  const base = window.BACKEND_BASE_URL || 'http://localhost:3001';\n` +
+        `  const endpoint = document.body.getAttribute('data-endpoint') || '/api/health';\n` +
         `  try {\n` +
-        `    const r = await fetch(base + '/api/health');\n` +
+        `    const r = await fetch(base + endpoint);\n` +
         `    const j = await r.json();\n` +
         `    out.textContent = JSON.stringify(j, null, 2);\n` +
         `  } catch (e) {\n` +
