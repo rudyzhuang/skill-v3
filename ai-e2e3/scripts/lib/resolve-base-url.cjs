@@ -8,6 +8,8 @@
 function resolveWebBaseUrl(config, stagesDoc, clientTarget) {
   const ui = config.ui_e2e || {};
   const webCfg = (ui.web && ui.web[clientTarget]) || {};
+  const explicit = String(webCfg.base_url || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
   const fromKey = String(webCfg.base_url_from || '').trim();
 
   if (fromKey === 'smoke.base_url' || fromKey === 'config.smoke.base_url') {
@@ -17,8 +19,13 @@ function resolveWebBaseUrl(config, stagesDoc, clientTarget) {
 
   const deploy = stagesDoc.stages?.deploy;
   const services = deploy?.outputs?.services || [];
+  const deployServicesCfg = config.deploy?.services || [];
   for (const svc of services) {
-    if (svc.client_target === clientTarget && svc.url) return String(svc.url).trim();
+    if (svc.client_target !== clientTarget) continue;
+    const cfgSvc = deployServicesCfg.find((s) => s.client_target === clientTarget);
+    const domain = String(cfgSvc?.domain || '').trim();
+    if (domain.startsWith('http')) return domain.replace(/\/$/, '');
+    if (svc.url) return String(svc.url).trim().replace(/\/$/, '');
   }
   if (deploy?.outputs?.deploy_url && clientTarget === 'website') {
     return String(deploy.outputs.deploy_url).trim();

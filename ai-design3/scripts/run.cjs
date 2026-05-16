@@ -275,6 +275,9 @@ function ensureContractArtifactsSeed(projectRoot, featureId, contractsDirRel) {
     );
   }
 
+  const { ensureUiTestSpecYaml } = require('./lib/seed-ui-test-spec.cjs');
+  ensureUiTestSpecYaml(base, featureId, clientTarget, designDoc);
+
   const snapshot = path.join(base, `${featureId}.design.snapshot.json`);
   if (!fs.existsSync(snapshot)) {
     const snap = {

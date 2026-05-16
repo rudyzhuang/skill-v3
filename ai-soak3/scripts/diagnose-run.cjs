@@ -192,10 +192,57 @@ if (!health) {
 }
 push('');
 
+const issues = [];
+
+// 5.1 ui_e2e / Browser MCP
+push('## 5.1 ui_e2e（Browser MCP / Dart MCP）');
+const cfgPath = path.join(projectRoot, 'docs', 'config.dev.json');
+const devCfg = safeReadJson(cfgPath);
+const declaredCt = new Set([
+  ...(stages?.client_targets?.declared || []),
+  ...(stages?.client_targets?.generated || []),
+]);
+const wantsUi =
+  ['website', 'admin'].some((t) => declaredCt.has(t)) || declaredCt.has('mobile');
+const uiOn = !!(devCfg?.ui_e2e?.enabled === true);
+push(`  声明端含 web/mobile: ${wantsUi ? '是' : '否'}`);
+push(`  ui_e2e.enabled: ${uiOn ? 'true' : 'false 或未配置'}`);
+let scenarioCount = 0;
+if (uiOn) {
+  try {
+    const { collectUiScenarios } = require(path.join(
+      skillDir,
+      '..',
+      'ai-e2e3',
+      'scripts',
+      'lib',
+      'parse-ui-scenarios.cjs'
+    ));
+    const { scenarios, sources } = collectUiScenarios(projectRoot, devCfg);
+    scenarioCount = scenarios.length;
+    push(`  ui_scenarios 数量: ${scenarioCount}（来源: ${sources.length ? sources.join(', ') : '无 yaml 契约'}）`);
+  } catch (e) {
+    push(`  ui_scenarios 扫描失败: ${e.message}`);
+  }
+}
+const uiStage = stages?.stages?.ui_e2e;
+if (uiStage) {
+  push(`  stages.ui_e2e: ${uiStage.status} validation.passed=${uiStage.validation?.passed}`);
+} else {
+  push('  stages.ui_e2e: (无记录 — autorun 可能已跳过 ai-e2e3)');
+}
+if (wantsUi && !uiOn) {
+  issues.push('未启用 ui_e2e：HTTP smoke 通过但不会做 Browser MCP 页面验收');
+  push('  ⚠️  未启用 ui_e2e — 仅 HTTP smoke，无 Browser MCP 验收');
+}
+if (uiOn && scenarioCount === 0) {
+  issues.push('ui_e2e 已启用但契约无 ui_scenarios（需 *.test-spec.yaml）');
+  push('  ⚠️  无 ui_scenarios — ai-e2e3 将跳过场景执行');
+}
+push('');
+
 // 6. 综合诊断结论
 push('## 6. 综合诊断结论');
-
-const issues = [];
 
 if (!stages) {
   issues.push('stages.json 缺失：bootstrap 未运行或项目结构有误');

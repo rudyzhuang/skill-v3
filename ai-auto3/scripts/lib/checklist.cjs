@@ -342,6 +342,37 @@ function runAutorunChecklist(projectRoot, opts = {}) {
     );
   }
 
+  const webTargets = ['website', 'admin'].filter((t) => declared.has(t));
+  const hasMobile = declared.has('mobile');
+  const uiEnabled = !!(devCfg.ui_e2e && devCfg.ui_e2e.enabled === true);
+  if ((webTargets.length || hasMobile) && !uiEnabled) {
+    checklistWarnings.push(
+      'checklist#8(warn): 已声明 website/admin/mobile 但 config.dev.json ui_e2e.enabled=false（或未配置）；Browser/Dart MCP 不会执行。运行 ai-prd3 apply-raw-input-config 同步启用。'
+    );
+  }
+  if (uiEnabled && (webTargets.length || hasMobile)) {
+    try {
+      const { collectUiScenarios } = require(path.join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        'ai-e2e3',
+        'scripts',
+        'lib',
+        'parse-ui-scenarios.cjs'
+      ));
+      const { scenarios } = collectUiScenarios(projectRoot, devCfg);
+      if (!scenarios.length) {
+        checklistWarnings.push(
+          'checklist#8(warn): ui_e2e.enabled=true 但契约中无 *.test-spec.yaml 的 ui_scenarios[]；重跑 ai-design3 register-contract-artifacts 生成场景清单。'
+        );
+      }
+    } catch (_) {
+      /* optional */
+    }
+  }
+
   return {
     ok: true,
     stages: doc,

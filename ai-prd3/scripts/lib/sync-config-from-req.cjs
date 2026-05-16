@@ -101,7 +101,61 @@ function syncDeployAndSmoke(configJson, parsed, declaredSlugs) {
   }
   out.smoke.checks = checks;
 
+  syncUiE2e(out, parsed, declaredSlugs || parsed.client_targets || []);
+
   return out;
+}
+
+const UI_E2E_WEB_TARGETS = ['website', 'admin'];
+const UI_E2E_MOBILE_TARGET = 'mobile';
+
+/**
+ * Enable Browser/Dart MCP ui_e2e when req declares web/mobile clients (e2e3.md §4).
+ * @param {object} configJson
+ * @param {object} parsed
+ * @param {string[]} declaredSlugs
+ */
+function syncUiE2e(configJson, parsed, declaredSlugs) {
+  const slugs = declaredSlugs || [];
+  const wantsWeb = slugs.some((s) => UI_E2E_WEB_TARGETS.includes(s));
+  const wantsMobile = slugs.includes(UI_E2E_MOBILE_TARGET);
+  if (!wantsWeb && !wantsMobile) return;
+
+  const ui = { ...(configJson.ui_e2e || {}) };
+  ui.enabled = true;
+  ui.require_smoke_passed = ui.require_smoke_passed !== false;
+  ui.web = ui.web || {};
+  for (const slug of UI_E2E_WEB_TARGETS) {
+    if (!slugs.includes(slug)) continue;
+    const pathUrl =
+      (parsed.endpoint_urls && parsed.endpoint_urls[slug]) ||
+      `${parsed.base_url}/${slug === 'backend' ? 'api' : slug}/`;
+    const base = String(pathUrl).trim().replace(/\/+$/, '');
+    ui.web[slug] = {
+      ...(ui.web[slug] || {}),
+      base_url: base,
+      base_url_from: `deploy.services.${slug}.domain`,
+    };
+  }
+  ui.mobile = ui.mobile || {};
+  if (wantsMobile) {
+    const subs = new Set(Array.isArray(ui.mobile.sub_platforms) ? ui.mobile.sub_platforms : []);
+    subs.add('android');
+    if (process.platform === 'darwin') subs.add('ios');
+    ui.mobile.sub_platforms = [...subs];
+  }
+  ui.commands = ui.commands || {};
+  if (ui.commands.ui_test_max_fix_attempts == null) {
+    ui.commands.ui_test_max_fix_attempts = 3;
+  }
+  if (ui.stub_mode == null) ui.stub_mode = false;
+  configJson.ui_e2e = ui;
+
+  configJson.timeouts = configJson.timeouts || {};
+  configJson.timeouts.stages = configJson.timeouts.stages || {};
+  if (configJson.timeouts.stages.ui_e2e_s == null) {
+    configJson.timeouts.stages.ui_e2e_s = 3600;
+  }
 }
 
 /**
@@ -119,5 +173,6 @@ module.exports = {
   WEB_DEPLOY_TARGETS,
   buildDeployService,
   syncDeployAndSmoke,
+  syncUiE2e,
   validateDeployServicesCoverage,
 };
