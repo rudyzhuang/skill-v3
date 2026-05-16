@@ -228,8 +228,8 @@ ai-publish-dev3/
 ### 7.1 deploy 前置
 
 1. **`stages.merge_push`**：`status=completed` 且 `validation.passed=true`（或项目约定允许 `skipped` 的极少数场景，须文档化）。  
-2. **build**：凡 **`config.*.json.deploy.services[]`** 声明需要产物的 **`client_target`（+ `sub_platform`）**，须在 **`stages.build.outputs.artifacts[]`** 中存在 **`status=success`** 且 **`artifact_path`** 非空。纯后端可 **N/A** 的路径须与 **ai-code3** 约定一致。  
-3. **产物映射**（`input-spec.md` §8 阶段 12）：按 **`(client_target, sub_platform)`** 匹配 artifact；若存在 **`deploy.services[].artifact_ref`**（实现与模板 additive 引入时），**以其为优先**。**一对一**：每个 service **必须**唯一匹配到一个 artifact，否则退出 **1**。  
+2. **build**：凡 **`config.*.json.deploy.services[]`** 声明需要产物的 **`client_target`（+ `sub_platform`）**，须在 **`stages.build.outputs.artifacts[]`** 中存在 **`status=success` 或 `status=completed`**（与 **ai-code3** `build.cjs` 一致）且 **`artifact_path`** 非空。纯后端可 **N/A** 的路径须与 **ai-code3** 约定一致。  
+3. **产物映射**（`input-spec.md` §8 阶段 12）：按 **`(client_target, sub_platform)`** 匹配 artifact；**`deploy.services[].sub_platform` 未声明或空串时视为 `default`**（与 **ai-code3** 单平台产物对齐）；若存在 **`deploy.services[].artifact_ref`**（实现与模板 additive 引入时），**以其为优先**。**一对一**：每个 service **必须**唯一匹配到一个 artifact，否则退出 **1**（**`lib/artifacts.cjs`** 输出含 build 未登记 / sub_platform 提示的可读错误）。  
 4. **配置**：`deploy.provider`、`deploy.services[]` 必填字段齐全；**`config.env`** 中 provider 所需变量**名**均存在；若 **`deploy.enabled=true`**，则对应密钥**值**非空。  
 5. **密钥隔离**：JSON 静态扫描 **`security.forbidden_json_key_patterns`**，命中 → **1**。
 

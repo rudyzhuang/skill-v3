@@ -27,6 +27,10 @@ const {
 } = require('./lib/registry-db.cjs');
 const { shouldSkipCodeStage } = require('./lib/code-skip.cjs');
 const {
+  runDeployArtifactPreflight,
+  mappingFailureLooksLikeStaleBuild,
+} = require('./lib/deploy-preflight-gate.cjs');
+const {
   getFeatureGroupMaxParallel,
   planFeatureGroupWaves,
   groupSortKey,
@@ -1174,6 +1178,40 @@ async function main() {
                 exitCode = 1;
                 failureReason =
                   'deploy.enabled=true 但 pipeline.autorun.allow_destructive_deploy !== true — 未 spawn ai-publish-dev3（publish3.md §5.1.1）';
+                stoppedAt = 'deploy';
+                break;
+              }
+              let pf = runDeployArtifactPreflight(projectRoot);
+              if (
+                !pf.ok &&
+                mappingFailureLooksLikeStaleBuild(pf.message) &&
+                shouldSkipCodeStage(doc, 'build', projectRoot, phaseFeatureIds, opts.forceRerun)
+              ) {
+                appendLog(
+                  projectRoot,
+                  sessionId,
+                  `deploy preflight failed after skip build — forcing build: ${pf.message}`
+                );
+                const buildCode = await spawnCode3(
+                  projectRoot,
+                  'build',
+                  phaseFeatStr,
+                  cfg,
+                  `${sessionId}-${phase}-build-retry`,
+                  'build'
+                );
+                if (buildCode !== 0) {
+                  exitCode = buildCode;
+                  failureReason = `ai-code3 build (deploy preflight retry) exit=${buildCode}`;
+                  stoppedAt = 'build';
+                  break;
+                }
+                doc = readStages(projectRoot);
+                pf = runDeployArtifactPreflight(projectRoot);
+              }
+              if (!pf.ok) {
+                exitCode = 1;
+                failureReason = pf.message || 'deploy preflight failed';
                 stoppedAt = 'deploy';
                 break;
               }

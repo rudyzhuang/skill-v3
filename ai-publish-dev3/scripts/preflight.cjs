@@ -5,7 +5,7 @@ const path = require('path');
 const { configJsonPath, configEnvPath, stagesPath } = require('./lib/paths.cjs');
 const { collectForbiddenKeyViolations } = require('./lib/forbidden-scan.cjs');
 const { parseConfigEnv } = require('./lib/config-env.cjs');
-const { matchArtifactsForService } = require('./lib/artifacts.cjs');
+const { matchArtifactsForService, formatArtifactMappingFailure } = require('./lib/artifacts.cjs');
 const { isAutomatedProvider, validateAutomatedProviderEnv } = require('./lib/providers/registry.cjs');
 
 const ENV = 'dev';
@@ -92,7 +92,7 @@ function runPreflight(projectRoot, opts = {}) {
       if (matches.length !== 1) {
         return {
           ok: false,
-          message: `artifact 一对一映射失败: (${svc.client_target},${svc.sub_platform || ''}) artifact_ref=${svc.artifact_ref || 'n/a'} → ${matches.length} 条`,
+          message: formatArtifactMappingFailure(svc, arts),
         };
       }
     }

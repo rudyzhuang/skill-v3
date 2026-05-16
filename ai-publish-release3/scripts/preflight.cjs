@@ -4,6 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const { configJsonPath, configEnvPath, stagesPath } = require('./lib/paths.cjs');
 const { collectForbiddenKeyViolations } = require('./lib/forbidden-scan.cjs');
+const {
+  matchArtifactsForService,
+  formatArtifactMappingFailure,
+} = require('../../ai-publish-dev3/scripts/lib/artifacts.cjs');
 
 const ENV = 'release';
 
@@ -64,19 +68,11 @@ function runPreflight(projectRoot, opts = {}) {
     const arts = (bu.outputs && bu.outputs.artifacts) || [];
     for (const svc of services) {
       if (!svc || !svc.client_target) continue;
-      const sub = svc.sub_platform || '';
-      const matches = arts.filter(
-        (a) =>
-          a &&
-          a.client_target === svc.client_target &&
-          (a.sub_platform || '') === sub &&
-          a.status === 'success' &&
-          a.artifact_path
-      );
+      const matches = matchArtifactsForService(svc, arts);
       if (matches.length !== 1) {
         return {
           ok: false,
-          message: `artifact 一对一映射失败: service (${svc.client_target},${sub}) 匹配到 ${matches.length} 条成功产物`,
+          message: formatArtifactMappingFailure(svc, arts),
         };
       }
     }

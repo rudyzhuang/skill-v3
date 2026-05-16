@@ -76,6 +76,7 @@
     "services": [
       {
         "client_target": "website",
+        "sub_platform": "default",
         "service_name": "",
         "resource_type": "",
         "runtime": "",

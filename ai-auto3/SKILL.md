@@ -102,6 +102,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | **并行多路 ai-code3** | **`autorun.cjs`** 在 **`codegen`～`code-review`** 按 **auto3.md §5.7** 读 **`stages.contract` + `design_snapshot`** 分组，层内受 **`pipeline.autorun.feature_group_max_parallel`** 限制并行 spawn；**`merge-push` / `build`** 仍为**本轮 id 全集**单次调用。多进程写 **`stages.json`** 须遵守 **§5.6.2**（建议 **`feature_group_max_parallel: 1`** 直至 **ai-code3** 分片写回）。 |
 | **编排心跳 tee** | **§8.2** 30s 心跳未在编排 `spawn` 层实现；依赖各子 skill 自身日志。 |
 | **pipeline 锁预检提示** | `preflight-only` 与 run 前 checklist 对 `pipeline.pid` 仅提示；真正拦截由 `acquirePipelineLock` 原子执行，避免历史锁/竞态导致误阻断。 |
+| **deploy 前产物门闸** | **`deploy_smoke`** 前调用 **ai-publish-dev3** `preflight` 校验 **`(client_target, sub_platform)`** 与 **`stages.build.outputs.artifacts[]`**；若 **skip build** 后映射失败，自动 **`--force-rerun=build`** 重试一次（见 **`lib/deploy-preflight-gate.cjs`**）。 |
 
 `pipeline` 锁容错：`acquirePipelineLock` 会在发现占锁进程仍存活时，额外判定该锁是否为超时的旧 `ai-auto3 autorun`（默认阈值 **300s**，可用 `AI_AUTO3_LOCK_MAX_AGE_S` 覆盖）；命中后自动回收并继续，降低无人值守死锁概率。
 
