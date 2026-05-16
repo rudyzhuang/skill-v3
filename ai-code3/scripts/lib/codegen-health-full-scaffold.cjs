@@ -402,6 +402,25 @@ flutter:
     path.join(mobileRoot, 'analysis_options.yaml'),
     `include: package:flutter_lints/flutter.yaml\nlinter:\n  rules:\n`
   );
+  // Platform folders (android/ios) required for APK build; skip if already present.
+  const androidGradle = path.join(mobileRoot, 'android', 'app', 'build.gradle.kts');
+  if (!fs.existsSync(androidGradle)) {
+    try {
+      const { spawnSync } = require('child_process');
+      const r = spawnSync(
+        'flutter',
+        ['create', '.', '--project-name', 'health_mobile', '--org', 'com.skillv3', '--platforms', 'android,ios'],
+        { cwd: mobileRoot, encoding: 'utf8', timeout: 120000 }
+      );
+      if (r.status !== 0) {
+        console.error(`codegen-health-full-scaffold: flutter create failed: ${(r.stderr || r.stdout || '').slice(0, 500)}`);
+      } else {
+        touch(path.join(mobileRoot, 'lib', 'main.dart'), flutterMainDart());
+      }
+    } catch (e) {
+      console.error(`codegen-health-full-scaffold: flutter create error: ${e.message}`);
+    }
+  }
 
   const pkg = {
     name: 'health-minimal-app',
