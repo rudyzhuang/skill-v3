@@ -4,7 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { parseArgs, requireProject } = require('./lib/paths.cjs');
-const { detectRawInputDrift, readStages, writeStages } = require('./lib/raw-input.cjs');
+const {
+  detectRawInputDrift,
+  loadRawInputContent,
+  readStages,
+  writeStages,
+  writeRawInputCache,
+} = require('./lib/raw-input.cjs');
 const { parseRawRequirements, collectSection } = require('./lib/req-parse.cjs');
 const { syncDeployAndSmoke, validateDeployServicesCoverage } = require('./lib/sync-config-from-req.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
@@ -23,13 +29,19 @@ function loadDeclaredTargets(root) {
 function main() {
   const args = parseArgs(process.argv);
   const root = requireProject(args);
-  const drift = detectRawInputDrift(root, { rawInputOverride: args.rawInput });
+  const loadOpts = {
+    rawInputOverride: args.rawInput,
+    rawInputText: args.rawInputText,
+    rawInputStdin: args.rawInputStdin,
+  }; // eslint-friendly duplicate of detect
+  const drift = detectRawInputDrift(root, loadOpts);
   if (!drift.ok) {
     console.error(JSON.stringify(drift, null, 2));
     process.exit(1);
   }
 
-  const text = fs.readFileSync(drift.abs_path, 'utf8');
+  const loaded = loadRawInputContent(root, readStages(root) || {}, loadOpts);
+  const text = loaded.text;
   const parsed = parseRawRequirements(text);
   const fromSpec = loadDeclaredTargets(root);
   const declared = fromSpec.length ? fromSpec : parsed.client_targets;
@@ -55,22 +67,15 @@ function main() {
   stages.stages.prd = stages.stages.prd || {};
   stages.stages.prd.inputs = stages.stages.prd.inputs || {};
   const functionalSection = collectSection(text, ['功能需求']);
-  stages.stages.prd.inputs.raw_input_path = drift.path;
-  stages.stages.prd.inputs.raw_input_hash = drift.content_hash;
-  stages.stages.prd.inputs.raw_input_refs = [drift.path];
   stages.stages.prd.inputs.raw_input_functional_hash = crypto
     .createHash('sha256')
     .update(functionalSection, 'utf8')
     .digest('hex');
-  stages.pipeline = stages.pipeline || {};
-  stages.pipeline.raw_input = {
-    path: drift.path,
-    content_hash: drift.content_hash,
-    synced_at: new Date().toISOString(),
-  };
+  writeRawInputCache(root, stages, loaded);
+  stages.pipeline.raw_input.synced_at = new Date().toISOString();
   writeStages(root, stages);
 
-  detectRawInputDrift(root, { updateCache: true });
+  detectRawInputDrift(root, { ...loadOpts, updateCache: true });
 
   const out = {
     ok: coverage.ok,

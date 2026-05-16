@@ -1,6 +1,6 @@
 ---
 name: ai-prd3
-version: "0.2.5"
+version: "0.2.6"
 description: >-
   Skill V3 第三代 PRD 与 **AI 自动 prd-review**（不设单独人工签审节点）：维护 docs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md；
   Agent 按 prompts 产出评审 JSON 后由脚本合并并终检；**门闸结果与分期摘要**汇总在 **.pipeline/reports/prd-implementation-summary.md**（亦可 stdout）。
@@ -48,8 +48,8 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 | --- | --- |
 | `bootstrap` | 目录与模板拷贝、`stages` 合并、`stages.prd` → `running`；**`stages.prd.outputs.client_targets`** 与 `client_targets.declared` 对齐（§6）；默认仅在缺文件时生成 `docs/<target>/prd.md` / `feature_list.md`，`--force` 时会按当前 `prd-spec` **重写派生文件**，避免 `feature_id_not_in_lists` 漂移 |
 | `parse-targets` | stdout 打印 `declared[]`（调试） |
-| **`detect-raw-input`** | 比对上游原始需求文件哈希（**不写死** `req.md`；见 `pipeline.raw_input.path` / `AI_PRD3_RAW_INPUT`）；输出 `.pipeline/reports/raw-input-drift.json` 与 `impact_hints` |
-| **`apply-raw-input-config`** | 从原始需求解析域名与各端 URL，同步 `config.dev.json` / `config.release.json` 的 **`deploy.services`（website/admin/backend）** 与 `smoke` |
+| **`detect-raw-input`** | 比对原始需求哈希（**文件或内联文字**；见 `docs/spec/prd3.md` §1）；输出 `.pipeline/reports/raw-input-drift.json` 与 `impact_hints` |
+| **`apply-raw-input-config`** | 从原始需求（文件/内联）解析域名与各端 URL，同步 `config.*.json` 的 **`deploy.services`（website/admin/backend）** 与 `smoke` |
 | `validate-prd` | **先** `detect-raw-input`，再串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed** |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |
 | `validate-prd-review` | 前置门闸 + **终检**；通过写 **§9.2** `prd_review.inputs.summary_hash` 与 **`completed`**；成功后写 **`.pipeline/reports/prd-implementation-summary.md`**（`prd3.md` §8.8） |
@@ -65,8 +65,11 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 - `--no-timeout` 或环境变量 **`AI_PRD3_NO_TIMEOUT=1`**：禁用子进程超时（冒烟/调试）。
 - `--lang=cn|en`：`bootstrap` 选用 prd-spec 模板。
 - `--json=<path>`：**`write-prd-review` / `finalize-prd-review`** 的合并输入（绝对路径或相对项目根）。
-- **`--raw-input=<path>`**：覆盖原始需求路径（相对项目根或绝对路径）；亦可用环境变量 **`AI_PRD3_RAW_INPUT`**。
-- **`--fail-on-change`**：仅 **`detect-raw-input`**；内容相对缓存变更时退出码 **2**（供 ai-soak3 / 编排门闸）。
+- **`--raw-input=<path>`**：需求 **Markdown 文件**路径（相对项目根或绝对）；亦可用 **`AI_PRD3_RAW_INPUT`**。
+- **`--raw-input-text=<md>`** / **`--raw-input-text-file=<path>`**：**内联 Markdown**（用户对话粘贴）；`@path` 或 text-file 读入后写入 `.pipeline/cache/raw-input.snapshot.md`。
+- **`--stdin`**：从标准输入读入内联 Markdown。
+- **`AI_PRD3_RAW_INPUT_TEXT`**：环境变量内联 Markdown（优先级低于 CLI）。
+- **`--fail-on-change`**：仅 **`detect-raw-input`**；内容相对缓存变更时退出码 **2**。
 - **`report`**：`prd_review` 已完成时单独重打摘要；行为见上表（**不参与**门闸）。
 - 若 `--json` 里出现 `feature_id_not_in_lists:*`，优先改用项目根 `prd-review-auto.json` 或按 `docs/<target>/feature_list.md` 修正 `phase_plan.feature_ids`，避免把门闸写入无效状态。
 
@@ -134,4 +137,4 @@ node scripts/smoke.cjs
 
 ---
 
-*连续两轮评审（2026-05-17）：`smoke.cjs` round-1/2 全量通过；新增 raw-input 探测/配置同步（`docs/spec/prd3.md` §1）。规格变更请走 `docs/spec/prd3.md` 维护流程。*
+*连续两轮评审（2026-05-17）：`smoke.cjs` round-1/2 全量通过；raw-input 支持文件 + 内联文字（`docs/spec/prd3.md` §1.1）。规格变更请走 `docs/spec/prd3.md`。*

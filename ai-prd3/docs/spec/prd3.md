@@ -1,14 +1,37 @@
 # ai-prd3 规范（SSOT）
 
-版本：0.2.5（与 `SKILL.md` frontmatter 对齐）
+版本：0.2.6（与 `SKILL.md` frontmatter 对齐）
 
 ## 1. 原始需求输入（raw input）
 
-- **不写死文件名**：默认路径 `inputs/req.md`（ai-soak3 约定），真源为 `stages.pipeline.raw_input.path` 或环境变量 `AI_PRD3_RAW_INPUT` / CLI `--raw-input=`。
-- **缓存**：`stages.prd.inputs.raw_input_hash`（全文 SHA-256）、`raw_input_functional_hash`（「功能需求」节）。
-- **探测**：子命令 `detect-raw-input` → `.pipeline/reports/raw-input-drift.json`（含 `impact_hints` 供 Agent）。
-- **配置同步**：`apply-raw-input-config` 将域名与各端 URL 写入 `config.dev.json` / `config.release.json` 的 `deploy.services`（website、admin、backend）及 `smoke`；**功能变更**须由 Agent 改 `prd-spec.md` 后走 `validate-prd` / `write-prd`。
-- **校验**：`validate-prd` 首步调用 `detect-raw-input`；`prd-validate-config` 要求 `deploy.services` 覆盖 prd-spec 中声明的 website/admin/backend。
+原始需求可以是 **Markdown 文件** 或 **用户/Agent 提供的一段内联文字**，二者统一解析，不写死 `inputs/req.md`。
+
+### 1.1 来源优先级（高 → 低）
+
+| 优先级 | 来源 | 说明 |
+| --- | --- | --- |
+| 1 | CLI `--raw-input-text=` / `--raw-input-text` | 对话粘贴的 Markdown；`@/path` 表示读取该文件**内容**作内联 |
+| 2 | 环境变量 `AI_PRD3_RAW_INPUT_TEXT` | 内联 Markdown |
+| 3 | CLI `--stdin` | 从标准输入读入内联 Markdown |
+| 4 | 缓存快照 | `stages.pipeline.raw_input.source=inline` 且存在 `.pipeline/cache/raw-input.snapshot.md` |
+| 5 | 需求文件 | `--raw-input=` / `AI_PRD3_RAW_INPUT` / `pipeline.raw_input.path` / 默认 `inputs/req.md` |
+
+内联输入会**持久化**到 `.pipeline/cache/raw-input.snapshot.md`，并在 `stages` 中记录 `raw_input_source: inline|file` 与 `content_hash`。
+
+### 1.2 缓存字段
+
+- `stages.prd.inputs.raw_input_hash`：全文 SHA-256
+- `stages.prd.inputs.raw_input_functional_hash`：「功能需求」节哈希
+- `stages.prd.inputs.raw_input_source`：`inline` | `file`
+- `stages.pipeline.raw_input`：`source`、`path`、`content_hash`、`snapshot_path`（inline 时）
+
+### 1.3 子命令行为
+
+- **`detect-raw-input`**：比对哈希 → `.pipeline/reports/raw-input-drift.json`（`impact_hints` 供 Agent 改 prd-spec）
+- **`apply-raw-input-config`**：同步 `config.*.json` 的 `deploy.services`（website/admin/backend）与 `smoke`
+- **`validate-prd`**：首步 `detect-raw-input`，再 spec / derived / config
+
+功能变更须 Agent 更新 `prd-spec.md` 后 `validate-prd` / `write-prd`；域名/URL 可由 `apply-raw-input-config` 自动同步 config。
 
 ## 2. 子命令（节选）
 
@@ -17,15 +40,13 @@
 | `detect-raw-input` | 比对哈希；`--fail-on-change` → 退出码 2 |
 | `apply-raw-input-config` | 同步 config；更新 raw_input 缓存 |
 | `validate-prd` | detect → spec → derived → config |
-| 其余 | 见 `SKILL.md` |
 
 ## 3. Agent 提示词
 
 | 文件 | 用途 |
 | --- | --- |
-| `prompts/raw-input-impact.md` | 原始需求变更后的 prd-spec / 派生稿更新 |
+| `prompts/raw-input-impact.md` | 原始需求变更后的 prd-spec / 派生稿 |
 | `prompts/prd-spec-author.md` | 补全 prd-spec |
-| `prompts/prd-review.md` | prd-review JSON |
 
 ## 4. 退出码
 
@@ -35,5 +56,3 @@
 | 1 | 校验/前置失败 |
 | 2 | `detect-raw-input --fail-on-change` 且内容已变更 |
 | 3 | 超时 |
-
-其余章节与历史 `prd3.md` 行为一致；实现以 `scripts/` 为准。

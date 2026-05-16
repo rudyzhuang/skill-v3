@@ -19,8 +19,10 @@
     "updated_at": null,
     "updated_by": "ai-prd3",
     "raw_input": {
-      "_doc": "Upstream requirements file path (relative to project root). Default from ai-soak3: inputs/req.md. Override via AI_PRD3_RAW_INPUT or --raw-input=.",
+      "_doc": "Upstream requirements: file (inputs/req.md) or inline text (--raw-input-text / AI_PRD3_RAW_INPUT_TEXT). Inline persists to .pipeline/cache/raw-input.snapshot.md. See docs/spec/prd3.md §1.",
+      "source": "file",
       "path": "inputs/req.md",
+      "snapshot_path": null,
       "content_hash": null,
       "synced_at": null
     }
@@ -50,6 +52,7 @@
         "source_prd_spec": "docs/prd-spec.md",
         "raw_input_refs": [],
         "raw_input_path": "inputs/req.md",
+        "raw_input_source": "file",
         "raw_input_hash": "",
         "raw_input_functional_hash": ""
       },

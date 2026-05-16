@@ -3,22 +3,32 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs, requireProject } = require('./lib/paths.cjs');
-const { detectRawInputDrift, resolveRawInputPath, readStages } = require('./lib/raw-input.cjs');
+const { detectRawInputDrift, loadRawInputContent, readStages } = require('./lib/raw-input.cjs');
 const { parseRawRequirements, inferImpactHints, collectSection } = require('./lib/req-parse.cjs');
 const { validateDeployServicesCoverage } = require('./lib/sync-config-from-req.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
+
+function buildLoadOpts(args) {
+  return {
+    rawInputOverride: args.rawInput,
+    rawInputText: args.rawInputText,
+    rawInputStdin: args.rawInputStdin,
+  };
+}
 
 function main() {
   const args = parseArgs(process.argv);
   const root = requireProject(args);
   const stages = readStages(root) || {};
-  const drift = detectRawInputDrift(root, { rawInputOverride: args.rawInput });
+  const loadOpts = buildLoadOpts(args);
+  const drift = detectRawInputDrift(root, loadOpts);
   if (!drift.ok) {
     console.error(JSON.stringify(drift, null, 2));
     process.exit(1);
   }
 
-  const text = fs.readFileSync(drift.abs_path, 'utf8');
+  const loaded = loadRawInputContent(root, stages, loadOpts);
+  const text = loaded.text;
   const parsed = parseRawRequirements(text);
   const functionalSection = collectSection(text, ['功能需求']);
   const cachedFunctional = stages.stages?.prd?.inputs?.raw_input_functional_hash || '';
@@ -51,11 +61,14 @@ function main() {
   const report = {
     ok: true,
     raw_input: {
+      source: drift.source,
       path: drift.path,
       content_hash: drift.content_hash,
       cached_hash: drift.cached_hash,
+      cached_source: drift.cached_source,
       changed: drift.changed,
       first_seen: drift.first_seen,
+      inline_origin: drift.inline_origin,
     },
     parsed,
     functional_requirements_changed: functionalChange,
@@ -84,6 +97,8 @@ function main() {
   const reportPath = path.join(reportDir, 'raw-input-drift.json');
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   report.report_path = path.relative(root, reportPath);
+
+  detectRawInputDrift(root, { ...loadOpts, updateCache: true });
 
   console.log(JSON.stringify(report, null, 2));
   if (args.failOnChange && drift.changed) process.exit(2);

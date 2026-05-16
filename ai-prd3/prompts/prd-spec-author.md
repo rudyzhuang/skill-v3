@@ -2,7 +2,7 @@
 
 你是 **ai-prd3 / prd** 阶段的规格作者。目标：在业务仓中补全 **`docs/prd-spec.md`**，使其成为后续派生与门闸的**唯一总源头**。
 
-若上游原始需求（路径见 `detect-raw-input`，默认 `inputs/req.md`）相对缓存有变更，先阅读 **`.pipeline/reports/raw-input-drift.json`** 与 **`prompts/raw-input-impact.md`**，再改 prd-spec（域名/端 URL/功能表）。
+若上游原始需求（**文件或用户粘贴的内联 Markdown**，见 `detect-raw-input` / `docs/spec/prd3.md` §1）相对缓存有变更，先阅读 **`.pipeline/reports/raw-input-drift.json`** 与 **`prompts/raw-input-impact.md`**，再改 prd-spec。内联输入用 `--raw-input-text=` 传入后再 detect。
 
 ## 硬约束（不得违反）
 

@@ -296,6 +296,46 @@ in config.env
   assert.strictEqual(dev5.smoke.base_url, 'https://smoke.example.com');
   fs.rmSync(TMP5, { recursive: true, force: true });
 
+  const TMP6 = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ai-prd3-smoke-'));
+  r = run(['bootstrap', `--project=${TMP6}`], ROOT);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const inlinePath = path.join(TMP6, 'inline-req.md');
+  fs.writeFileSync(
+    inlinePath,
+    [
+      '## 功能需求',
+      'Inline smoke notes',
+      '',
+      '## 云平台',
+      'Cloudflare',
+      '',
+      '## 主域名 domain',
+      'inline.smoke.test',
+      '',
+      '## 鉴权信息',
+      'ok',
+      '',
+      '## 端（Client Targets）',
+      '- website（URL: https://<domain>/website/）',
+      '- admin（URL: https://<domain>/admin/）',
+      '- backend（URL: https://<domain>/api/）',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  r = run(
+    ['detect-raw-input', `--project=${TMP6}`, `--raw-input-text=@${inlinePath}`],
+    ROOT,
+  );
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  assert.ok(r.stdout.includes('inline.smoke.test'));
+  assert.ok(r.stdout.includes('"source": "inline"'));
+  r = run(['apply-raw-input-config', `--project=${TMP6}`], ROOT);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  const snap = path.join(TMP6, '.pipeline', 'cache', 'raw-input.snapshot.md');
+  assert.ok(fs.existsSync(snap), '内联输入应持久化快照');
+  fs.rmSync(TMP6, { recursive: true, force: true });
+
   console.log(`smoke: all passed (${roundLabel})`);
 }
 

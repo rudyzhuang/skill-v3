@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { parseArgs, requireProject, skillDirFrom, prdSpecPath } = require('./lib/paths.cjs');
+const { parseArgs, requireProject, skillDirFrom, prdSpecPath, rawInputCliExtras } = require('./lib/paths.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
 const { spawnSyncWithTimeout, readStageTimeoutSec } = require('./lib/run-with-timeout.cjs');
 const { markPrdFailed, markPrdTimeout, markPrdReviewTimeout } = require('./lib/stage-status.cjs');
@@ -95,12 +95,16 @@ function main() {
   validate-prd | write-prd |
   validate-prd-review | write-prd-review | finalize-prd-review | report
 
-原始需求（由 ai-soak3 等上游提供，路径勿写死）:
+原始需求（文件或内联文字，见 docs/spec/prd3.md §1）:
   detect-raw-input     比对缓存哈希，输出 .pipeline/reports/raw-input-drift.json 与 impact_hints
   apply-raw-input-config  从原始需求同步 domain/deploy.services/smoke 到 config.*.json
 
 选项:
-  --raw-input=<rel|abs>  覆盖 stages.pipeline.raw_input.path / AI_PRD3_RAW_INPUT
+  --raw-input=<rel|abs>  需求 Markdown 文件路径
+  --raw-input-text=<md>  内联 Markdown（用户对话粘贴）；@/path 表示读文件内容作内联
+  --raw-input-text-file=<path>  等价于 --raw-input-text=@<path>
+  --stdin                从标准输入读取内联 Markdown
+  环境变量 AI_PRD3_RAW_INPUT_TEXT  内联 Markdown（优先级低于 CLI）
   --fail-on-change       detect-raw-input：有变更时退出码 2（供编排门闸）
   --force  覆盖已完成阶段（prd / prd-review）；bootstrap 在 prd 已完成时须加此选项
   --no-timeout  禁用 config 中的阶段超时（冒烟/调试可用；亦支持环境变量 AI_PRD3_NO_TIMEOUT=1）
@@ -164,8 +168,7 @@ report:
   }
 
   if (sub === 'detect-raw-input') {
-    const extra = [];
-    if (args.rawInput) extra.push(`--raw-input=${args.rawInput}`);
+    const extra = [...rawInputCliExtras(args)];
     if (args.failOnChange) extra.push('--fail-on-change');
     const r = runNodeScript(scriptDir, 'prd-detect-raw-input.cjs', project, args, extra, null);
     if (r.stdout) process.stdout.write(r.stdout);
@@ -174,7 +177,7 @@ report:
   }
 
   if (sub === 'apply-raw-input-config') {
-    const extra = args.rawInput ? [`--raw-input=${args.rawInput}`] : [];
+    const extra = rawInputCliExtras(args);
     const r = runNodeScript(scriptDir, 'prd-apply-raw-input-config.cjs', project, args, extra, 'prd');
     if (r.stdout) process.stdout.write(r.stdout);
     if (r.stderr) process.stderr.write(r.stderr);
@@ -183,7 +186,7 @@ report:
   }
 
   if (sub === 'validate-prd') {
-    let r = runNodeScript(scriptDir, 'prd-detect-raw-input.cjs', project, args, [], null);
+    let r = runNodeScript(scriptDir, 'prd-detect-raw-input.cjs', project, args, rawInputCliExtras(args), null);
     if (r.timedOut) done(3);
     if (r.stdout) process.stdout.write(r.stdout);
     const steps = ['prd-validate-spec.cjs', 'prd-validate-derived.cjs', 'prd-validate-config.cjs'];

@@ -18,6 +18,8 @@ function parseArgs(argv) {
     noTimeout: false,
     sessionId: '',
     rawInput: null,
+    rawInputText: undefined,
+    rawInputStdin: false,
     failOnChange: false,
   };
   for (let i = 2; i < argv.length; i++) {
@@ -26,6 +28,12 @@ function parseArgs(argv) {
     else if (a === '--project') args.project = argv[++i];
     else if (a.startsWith('--raw-input=')) args.rawInput = a.slice('--raw-input='.length);
     else if (a === '--raw-input') args.rawInput = argv[++i];
+    else if (a.startsWith('--raw-input-text=')) args.rawInputText = a.slice('--raw-input-text='.length);
+    else if (a === '--raw-input-text') args.rawInputText = argv[++i];
+    else if (a.startsWith('--raw-input-text-file=')) {
+      args.rawInputText = `@${a.slice('--raw-input-text-file='.length)}`;
+    } else if (a === '--raw-input-text-file') args.rawInputText = `@${argv[++i]}`;
+    else if (a === '--stdin') args.rawInputStdin = true;
     else if (a === '--fail-on-change') args.failOnChange = true;
     else if (a === '--force') args.force = true;
     else if (a === '--no-timeout') args.noTimeout = true;
@@ -67,10 +75,20 @@ function prdSpecPath(projectRoot) {
   return path.join(projectRoot, 'docs', 'prd-spec.md');
 }
 
+/** @param {ReturnType<typeof parseArgs>} args */
+function rawInputCliExtras(args) {
+  const extra = [];
+  if (args.rawInput) extra.push(`--raw-input=${args.rawInput}`);
+  if (args.rawInputText !== undefined) extra.push(`--raw-input-text=${args.rawInputText}`);
+  if (args.rawInputStdin) extra.push('--stdin');
+  return extra;
+}
+
 module.exports = {
   parseArgs,
   requireProject,
   skillDirFrom,
   stagesPath,
   prdSpecPath,
+  rawInputCliExtras,
 };

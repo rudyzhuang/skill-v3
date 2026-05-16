@@ -8,7 +8,7 @@ const { parseArgs, requireProject, skillDirFrom } = require('./lib/paths.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
 const { fillMissingFromTemplate, wouldFillChange } = require('./lib/config-fill.cjs');
-const { resolveRawInputPath } = require('./lib/raw-input.cjs');
+const { resolveRawInputFilePath, loadRawInputContent } = require('./lib/raw-input.cjs');
 
 function getGitRemoteUrl(root) {
   try {
@@ -304,14 +304,32 @@ function main() {
   stages.pipeline = stages.pipeline || {};
   stages.pipeline.updated_at = now;
   stages.pipeline.updated_by = 'ai-prd3';
-  const rawResolved = resolveRawInputPath(projectRoot, stages);
-  if (rawResolved.abs) {
+  const loaded = loadRawInputContent(projectRoot, stages, {
+    rawInputText: args.rawInputText,
+    rawInputStdin: args.rawInputStdin,
+    rawInputOverride: args.rawInput,
+  });
+  if (loaded.ok) {
     stages.pipeline.raw_input = stages.pipeline.raw_input || {};
-    stages.pipeline.raw_input.path = rawResolved.rel;
+    stages.pipeline.raw_input.source = loaded.source;
+    stages.pipeline.raw_input.path = loaded.path;
     stages.stages.prd = stages.stages.prd || {};
     stages.stages.prd.inputs = stages.stages.prd.inputs || {};
-    stages.stages.prd.inputs.raw_input_refs = [rawResolved.rel];
-    stages.stages.prd.inputs.raw_input_path = rawResolved.rel;
+    stages.stages.prd.inputs.raw_input_refs = [loaded.path];
+    stages.stages.prd.inputs.raw_input_path = loaded.path;
+    stages.stages.prd.inputs.raw_input_source = loaded.source;
+  } else {
+    const rawResolved = resolveRawInputFilePath(projectRoot, stages, { rawInputOverride: args.rawInput });
+    if (rawResolved.abs) {
+      stages.pipeline.raw_input = stages.pipeline.raw_input || {};
+      stages.pipeline.raw_input.source = 'file';
+      stages.pipeline.raw_input.path = rawResolved.rel;
+      stages.stages.prd = stages.stages.prd || {};
+      stages.stages.prd.inputs = stages.stages.prd.inputs || {};
+      stages.stages.prd.inputs.raw_input_refs = [rawResolved.rel];
+      stages.stages.prd.inputs.raw_input_path = rawResolved.rel;
+      stages.stages.prd.inputs.raw_input_source = 'file';
+    }
   }
 
   const specText = fs.readFileSync(prdSpec, 'utf8');
