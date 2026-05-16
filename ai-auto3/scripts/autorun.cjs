@@ -179,6 +179,15 @@ function collectPhasePlans(doc) {
   return out;
 }
 
+/** Union of all feature_ids in prd_review.phase_plan (matches ai-design3 unionFeatureIds). */
+function unionPhasePlanFeatureIds(doc) {
+  const set = new Set();
+  for (const row of collectPhasePlans(doc)) {
+    for (const fid of row.featureIds) set.add(fid);
+  }
+  return [...set].sort();
+}
+
 function featureCsv(ids) {
   return ids.join(',');
 }
@@ -621,8 +630,10 @@ async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, force
   let t = stageTimeoutMs(cfg, sk === 'merge_push' ? 'merge_push' : sk);
   if (!useStub && sk === 'codegen') {
     const capSRaw = process.env.AI_AUTO3_CODEGEN_AGENT_MAX_S;
-    const capS = Number.isFinite(Number(capSRaw)) && Number(capSRaw) > 0 ? Number(capSRaw) : 300;
-    t = Math.min(t, capS * 1000);
+    if (Number.isFinite(Number(capSRaw)) && Number(capSRaw) > 0) {
+      t = Math.min(t, Number(capSRaw) * 1000);
+    }
+    // 未设置 AI_AUTO3_CODEGEN_AGENT_MAX_S 时沿用 config.dev.json → timeouts.stages.codegen_s
   }
   return runNodeScript({
     node: process.execPath,
@@ -871,6 +882,8 @@ async function main() {
       failureReason = 'ai-design3 preflight failed';
       stoppedAt = 'preflight';
     } else {
+      // scan-design-style uses union of full phase_plan when --feature is omitted (multi-feature phase).
+      ensureSeedDesignSpecs(projectRoot, unionPhasePlanFeatureIds(doc), sessionId);
       for (const phaseRow of phasePlans) {
         const phase = phaseRow.phase;
         const phaseFeatureIds = phaseRow.featureIds;

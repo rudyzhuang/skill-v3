@@ -60,10 +60,10 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 - `feature_list.md` 解析仅以 `## Features` 段落中的 `Feature ID` 表为准，忽略 `## Metadata` 等其他表，避免把 `Field/schema_name` 这类元数据误判为 feature。
 - **组间并行**上限：**`pipeline.autorun.feature_group_max_parallel`**（默认 **3**）。**`merge-push` 前**须等 **`codegen`～`code-review` 全组**成功（**§5.6**）。
 - 在**真实 Agent 模式**且未显式配置 `feature_group_max_parallel` 时，`autorun.cjs` 默认按 **1** 串行执行 codegen/typecheck/test/code-review，降低多并发子进程导致的卡住风险；若需并发请在配置中显式给出该值。
-- `codegen` 在真实 Agent 模式增加双保险：单组超时默认上限 **300s**（可用 `AI_AUTO3_CODEGEN_AGENT_MAX_S` 覆盖）；若首轮 codegen 失败（含超时/agent 退出），**不再**隐式回退 `--stub-remaining`，而是直接失败退出，避免“假成功”掩盖真实故障。
+- `codegen` 在真实 Agent 模式：默认超时取自 **`timeouts.stages.codegen_s`**（与 `ai-code3` 一致）；仅当设置环境变量 **`AI_AUTO3_CODEGEN_AGENT_MAX_S`** 时才对该值做上限裁剪。若首轮 codegen 失败（含超时/agent 退出），**不再**隐式回退 `--stub-remaining`，而是直接失败退出，避免“假成功”掩盖真实故障。
 - 仅当未探测到 Agent 或显式 `pipeline.autorun.force_stub_remaining=true` 时，才允许以 `--stub-remaining` 做 codegen 重试/补齐；真实 Agent 模式下若覆盖不足会直接失败并给出缺失 feature 列表。
 - **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。
-- 在 `design` 宏链路开跑前，`autorun.cjs` 会对 `prd_review.phase_plan` 中缺失的 `docs/designs/<feature_id>.design.json` 做最小 seed（`status=draft`，并补 `client_targets` / `cross_client`），避免 `scan-design-style` 因缺文件直接失败且减少 feature-plan 端型误判噪音。
+- 在 **首个 `design` 阶段之前**（preflight 通过后），`autorun.cjs` 会对 **`prd_review.phase_plan` 全集**中缺失的 `docs/designs/<feature_id>.design.json` 做最小 seed（`status=draft`，并补 `client_targets` / `cross_client`）。因 `scan-design-style` 在未传 `--feature` 时会处理 phase_plan **并集**（多 feature 的 phase 不会下发单 feature 过滤），须预先 seed 全集，避免仅 seed 当期 phase 导致缺文件失败。
 - `autorun.cjs` 调用 `ai-code3` 时优先探测真实 Agent（优先级：`pipeline.autorun.code3_agent_bin` > `AI_CODE3_AGENT_BIN` > `AI_CODEGEN_AGENT_BIN` > `~/.local/bin/cursor-agent` > `zsh/bash -lc "command -v cursor-agent"`）；探测到后启用真实 codegen，未探测到才降级 stub。
 - 未探测到 Agent（或显式 `pipeline.autorun.force_stub_remaining=true`）时，才降级附带 `--stub-remaining` 并注入 `AI_CODE3_SKIP_AGENT=1`；同时仍注入 `AI_CODE3_ALLOW_NO_AGENT_PASS` 与 `AI_CODE3_CODEGEN_CONFIRM=yes` 保持可重跑性。
 - 当目标链路包含 `deploy_smoke` 且检测到 `ai-publish-dev3` 缺少 `js-yaml` 时，`autorun.cjs` 会先在 `ai-publish-dev3/` 自动执行一次 `npm install`，避免运行期出现 `x-smoke` 解析被动跳过。
