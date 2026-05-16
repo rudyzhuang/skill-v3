@@ -1,0 +1,15 @@
+{
+  "_schema": { "name": "skill-v3-project-config", "version": 1, "environment": "dev" },
+  "ui_e2e": {
+    "enabled": true,
+    "require_smoke_passed": false,
+    "stub_mode": true,
+    "web": {
+      "website": { "base_url_from": "smoke.base_url" }
+    },
+    "mobile": { "sub_platforms": [] },
+    "commands": { "ui_test_max_fix_attempts": 1 }
+  },
+  "smoke": { "enabled": true, "base_url": "https://example.com" },
+  "timeouts": { "stages": { "ui_e2e_s": 120 } }
+}

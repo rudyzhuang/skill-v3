@@ -7,7 +7,7 @@
 | **唯一实现参考源** | 编写 **`ai-auto3/SKILL.md`**、**`ai-auto3/scripts/**/*.cjs`**（含 **`autorun.cjs`**、**`gen-report.cjs`**）以及本机 **`~/.cursor/skills/_registry/registry.sqlite`** 的初始化/升级逻辑时，**以本文为规范来源**。编排行为不依赖口头约定。 |
 | **与 `docs/input-spec.md` 的关系** | 全流水线跨界语义（阶段链、退出码表、日志与 PID 锁、三层超时、`stages.json` 真源、**destructive** 与 **opt-in**、`inputs.summary_hash` 跳过规则等）以 **`docs/input-spec.md`** 为总纲。本文把 **仅与 ai-auto3 相关的条款** 收束为可执行规划；若冲突，收束顺序：**先改 `input-spec` + `docs/templates/` → 再改本文 → 再改 skill 实现**。 |
 | **与 `docs/templates/` 的关系** | **`stages.json`** 中 **`report`** 与 **`pipeline.*`**（**项目侧**编排状态）等键、**`config.dev.json.timeouts`**（含 **`autorun_total_s`**、各 **`stages.*_s`**）、**`config.dev.json.pipeline.autorun.allow_destructive_deploy`**（**配置侧** dev autorun deploy 授权，勿与 **`stages.json` 的 `pipeline` 节**混淆）以对应 **`* .template`** 为字段真源。模板演进遵守 **`input-spec.md` §9.1**（additive / breaking）。 |
-| **与上一版（v2）的关系** | 本版 **不**读取业务仓内 v2 **`autorun` / `autorun-pro` 脚本副本**、v2 **`stages.json`** 旧路径或 v2 编排专用 SQLite 作为默认真源。心智映射：**ai-auto3** ≈ **autorun** + **autorun-pro**；**ai-dash2** 的看板职能由 **`ai-dash3`** 承担（见 **`docs/spec/dash3.md`**）。**默认终点**为 **dev deploy + smoke + report**，**release 不默认跟随**（见 **`input-spec.md` §4.3**）。 |
+| **与上一版（v2）的关系** | 本版 **不**读取业务仓内 v2 **`autorun` / `autorun-pro` 脚本副本**、v2 **`stages.json`** 旧路径或 v2 编排专用 SQLite 作为默认真源。心智映射：**ai-auto3** ≈ **autorun** + **autorun-pro**；**ai-dash2** 的看板职能由 **`ai-dash3`** 承担（见 **`docs/spec/dash3.md`**）。**默认终点**为 **dev deploy + smoke + ui_e2e（可选）+ report**，**release 不默认跟随**（见 **`input-spec.md` §4.3**、**`docs/spec/e2e3.md`**）。 |
 
 **维护流程（需求变更时）**：
 
@@ -38,7 +38,7 @@
 
 自左向右为默认推进顺序（文档阶段名用**连字符**；写入 **`.pipeline/stages.json`** 时用**下划线**键名）：
 
-`design` → `contract` → `design-review` → `codegen` → `typecheck` → `test` → `code-review` → `merge-push` → `build` → `deploy`（**dev**）→ `smoke` → `report`
+`design` → `contract` → `design-review` → `codegen` → `typecheck` → `test` → `code-review` → `merge-push` → `build` → `deploy`（**dev**）→ `smoke` → `ui_e2e`（可选，`ui_e2e.enabled`）→ `report`
 
 **刻意不包含**：
 
@@ -54,6 +54,7 @@
 | `design` → `contract` → `design-review` | **ai-design3** | 须支持「仅跑某段」或「一次跑多段」；见 **`docs/spec/design3.md` §8**。 |
 | `codegen` → `build` | **ai-code3** | 见 **`docs/spec/code3.md`**（含 **git worktree**、**Cursor Agent** 分相生成、**`stages.codegen.outputs.agent`** 与 **`worktrees[]`** 真源；编排层调用 **`run.cjs`** 时须传递 **`--project`**，并须遵守 **§5.6** 对 **`--feature`** 与并行的约定；阶段超时与心跳见 **`input-spec.md` §6.1**）。 |
 | `deploy`（dev）→ `smoke` | **ai-publish-dev3** | 见 **`docs/spec/publish3.md`**。 |
+| `ui_e2e`（可选） | **ai-e2e3** | 见 **`docs/spec/e2e3.md`**；须 **`ui_e2e.enabled===true`**。 |
 | `report` | **本 skill** 的 **`gen-report.cjs`** | 不单独拆 skill（**`input-spec.md` §4.2**）。 |
 
 **调用约定（推荐）**：子 skill 若提供 **`scripts/run.cjs`**，编排层应通过固定形态调用，例如：

@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ALLOWED_LEVELS = new Set(['unit', 'integration']);
+const ALLOWED_LEVELS = new Set(['unit', 'integration', 'ui_e2e']);
 const IGNORE_DIRS = new Set([
   '.git',
   '.pipeline',
@@ -21,6 +21,7 @@ function normalizeLevel(value) {
     .trim()
     .toLowerCase();
   if (s === 'int') return 'integration';
+  if (s === 'e2e' || s === 'ui' || s === 'ui-e2e') return 'ui_e2e';
   if (ALLOWED_LEVELS.has(s)) return s;
   return '';
 }
@@ -56,26 +57,53 @@ function parseLevelsFromText(text) {
   return vals;
 }
 
+function readUiScenariosFromTestSpec(testSpecAbs) {
+  if (!testSpecAbs || !fs.existsSync(testSpecAbs)) return [];
+  const raw = fs.readFileSync(testSpecAbs, 'utf8');
+  const ext = path.extname(testSpecAbs).toLowerCase();
+  if (ext === '.json') {
+    try {
+      const j = JSON.parse(raw);
+      return Array.isArray(j?.ui_scenarios) ? j.ui_scenarios : [];
+    } catch {
+      return [];
+    }
+  }
+  if (ext === '.yaml' || ext === '.yml') {
+    try {
+      const YAML = require('yaml');
+      const j = YAML.parse(raw);
+      return Array.isArray(j?.ui_scenarios) ? j.ui_scenarios : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function readRequiredLevelsFromTestSpec(testSpecAbs) {
   if (!testSpecAbs || !fs.existsSync(testSpecAbs)) {
-    return { requiredLevels: [], source: 'none' };
+    return { requiredLevels: [], source: 'none', uiScenarios: [] };
   }
   const raw = fs.readFileSync(testSpecAbs, 'utf8');
   const ext = path.extname(testSpecAbs).toLowerCase();
+  const uiScenarios = readUiScenariosFromTestSpec(testSpecAbs);
   if (ext === '.json') {
     try {
       const j = JSON.parse(raw);
       return {
         requiredLevels: normalizeLevelList(j?.required_test_levels),
         source: 'test_spec.required_test_levels',
+        uiScenarios,
       };
     } catch {
-      return { requiredLevels: [], source: 'test_spec.invalid_json' };
+      return { requiredLevels: [], source: 'test_spec.invalid_json', uiScenarios: [] };
     }
   }
   return {
     requiredLevels: normalizeLevelList(parseLevelsFromText(raw)),
     source: 'test_spec.required_test_levels',
+    uiScenarios,
   };
 }
 
@@ -106,6 +134,16 @@ function classifyTestLevel(relPath) {
   const p = relPath.replace(/\\/g, '/').toLowerCase();
   const inTestTree = /(^|\/)(test|tests|__tests__)(\/|$)/.test(p);
   const byTestName = p.includes('.test.') || p.includes('.spec.');
+  if (
+    p.includes('/integration_test/') ||
+    p.includes('/tests/e2e/') ||
+    p.includes('/e2e/') ||
+    p.includes('/ui_e2e/') ||
+    p.includes('.e2e.') ||
+    p.includes('_e2e.')
+  ) {
+    return 'ui_e2e';
+  }
   if (!inTestTree && !byTestName) return '';
   if (
     p.includes('/integration/') ||
@@ -139,21 +177,30 @@ function evaluateWorktreeTestCoverage({
       required_levels: [],
       missing_levels: [],
       files_by_level: {},
+      ui_scenarios_count: fromSpec.uiScenarios?.length || 0,
       source: source === 'config.fallback_required_test_levels' ? 'none' : source,
     };
   }
   const files = collectFilesRecursive(worktreePath);
-  const filesByLevel = { unit: [], integration: [] };
+  const filesByLevel = { unit: [], integration: [], ui_e2e: [] };
   for (const abs of files) {
     const rel = path.relative(worktreePath, abs);
     const level = classifyTestLevel(rel);
     if (level && filesByLevel[level]) filesByLevel[level].push(rel);
   }
-  const missingLevels = requiredLevels.filter((l) => !filesByLevel[l] || filesByLevel[l].length === 0);
+  const missingLevels = requiredLevels.filter((l) => {
+    if (l === 'ui_e2e') {
+      const hasFiles = filesByLevel.ui_e2e && filesByLevel.ui_e2e.length > 0;
+      const hasScenarios = (fromSpec.uiScenarios || []).length > 0;
+      return !hasFiles && !hasScenarios;
+    }
+    return !filesByLevel[l] || filesByLevel[l].length === 0;
+  });
   return {
     required_levels: requiredLevels,
     missing_levels: missingLevels,
     files_by_level: filesByLevel,
+    ui_scenarios_count: (fromSpec.uiScenarios || []).length,
     source,
   };
 }
@@ -162,5 +209,6 @@ module.exports = {
   normalizeLevel,
   normalizeLevelList,
   readRequiredLevelsFromTestSpec,
+  readUiScenariosFromTestSpec,
   evaluateWorktreeTestCoverage,
 };

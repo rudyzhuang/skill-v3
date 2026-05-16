@@ -58,6 +58,7 @@
       "build_s": 1800,
       "deploy_s": 1800,
       "smoke_s": 300,
+      "ui_e2e_s": 3600,
       "report_s": 600
     },
     "subcommand": {
@@ -98,6 +99,24 @@
         "expected_status": 200
       }
     ]
+  },
+  "ui_e2e": {
+    "_doc": "UI end-to-end (Browser MCP for website/admin; Dart MCP + flutter integration_test for mobile). Consumed by ai-e2e3. See docs/spec/e2e3.md.",
+    "enabled": false,
+    "require_smoke_passed": true,
+    "web": {
+      "website": { "base_url_from": "deploy.services.website.url" },
+      "admin": { "base_url_from": "deploy.services.admin.url" }
+    },
+    "mobile": {
+      "sub_platforms": [],
+      "android": { "device_id": "", "bundle_id": "" },
+      "ios": { "simulator": "", "bundle_id": "" }
+    },
+    "commands": {
+      "ui_test_max_fix_attempts": 3
+    },
+    "stub_mode": false
   },
   "security": {
     "env_file_path": "docs/config.env",

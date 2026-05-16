@@ -39,6 +39,7 @@ function deriveOverall(doc, failureReason) {
     'build',
     'deploy',
     'smoke',
+    'ui_e2e',
   ];
   let anyFail = false;
   let anyIncomplete = false;
@@ -105,6 +106,7 @@ function buildMarkdown(doc, opts) {
     ['build', 'build'],
     ['deploy', 'deploy'],
     ['smoke', 'smoke'],
+    ['ui_e2e', 'ui-e2e'],
   ];
   for (const [k, label] of order) {
     const s = doc.stages?.[k];
@@ -128,6 +130,15 @@ function buildMarkdown(doc, opts) {
     for (const c of smoke.outputs.checks) {
       lines.push(`- ${c.name || c.path || '?'}: passed=${c.passed}`);
     }
+    lines.push('');
+  }
+  const uiE2e = doc.stages?.ui_e2e;
+  if (uiE2e && uiE2e.status !== 'not_started') {
+    lines.push('## UI 端到端');
+    lines.push(
+      `- 合计 ${uiE2e.outputs?.scenarios_total ?? 0}，通过 ${uiE2e.outputs?.scenarios_passed ?? 0}，失败 ${uiE2e.outputs?.scenarios_failed ?? 0}`
+    );
+    if (uiE2e.outputs?.report_path) lines.push(`- 报告: ${uiE2e.outputs.report_path}`);
     lines.push('');
   }
   if (opts.failureReason) {

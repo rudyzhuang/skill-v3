@@ -580,6 +580,44 @@
         "warnings": []
       }
     },
+    "ui_e2e": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "smoke",
+        "scenario_sources": []
+      },
+      "outputs": {
+        "scenarios_total": 0,
+        "scenarios_passed": 0,
+        "scenarios_failed": 0,
+        "results": [
+          {
+            "scenario_id": "",
+            "client_target": "",
+            "platform": "",
+            "passed": false,
+            "duration_ms": null,
+            "error": "",
+            "step_failed": null
+          }
+        ],
+        "report_path": "",
+        "fix_attempts": 0,
+        "skip_reason": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      }
+    },
     "report": {
       "status": "not_started",
       "started_at": null,

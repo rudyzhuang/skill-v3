@@ -951,6 +951,21 @@ function main() {
             } catch (e) {
               bump(k, 'failed', `${prefix} invalid YAML: ${e.message}`);
             }
+            const { validateTestSpecUiScenariosFile } = require('./lib/validate-test-spec-ui.cjs');
+            const uiVal = validateTestSpecUiScenariosFile(abs, prefix);
+            if (!uiVal.ok) {
+              for (const err of uiVal.errors.slice(0, 20)) {
+                bump(k, 'failed', err);
+              }
+            }
+          } else if (rel.endsWith('.json')) {
+            const { validateTestSpecUiScenariosFile } = require('./lib/validate-test-spec-ui.cjs');
+            const uiVal = validateTestSpecUiScenariosFile(abs, prefix);
+            if (!uiVal.ok) {
+              for (const err of uiVal.errors.slice(0, 20)) {
+                bump(k, 'failed', err);
+              }
+            }
           }
         }
       }

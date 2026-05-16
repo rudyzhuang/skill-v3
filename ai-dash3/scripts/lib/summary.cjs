@@ -21,6 +21,7 @@ const STAGE_KEYS = [
   'build',
   'deploy',
   'smoke',
+  'ui_e2e',
   'report',
 ];
 

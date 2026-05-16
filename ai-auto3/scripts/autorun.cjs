@@ -62,6 +62,7 @@ const STAGE_ORDER = [
   'merge_push',
   'build',
   'deploy_smoke',
+  'ui_e2e',
 ];
 
 function normalizeStage(s) {
@@ -118,6 +119,7 @@ function stageTimeoutMs(cfg, stageKey) {
     deploy: 'deploy_s',
     smoke: 'smoke_s',
     deploy_smoke: 'deploy_s',
+    ui_e2e: 'ui_e2e_s',
   };
   const k = map[stageKey] || `${stageKey}_s`;
   const sec = cfg?.timeouts?.stages?.[k];
@@ -142,8 +144,9 @@ function assertFromStageLegal(from) {
 function sliceStages(fromStage, toStage) {
   const from = normalizeStage(fromStage);
   let to = normalizeStage(toStage);
-  if (to === 'report') to = 'deploy_smoke';
+  if (to === 'report') to = 'ui_e2e';
   if (to === 'smoke' || to === 'deploy') to = 'deploy_smoke';
+  if (to === 'ui_e2e' || to === 'ui-e2e') to = 'ui_e2e';
   const fi = STAGE_ORDER.indexOf(from);
   const ti = STAGE_ORDER.indexOf(to);
   if (fi < 0) {
@@ -649,6 +652,43 @@ async function runPublishDev(projectRoot, cfg, sessionId) {
   });
 }
 
+function uiE2eEnabled(cfg) {
+  return !!(cfg && cfg.ui_e2e && cfg.ui_e2e.enabled === true);
+}
+
+async function ensureE2e3Deps(slice) {
+  if (!slice.includes('ui_e2e')) return { ok: true };
+  const e2eRoot = scriptPath('ai-e2e3', 'package.json');
+  const e2eDir = path.dirname(e2eRoot);
+  const nm = path.join(e2eDir, 'node_modules', 'js-yaml');
+  if (fs.existsSync(nm)) return { ok: true };
+  console.error('[ai-auto3] 检测到 ai-e2e3 缺少依赖，自动执行 npm ci');
+  const r = spawnSync('npm', ['ci'], { cwd: e2eDir, encoding: 'utf8', stdio: 'pipe' });
+  if (r.status !== 0) {
+    return {
+      ok: false,
+      message: `ai-auto3: 自动安装 ai-e2e3 依赖失败（cwd=${e2eDir}）`,
+    };
+  }
+  return { ok: true };
+}
+
+async function runE2e3(projectRoot, cfg, sessionId) {
+  if (!uiE2eEnabled(cfg)) {
+    console.error('[ai-auto3] ui_e2e.enabled=false — 跳过 ai-e2e3');
+    return 0;
+  }
+  const script = scriptPath('ai-e2e3', 'scripts/run.cjs');
+  const args = [`--project=${projectRoot}`, '--invoked-by-autorun', `--session-id=${sessionId}`];
+  return runNodeScript({
+    node: process.execPath,
+    script,
+    args,
+    cwd: projectRoot,
+    timeoutMs: stageTimeoutMs(cfg, 'ui_e2e'),
+  });
+}
+
 async function runGenReport(projectRoot, sessionId, failureReason) {
   const script = path.join(__dirname, 'gen-report.cjs');
   const args = [`--project=${projectRoot}`, `--session-id=${sessionId}`];
@@ -685,8 +725,13 @@ async function main() {
   const slice = sliceStages(opts.fromStage, opts.toStage);
   if (!slice) process.exit(1);
   const deps = ensurePublishDevDepsForDeploy(slice);
+  const depsE2e = await ensureE2e3Deps(slice);
   if (!deps.ok) {
     console.error(deps.message);
+    process.exit(1);
+  }
+  if (!depsE2e.ok) {
+    console.error(depsE2e.message);
     process.exit(1);
   }
 
@@ -1045,6 +1090,15 @@ async function main() {
               break;
             }
             recordStageEvent(runId, 'deploy_smoke', pub, 0, false, `phase=${phase}`);
+          } else if (stage === 'ui_e2e') {
+            const e2e = await runE2e3(projectRoot, cfg, `${sessionId}-${phase}`);
+            if (e2e !== 0) {
+              exitCode = e2e;
+              failureReason = `ai-e2e3 exit=${e2e}`;
+              stoppedAt = 'ui_e2e';
+              break;
+            }
+            recordStageEvent(runId, 'ui_e2e', e2e, 0, false, `phase=${phase}`);
           }
         }
 

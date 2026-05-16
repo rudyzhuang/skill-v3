@@ -40,6 +40,7 @@ cd skill-v3
 - `ai-dash3`
 - `ai-auto3`
 - `ai-publish-dev3`
+- `ai-e2e3`
 - `ai-publish-release3`
 - `migrate-v2-to-v3`（仅在有 **V2 → V3 老仓迁移**需求时链接；无 `package.json`，**不必** `npm install`）
 
@@ -50,7 +51,7 @@ cd skill-v3
 ```bash
 SKILLS_ROOT="$HOME/.cursor/skills"
 mkdir -p "$SKILLS_ROOT"
-for d in ai-prd3 ai-design3 ai-code3 ai-dash3 ai-auto3 ai-publish-dev3 ai-publish-release3 migrate-v2-to-v3; do
+for d in ai-prd3 ai-design3 ai-code3 ai-dash3 ai-auto3 ai-publish-dev3 ai-e2e3 ai-publish-release3 migrate-v2-to-v3; do
   ln -sfn "<REPO>/$d" "$SKILLS_ROOT/$d"
 done
 ```

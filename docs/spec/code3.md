@@ -331,7 +331,7 @@ ai-code3/
 
 - 命令优先 **`docs/config.dev.json.build.commands.test`**；否则探测 `npm`/`pytest`/`cargo` 等。  
 - **`build.commands.test_max_fix_attempts`**（默认 **3**）为上限。  
-- 可选测试层级门禁：从 contract `test_spec.required_test_levels` 读取必需层级（`unit` / `integration`），并由 **`build.test_level_gate.mode`**（`off` / `warn` / `enforce`）控制告警或阻断；当 `test_spec` 未声明时可用 **`build.test_level_gate.fallback_required_test_levels`**。  
+- 可选测试层级门禁：从 contract `test_spec.required_test_levels` 读取必需层级（`unit` / `integration` / **`ui_e2e`**），并由 **`build.test_level_gate.mode`**（`off` / `warn` / `enforce`）控制告警或阻断；**`ui_e2e`** 接受契约 **`ui_scenarios[]`** 或 worktree 内 `tests/e2e` / `integration_test` 路径；**MCP 真跑**在 **ai-e2e3**（见 **`docs/spec/e2e3.md`**）。当 `test_spec` 未声明时可用 **`build.test_level_gate.fallback_required_test_levels`**。  
 - **`stages.test.outputs.result`** 枚举与 **`rollback_to`** 见模板与 **`input-spec.md` §7.1**。
 
 ### 9.3 与编排的职责划分

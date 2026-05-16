@@ -1,0 +1,13 @@
+{
+  "name": "ai-e2e3-skill-scripts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "UI E2E (Browser/Dart MCP) scripts for ai-e2e3.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

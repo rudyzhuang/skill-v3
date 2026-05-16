@@ -1,0 +1,13 @@
+required_test_levels:
+  - ui_e2e
+
+ui_scenarios:
+  - id: smoke-example-home
+    client_target: website
+    platform: web
+    steps:
+      - action: navigate
+        url: "https://example.com/"
+    expect:
+      - type: status_code
+        value: 200

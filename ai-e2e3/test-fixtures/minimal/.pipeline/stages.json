@@ -1,0 +1,26 @@
+{
+  "_schema": { "name": "skill-v3-stages", "version": 1 },
+  "stages": {
+    "merge_push": {
+      "status": "completed",
+      "validation": { "passed": true }
+    },
+    "smoke": {
+      "status": "completed",
+      "validation": { "passed": true },
+      "inputs": { "base_url": "https://example.com" }
+    },
+    "deploy": {
+      "status": "completed",
+      "validation": { "passed": true },
+      "outputs": {
+        "deploy_url": "https://example.com",
+        "services": [{ "client_target": "website", "url": "https://example.com" }]
+      }
+    },
+    "ui_e2e": {
+      "status": "not_started",
+      "validation": { "passed": false }
+    }
+  }
+}

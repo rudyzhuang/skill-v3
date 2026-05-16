@@ -71,7 +71,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `write-design` | `--project` | 在 `validate-design` 已通过前提下写 `stages.design` 完成态与 `outputs.design_specs[]`（从各 `design.json` 复制 `file_plan` / `api_outline` / `data_outline` / `acceptance` / `constraints` / `dependencies` / `risks` 等字段，若存在） |
 | `hash-design-inputs` | `--project` | 写入 `stages.design.inputs.summary_hash` |
 | `register-contract-artifacts` | `--project` | 扫描契约根下 `<feature_id>/` 五类约定文件名（默认 `docs/contracts/`，可由 `docs/config.dev.json` 的 `pipeline.paths.contracts_dir` 覆盖），填充 `artifacts[]`；**不**跑 tsc/swagger。若缺少约定文件，会先自动 seed 最小工件（types/api/schema/test_spec/design_snapshot）再登记，避免空路径直接阻塞。若 `needs_human_review===true` 则拒绝（`--force` 绕过）。`--force` 或 `--force-rerun=contract` 时重置 contract 人工审批与校验占位 |
-| `validate-contract` | `--project` | 机器校验：`tsc` / 快照 AJV / OpenAPI + 可选 `swagger-cli`；`*.sql` 若 PATH 中存在 `sql-lint` 则调用；`test-spec` YAML 做语法 parse；纯 Python `types` 无 tsc 时记 `skipped`。成功结束写 `outputs.duration_ms`。若 `hash-contract-inputs` 后 `contract.inputs.summary_hash` 未变且 contract 已完成且已批/免批，则整段跳过（**非** `--dry-run`） |
+| `validate-contract` | `--project` | 机器校验：`tsc` / 快照 AJV / OpenAPI + 可选 `swagger-cli`；`*.sql` 若 PATH 中存在 `sql-lint` 则调用；`test-spec` YAML 做语法 parse 且校验 **`ui_scenarios[]`**（见 **`docs/spec/e2e3.md` §3**）；纯 Python `types` 无 tsc 时记 `skipped`。成功结束写 `outputs.duration_ms`。若 `hash-contract-inputs` 后 `contract.inputs.summary_hash` 未变且 contract 已完成且已批/免批，则整段跳过（**非** `--dry-run`） |
 | `approve-contract` | `--project` | `human_approval.status → approved` |
 | `reject-contract` | `--project`、`--notes` | `human_approval.status → rejected` |
 | `mark-contract-not-required` | `--project` | `human_approval.status → not_required` |

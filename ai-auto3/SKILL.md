@@ -43,7 +43,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 
 | 调用 | 说明 |
 | --- | --- |
-| `node .../autorun.cjs [run] --project=<abs> [--from-stage=design] [--to-stage=report] [--force-rerun=<stage>] [--session-id=] [--features=id1,id2] [--dry-run]` | 默认按 **Phase 外循环**执行（首期通常 `mvp`）：当前 phase 先做完 `design→design-review`，再并行 code3 至 `deploy+smoke`，然后进入下一 phase（`to-stage=report` 时含 **gen-report**） |
+| `node .../autorun.cjs [run] --project=<abs> [--from-stage=design] [--to-stage=report] [--force-rerun=<stage>] [--session-id=] [--features=id1,id2] [--dry-run]` | 默认按 **Phase 外循环**执行（首期通常 `mvp`）：当前 phase 先做完 `design→design-review`，再并行 code3 至 `deploy+smoke`+**`ui_e2e`**（`ui_e2e.enabled` 时），然后进入下一 phase（`to-stage=report` 时含 **gen-report**） |
 | `node .../autorun.cjs preflight-only --project=...` | 仅 **§5.1 checklist** + **registry upsert**（若检测到 `pipeline.pid` 仅告警，不阻断） |
 | `node .../autorun.cjs sync-registry --project=...` | 仅 **registry** 对齐（**§5.1#8 / §9**） |
 | `node .../gen-report.cjs --project=... --session-id=... [--failure-reason=]` | 单独生成报告（通常由 autorun 末尾调用） |
@@ -67,6 +67,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 - `autorun.cjs` 调用 `ai-code3` 时优先探测真实 Agent（优先级：`pipeline.autorun.code3_agent_bin` > `AI_CODE3_AGENT_BIN` > `AI_CODEGEN_AGENT_BIN` > `~/.local/bin/cursor-agent` > `zsh/bash -lc "command -v cursor-agent"`）；探测到后启用真实 codegen，未探测到才降级 stub。
 - 未探测到 Agent（或显式 `pipeline.autorun.force_stub_remaining=true`）时，才降级附带 `--stub-remaining` 并注入 `AI_CODE3_SKIP_AGENT=1`；同时仍注入 `AI_CODE3_ALLOW_NO_AGENT_PASS` 与 `AI_CODE3_CODEGEN_CONFIRM=yes` 保持可重跑性。
 - 当目标链路包含 `deploy_smoke` 且检测到 `ai-publish-dev3` 缺少 `js-yaml` 时，`autorun.cjs` 会先在 `ai-publish-dev3/` 自动执行一次 `npm install`，避免运行期出现 `x-smoke` 解析被动跳过。
+- 当链路包含 **`ui_e2e`** 且 **`ui_e2e.enabled===true`** 时，在 **smoke** 之后 spawn **ai-e2e3**；`enabled=false` 时跳过且不失败。缺少 **ai-e2e3** 依赖时会自动 **`npm ci`**。
 - `feature-plan` 的“contract 无匹配 feature_id”提示在一次 autorun 中会按内容去重，仅首轮输出，避免多阶段重复刷屏。
 - `feature-plan` 在 `design_snapshot.client_targets` 缺失时，会回退读取 `docs/<target>/feature_list.md` 推断端型，避免把可识别特性误判为 P3 并刷警告。
 
