@@ -1,9 +1,9 @@
 ---
 name: ai-dash3
 description: >-
-  Skill V3 流水线看板（只读）：聚合 .pipeline/stages.json、.pipeline/reports/、可选 pipeline PID 锁提示；
-  输出进度表、阻塞摘要与「下一步建议」；不 spawn 子 skill、不写 stages、不持锁。
-  用户说「ai-dash3」「第三代看板」「只看流水线进度」「卡在哪」时使用。
+  Skill V3 流水线看板（只读）：聚合 .pipeline/stages.json、.pipeline/reports/、registry 运行态与 Feature 流水线；
+  CLI 或本地 Web（serve）展示进度、阻塞与 ai-auto3 正在跑什么；不 spawn 子 skill、不写 stages、不持锁。
+  用户说「ai-dash3」「第三代看板」「流水线看板」「本地网页」「卡在哪」时使用。
 disable-model-invocation: true
 ---
 
@@ -39,13 +39,22 @@ node ~/.cursor/skills/ai-dash3/scripts/run.cjs status --project=$(pwd)
 | **`status`**（默认） | 人类可读看板 → **stdout** |
 | **`json`** | 单行 **JSON** → **stdout**（`dash3.md` §7） |
 | **`write-md`** | 写入 **Markdown**；**`--out=`** 默认 **`.pipeline/reports/dash-status.md`** |
+| **`serve`** | 启动本地 Web 看板（默认 **`http://127.0.0.1:9473/`**）；**`--port=`**、**`--host=`**、可选 **`--project=`** 默认选中项目 |
+
+### 本地 Web 看板
+
+```bash
+node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --project=$(pwd)
+```
+
+浏览器打开终端提示的 URL。多项目列表来自 **ai-auto3** `registry-export.cjs`（须已在 **ai-auto3/** 执行过 **`npm install`** 且跑过 **`sync-registry`**）。页面每 3 秒自动刷新，只读、不触发 autorun。
 
 ## 退出码（`dash3.md` §8）
 
 | 码 | 含义 |
 | --- | --- |
-| **0** | 成功生成看板（含 **`stages.json` 缺失**时的空态与建议） |
-| **1** | **`--project` 无效**、**`stages.json` 非法 JSON**、**`write-md` 写失败** |
+| **0** | 成功生成看板（含 **`stages.json` 缺失**时的空态与建议）；**`serve`** 持续运行直至 Ctrl+C |
+| **1** | **`status`/`json`/`write-md`**：**`--project` 无效**、**`stages.json` 非法 JSON**、**`write-md` 写失败**；**`serve`**：**`--port` 非法** |
 
 ## 参考
 

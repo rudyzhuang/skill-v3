@@ -182,7 +182,7 @@
 | **ai-code3** | codegen，typecheck，test，code-review，merge-push，build |
 | **ai-publish-dev3** | deploy（**dev** 环境），smoke |
 | **ai-publish-release3** | deploy（**release** 环境），smoke；以及上一版中常见的 **release**（版本、变更日志、打标、托管发布等）类职责 |
-| **ai-dash3** | **无**独占 stage（**只读**看板）：聚合 **`.pipeline/stages.json`**、**`.pipeline/reports/`**、可选 **PID 锁** 提示；输出进度表与「下一步建议」；**不** spawn 子 skill、**不**写 **`stages.*`**、**不**自动推进（见 **`docs/spec/dash3.md`**） |
+| **ai-dash3** | **无**独占 stage（**只读**看板）：聚合 **`.pipeline/stages.json`**、**`.pipeline/reports/`**、registry 运行态（经 **ai-auto3** 只读导出）、Feature 流水线；CLI 或 **`serve`** 本地 Web；**不** spawn 子 skill、**不**写 **`stages.*`**、**不**自动推进（见 **`docs/spec/dash3.md`**） |
 
 **report** 不单独拆 skill：本版定为 **ai-auto3 的末尾职责**。当自动序列跑完 dev deploy + smoke 后，由 **ai-auto3** 读取 **`.pipeline/stages.json`** 与关键日志生成最终汇总。
 
@@ -210,7 +210,8 @@
 | **是否写 `.pipeline/stages.json`** | **否**（只读；**禁止**为「展示美观」回写任何 stage 字段） | **否**业务字段；仅允许编排契约已载明的 **`pipeline.*` / 停跑时 `contract` blocked 等**（见 **`docs/spec/auto3.md`**） |
 | **PID 锁** | **不**申请、**不**释放；可**只读检测** `.agent-sessions/locks/pipeline.pid` 给人提示 | **必须**按 §6 管理 |
 | **registry.sqlite** | **不**写入；若需「本机索引与 **ai-auto3** 对齐」，请用户或 Agent 另行执行 **`ai-auto3` … `sync-registry`**（见 **`docs/spec/auto3.md`**） | **负责** upsert / 导入对齐 |
-| **典型用途** | 会话开场快照、PR 描述贴进度、人工判断「卡在哪」 | 从 **design**（默认）起自动跑到 **report** |
+| **典型用途** | 会话开场快照、PR 描述贴进度、人工判断「卡在哪」；**`serve`** 本地 Web 看板跟踪多项目与 Feature 流水线 | 从 **design**（默认）起自动跑到 **report** |
+| **本地 Web** | **`run.cjs serve`** → **`http://127.0.0.1:9473/`**（只读；见 **`docs/spec/dash3.md` §3.4、§7.1**） | — |
 
 **实现入口**：以 **`<cursor_skills_root>/ai-dash3/scripts/run.cjs`** 为 CLI 真源（**`docs/spec/dash3.md`**）；**`SKILL.md`** 保持轻薄，仅触发词与必读路径表。
 

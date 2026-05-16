@@ -52,4 +52,93 @@ function runRound(label) {
 for (let i = 1; i <= 2; i++) {
   runRound(`round-${i}`);
 }
-console.log('smoke: all passed (2 rounds)');
+
+function smokeServe() {
+  const { createServer } = require('./serve.cjs');
+  const server = createServer({ port: 0, host: '127.0.0.1', project: FIXTURE });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      const http = require('http');
+      http
+        .get(`http://127.0.0.1:${port}/api/dashboard?project=${encodeURIComponent(FIXTURE)}`, (res) => {
+          let body = '';
+          res.on('data', (c) => {
+            body += c;
+          });
+          res.on('end', () => {
+            server.close();
+            try {
+              const o = JSON.parse(body);
+              if (o.schema !== 'ai-dash3.dashboard.v1') {
+                reject(new Error(`bad dashboard schema: ${o.schema}`));
+                return;
+              }
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
+          });
+        })
+        .on('error', (e) => {
+          server.close();
+          reject(e);
+        });
+    });
+  });
+}
+
+function smokeServeInvalidJson() {
+  const { createServer } = require('./serve.cjs');
+  const badDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-dash3-bad-'));
+  const badStages = path.join(badDir, '.pipeline');
+  fs.mkdirSync(badStages, { recursive: true });
+  fs.writeFileSync(path.join(badStages, 'stages.json'), '{not json', 'utf8');
+  const server = createServer({ port: 0, host: '127.0.0.1', project: null });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      const http = require('http');
+      http
+        .get(
+          `http://127.0.0.1:${port}/api/dashboard?project=${encodeURIComponent(badDir)}`,
+          (res) => {
+            let body = '';
+            res.on('data', (c) => {
+              body += c;
+            });
+            res.on('end', () => {
+              server.close();
+              try {
+                if (res.statusCode !== 400) {
+                  reject(new Error(`expected 400 for bad json, got ${res.statusCode}`));
+                  return;
+                }
+                const o = JSON.parse(body);
+                if (o.error !== 'invalid_stages_json') {
+                  reject(new Error(`bad error code: ${o.error}`));
+                  return;
+                }
+                resolve();
+              } catch (e) {
+                reject(e);
+              }
+            });
+          }
+        )
+        .on('error', (e) => {
+          server.close();
+          reject(e);
+        });
+    });
+  });
+}
+
+Promise.resolve()
+  .then(() => smokeServe())
+  .then(() => smokeServeInvalidJson())
+  .then(() => console.log('smoke: all passed (2 rounds + serve api + invalid json)'))
+  .catch((e) => {
+    console.error('smoke failed:', e.message || e);
+    process.exit(1);
+  });

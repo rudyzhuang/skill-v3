@@ -90,6 +90,7 @@ ai-auto3/
     ├── gen-report.cjs         # report 生成器：读 stages + 日志索引，写报告文件 + stages.report
     ├── preflight.cjs          # 可选：从 autorun 拆出 §5.1 六项，便于单测
     ├── registry-sync.cjs      # 可选：project 导入/对齐 SQLite
+    ├── registry-export.cjs    # 只读导出 registry → JSON（供 ai-dash3 Web 等消费）
     └── lib/
         ├── paths.cjs          # --project 解析、docs/.pipeline/.agent-sessions 路径
         ├── stages-io.cjs      # 读合并写 stages.json；仅允许改写键见 §5.2
@@ -131,6 +132,7 @@ ai-auto3/
 | **`node .../autorun.cjs run`** | 与无子命令同义，默认全序列。 |
 | **`node .../autorun.cjs preflight-only`** | 仅执行 **§5.1**，用于 CI 或 Agent 预检。 |
 | **`node .../autorun.cjs sync-registry`** | 仅执行 **§5.1#6 + §9**，不写 report。 |
+| **`node .../registry-export.cjs`** | 只读：stdout 单行 **`ai-auto3.registry-export.v1`** JSON（项目列表、**`project_runtime_state`**、**`active_runs`**）；供 **ai-dash3** 等消费，**不**写 DB。 |
 
 ---
 

@@ -47,6 +47,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | `node .../autorun.cjs preflight-only --project=...` | 仅 **§5.1 checklist** + **registry upsert**（若检测到 `pipeline.pid` 仅告警，不阻断） |
 | `node .../autorun.cjs sync-registry --project=...` | 仅 **registry** 对齐（**§5.1#8 / §9**） |
 | `node .../gen-report.cjs --project=... --session-id=... [--failure-reason=]` | 单独生成报告（通常由 autorun 末尾调用） |
+| `node .../registry-export.cjs` | 只读导出 **registry.sqlite** → JSON（**ai-dash3** Web 看板消费；须 **`npm install`**） |
 
 **`--features`**：限定本期 **`ai-code3`** 段使用的 **`feature_id`** 子集（须 ⊆ **`prd_review.phase_plan`**）。
 对 **ai-design3**（design/contract/design-review）仅在 `--features` 解析后恰好 **1 个 feature_id** 时传 `--feature=<id>`；多 feature 时不下发该参数，避免把逗号串误传给 design3（design3 仅支持单 feature 过滤）。

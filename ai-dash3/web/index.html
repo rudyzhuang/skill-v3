@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ai-dash3 · Skill V3 流水线看板</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>ai-dash3</h1>
+      <p class="tagline">只读跟踪 ai-auto3 · 项目与 Feature 流水线状态</p>
+    </div>
+    <div class="controls">
+      <label>
+        项目
+        <select id="projectSelect" aria-label="选择项目"></select>
+      </label>
+      <label class="path-label">
+        项目根（绝对路径）
+        <input id="projectPath" type="text" spellcheck="false" placeholder="/path/to/your/project" />
+      </label>
+      <button type="button" id="refreshBtn">刷新</button>
+      <label class="auto-refresh">
+        <input type="checkbox" id="autoRefresh" checked />
+        每 3 秒自动刷新
+      </label>
+    </div>
+  </header>
+
+  <main id="app">
+    <section class="status-banner" id="statusBanner" aria-live="polite"></section>
+
+    <div class="grid-2">
+      <section class="card" id="runtimeCard">
+        <h2>ai-auto3 运行态</h2>
+        <dl id="runtimeDl" class="kv"></dl>
+      </section>
+      <section class="card" id="summaryCard">
+        <h2>项目概览</h2>
+        <dl id="summaryDl" class="kv"></dl>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Feature 流水线</h2>
+      <div class="feature-tabs" id="featureTabs"></div>
+      <div class="feature-board" id="featureBoard"></div>
+    </section>
+
+    <section class="card">
+      <h2>阶段表</h2>
+      <div class="table-wrap">
+        <table id="stageTable">
+          <thead>
+            <tr><th>阶段</th><th>状态</th><th>校验</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <section class="card">
+        <h2>阻塞</h2>
+        <ul id="blockersList" class="list"></ul>
+      </section>
+      <section class="card">
+        <h2>建议下一步</h2>
+        <p id="suggestedNext" class="suggest"></p>
+        <h3 class="sub">报告文件</h3>
+        <ul id="reportsList" class="list mono"></ul>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>最近 autorun</h2>
+      <div class="table-wrap">
+        <table id="runsTable">
+          <thead>
+            <tr>
+              <th>run_id</th>
+              <th>开始</th>
+              <th>结束</th>
+              <th>退出码</th>
+              <th>停在阶段</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>只读看板 · 不触发 autorun · registry 经 ai-auto3 <code>registry-export.cjs</code></p>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

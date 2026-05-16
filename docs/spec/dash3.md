@@ -58,7 +58,10 @@
 | 路径 | 说明 |
 | --- | --- |
 | **`ai-dash3/SKILL.md`** | 触发词、必读路径、一行命令、退出码指针；**不**内联算法。 |
-| **`ai-dash3/scripts/run.cjs`** | **唯一**对外 CLI 入口。 |
+| **`ai-dash3/scripts/run.cjs`** | **唯一**对外 CLI 入口（含委派 **`serve`**）。 |
+| **`ai-dash3/scripts/serve.cjs`** | 本地 Web 看板 HTTP 服务（由 **`run.cjs serve`** 调用）。 |
+| **`ai-dash3/scripts/lib/*.cjs`** | 聚合逻辑（**`summary`**、**`features`**、**`dashboard`**、**`registry-bridge`**）。 |
+| **`ai-dash3/web/`** | 看板静态页与 **`/assets/*`**。 |
 | **`ai-dash3/scripts/smoke.cjs`** | 仓库内自检（**§9**）。 |
 | **`ai-dash3/package.json`** | 可为 **零依赖**（仅用 Node 内置 **`fs` / `path` / `child_process`**）；**禁止**为 dash 引入 **SQLite** 客户端。 |
 
@@ -67,7 +70,7 @@
 统一：**`node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路径> [选项]`**
 
 - **`<skill_dir>`**：安装目录，例如 **`~/.cursor/skills/ai-dash3`**。  
-- **`--project`**：**必填**、**绝对路径**；**禁止**依赖 `process.cwd()` 推断项目根（对齐 **`input-spec.md` §3.3**）。
+- **`--project`**：除 **`serve`** 外**必填**、**绝对路径**；**`serve`** 可省略（浏览器内再选项目）。**禁止**依赖 `process.cwd()` 推断项目根（对齐 **`input-spec.md` §3.3**）。
 
 ### 3.3 子命令
 
@@ -76,12 +79,20 @@
 | **`status`** | **是**（省略子命令时等价于 **`status`**） | **stdout** 输出人类可读块：项目 id、`pipeline.current_stage`、**阶段表**（见 **§4**）、**阻塞摘要**（见 **§5**）、**报告文件列表**（见 **§5.2**）、**建议下一步**（见 **§6**）。 |
 | **`json`** | 否 | **stdout** 输出 **单行 minified JSON**（UTF-8），供脚本消费；字段集合见 **§7**。 |
 | **`write-md`** | 否 | 将 **`status`** 等价内容写入 Markdown 文件；**`--out=`** 为**相对项目根**或**绝对路径**；默认 **`.pipeline/reports/dash-status.md`**。写入前 **`mkdir -p`** 父目录。 |
+| **`serve`** | 否 | 启动**本地 Web 看板**（只读）：默认 **`http://127.0.0.1:9473/`**；**`--port=`**、**`--host=`**（默认 **`127.0.0.1`**）、可选 **`--project=`** 作为页面默认项目。静态资源在 **`ai-dash3/web/`**；HTTP API 见 **§7.1**。 |
 
 **共用选项**：
 
 | 选项 | 说明 |
 | --- | --- |
 | **`--out=<path>`** | 仅 **`write-md`**：输出路径（默认 **`.pipeline/reports/dash-status.md`**）。 |
+| **`--port=` / `--host=`** | 仅 **`serve`**：监听端口（默认 **9473**）与绑定地址（默认 **127.0.0.1**，仅本机）。 |
+
+### 3.4 本地 Web 看板（**`serve`**）
+
+- **职责**：在浏览器中展示 **当前项目** 阶段表、阻塞、**Feature 流水线状态**（待处理 / 处理中 / 已完成 / 失败 / 延期）、**ai-auto3** 运行态（registry **`project_runtime_state`** + **PID 锁**只读探测）、本机 **registry 项目列表**与最近 **autorun** 记录。
+- **数据边界**：**不**直接打开 **`registry.sqlite`**；多项目列表经 **`ai-auto3/scripts/registry-export.cjs`** 子进程只读导出（须在 **ai-auto3/** 安装 **`better-sqlite3`**）。
+- **禁止**：与 **§2.2** 相同——**不** spawn 编排、**不写** stages/registry。
 
 ---
 
@@ -163,6 +174,18 @@
 | **`suggested_next`** | `string` | 主建议一句自然语言（**§6**）。 |
 | **`hints`** | `string[]` | 可选附加提示。 |
 
+### 7.1 Web API（**`serve`**，**MVP**）
+
+| 路径 | 说明 |
+| --- | --- |
+| **`GET /`** | **`index.html`** |
+| **`GET /assets/*`** | 静态 CSS/JS |
+| **`GET /api/config`** | **`{ schema: "ai-dash3.config.v1", default_project_root }`** |
+| **`GET /api/registry`** | 项目列表 + **active_runs**（经 registry-export） |
+| **`GET /api/dashboard?project=<abs>`** | **`ai-dash3.dashboard.v1`**：含 **§7** 的 **`summary`**、**`features[]`**（**`pipeline_status`**）、**`runtime`**、**`recent_runs`**、**`overall`** |
+
+**`features[].pipeline_status`** 枚举：**`pending` | `in_progress` | `completed` | `failed` | `deferred`**（启发式，见实现 **`lib/features.cjs`**）。
+
 ---
 
 ## 8. 退出码与错误
@@ -187,7 +210,9 @@
 - [x] **`json`** 输出可 **`JSON.parse`** 且含 **§7** 必填键。  
 - [x] **`write-md`** 默认路径 **`.pipeline/reports/dash-status.md`**，不覆盖 **`prd-implementation-summary.md`**。  
 - [x] **`smoke.cjs`** 对 fixtures 连续跑两轮子命令，均 **退出 0**。  
-- [x] **依赖**：**零** npm 生产依赖或仅文档声明 **`engines.node`**；**无** `better-sqlite3`。
+- [x] **`serve`** 绑定默认 **`127.0.0.1`**；**`GET /api/dashboard`** 对非法 **`stages.json`** 返回 **400**（与 CLI 退出码 **1** 语义对齐）。  
+- [x] **`serve`** + **`web/`** 展示 **Feature `pipeline_status`** 与 **registry** 运行态（经 **`registry-export.cjs`**，dash **不**直连 SQLite）。  
+- [x] **依赖**：**零** npm 生产依赖或仅文档声明 **`engines.node`**；**无** `better-sqlite3`（registry 读取委托 **ai-auto3**）。
 
 ---
 
