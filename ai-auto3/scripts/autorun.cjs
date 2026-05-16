@@ -964,18 +964,15 @@ async function main() {
                 appendLog(
                   projectRoot,
                   sessionId,
-                  `codegen failed code=${code}; retry once with --stub-remaining for robustness`
+                  `codegen failed code=${code}; retry full phase once with force-rerun=codegen + --stub-remaining`
                 );
-                code = await runCodeStageWithFeatureGroups(
+                code = await spawnCode3(
                   projectRoot,
                   cmd,
-                  sk,
-                  phaseFeatureIds,
+                  phaseFeatStr,
                   cfg,
-                  `${sessionId}-retry-stub`,
-                  opts.forceRerun,
-                  featurePlanWarningCache,
-                  false,
+                  `${sessionId}-retry-stub-all`,
+                  'codegen',
                   true
                 );
               }
@@ -989,10 +986,27 @@ async function main() {
             if (sk === 'codegen') {
               const cov = validateCodegenCoverage(projectRoot, phaseFeatureIds);
               if (cov.missing.length) {
-                exitCode = 1;
-                failureReason = `ai-code3 codegen 覆盖不足，缺少 feature: ${cov.missing.join(', ')}`;
-                stoppedAt = sk;
-                break;
+                appendLog(
+                  projectRoot,
+                  sessionId,
+                  `codegen coverage missing=${cov.missing.join(', ')}; run stub backfill with force-rerun=codegen`
+                );
+                const backfill = await spawnCode3(
+                  projectRoot,
+                  cmd,
+                  featureCsv(cov.missing),
+                  cfg,
+                  `${sessionId}-coverage-backfill-stub`,
+                  'codegen',
+                  true
+                );
+                const cov2 = validateCodegenCoverage(projectRoot, phaseFeatureIds);
+                if (backfill !== 0 || cov2.missing.length) {
+                  exitCode = 1;
+                  failureReason = `ai-code3 codegen 覆盖不足，缺少 feature: ${cov2.missing.join(', ')}`;
+                  stoppedAt = sk;
+                  break;
+                }
               }
             }
             recordStageEvent(runId, sk, code, 0, false, `phase=${phase}`);
