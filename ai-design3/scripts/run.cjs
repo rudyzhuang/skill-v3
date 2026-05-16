@@ -344,7 +344,7 @@ function main() {
       console.error(`preflight failed: ${pr.reason}`);
       finish(EXIT.PRECHECK, { reason: pr.reason });
     }
-    const prdSpec = path.join(root, 'docs', 'inputs', 'prd-spec.md');
+    const prdSpec = path.join(root, 'docs', 'prd-spec.md');
     if (!fs.existsSync(prdSpec)) {
       console.error(`preflight failed: missing ${prdSpec}`);
       finish(EXIT.PRECHECK, { reason: 'missing prd-spec.md' });

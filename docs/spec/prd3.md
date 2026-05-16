@@ -33,7 +33,7 @@
 | v3 | v2 对应 | 关键差异（实现时必须遵守） |
 | --- | --- | --- |
 | **ai-prd3** | `ai-prd2` + `ai-prd-review2` | 单 skill 内顺序完成 prd → prd-review；**不**读取 v2 的 `docs/<端>/feature_list.json`、**不**写各端 `deployment_plan.json`、**不**依赖 `.ai-pipeline/contracts.json` / SQLite `features` 作为门闸真源 |
-| **总源头** | 各端 `prd.md` 为主 + 分散约定 | **唯一**总源头为 **`docs/inputs/prd-spec.md`** |
+| **总源头** | 各端 `prd.md` 为主 + 分散约定 | **唯一**总源头为 **`docs/prd-spec.md`** |
 | **特性列表** | JSON + DB 双写 | **Markdown** **`docs/<端>/feature_list.md`**，结构以 **`docs/templates/feature_list.md.template`** 为 v0 契约；feature 行内状态枚举为 **`draft` / `reviewed` / `approved` / `blocked` / `deferred`**；**进度型 pipeline 状态**由 **`stages.json`** 表达，**不**写入 feature 行作为「在第几阶段」的替代 |
 | **部署草案** | `deployment_plan.json` | 收敛到 **`docs/config.dev.json`** / **`docs/config.release.json`** + **`docs/config.env`**（占位） |
 
@@ -120,7 +120,7 @@ ai-prd3/
 
 | 路径 | 职责 |
 | --- | --- |
-| `docs/inputs/prd-spec.md` | **PRD 总源头**；仅由 **prd** 流程或用户显式编辑更新 |
+| `docs/prd-spec.md` | **PRD 总源头**；仅由 **prd** 流程或用户显式编辑更新 |
 | `docs/<client_target>/prd.md` | 从 prd-spec **派生** |
 | `docs/<client_target>/feature_list.md` | 从 prd-spec **派生**（`feature_list.md.template` v0） |
 | `docs/config.dev.json` | 开发环境非敏感配置 |
@@ -156,7 +156,7 @@ ai-prd3/
 
 ## 6. `client_targets` 机器解析（**定稿**，实现以此为准）
 
-与 **docs/input-spec.md** §8 阶段 1、**docs/templates/stages.json.template** 中 `client_targets._doc` / `derivation_source` 一致：**声明列表**位于 **`docs/inputs/prd-spec.md`** 的固定二级标题下，为**单层无序列表**（非 YAML 围栏）。
+与 **docs/input-spec.md** §8 阶段 1、**docs/templates/stages.json.template** 中 `client_targets._doc` / `derivation_source` 一致：**声明列表**位于 **`docs/prd-spec.md`** 的固定二级标题下，为**单层无序列表**（非 YAML 围栏）。
 
 ### 6.1 标题与锚点
 
@@ -166,11 +166,11 @@ ai-prd3/
 | 英文 | `## Client Targets` | `#client-targets` |
 
 `stages.json.template` 中 **`client_targets.derivation_source`** 固定为：  
-**`docs/inputs/prd-spec.md#client-targets`**（与 CN 标题锚点一致；英文模板亦采用可解析为 `#client-targets` 的 GitHub 风格 slug）。
+**`docs/prd-spec.md#client-targets`**（与 CN 标题锚点一致；英文模板亦采用可解析为 `#client-targets` 的 GitHub 风格 slug）。
 
 ### 6.2 解析算法（`prd-parse-client-targets.cjs`）
 
-1. 读取 **`docs/inputs/prd-spec.md`**（UTF-8）。  
+1. 读取 **`docs/prd-spec.md`**（UTF-8）。  
 2. 自文件顶向下查找 **第一个**匹配 **§6.1** 的二级标题行。  
 3. 从该标题**下一行**起扫描，**跳过**空行与纯说明段落，直到遇到 **Markdown 无序列表**：行匹配正则 **`^\s*-\s+(.+)$`**。  
 4. **声明列表**采集规则：从**第一个**匹配 `^\s*-\s+` 的列表项开始，**连续**纳入后续行：  
@@ -207,13 +207,13 @@ ai-prd3/
 
 ### 7.1 意图
 
-将用户输入收敛为 **`docs/inputs/prd-spec.md`**；校验通过后按 `client_targets` 派生各端 **`prd.md`** 与 **`feature_list.md`**；初始化 **`config.*.json`** 与 **`config.env` 占位**；更新 **`stages.prd`** 与 **§9** 哈希。
+将用户输入收敛为 **`docs/prd-spec.md`**；校验通过后按 `client_targets` 派生各端 **`prd.md`** 与 **`feature_list.md`**；初始化 **`config.*.json`** 与 **`config.env` 占位**；更新 **`stages.prd`** 与 **§9** 哈希。
 
 ### 7.2 建议执行顺序
 
 1. **`prd-bootstrap.cjs`**  
-   - 创建 `.pipeline/`、`docs/inputs/`、各 `docs/<端>/`（**仅** `declared` 中端，须在 parse 之后调用或 bootstrap 内调 parse）。  
-   - `docs/inputs/prd-spec.md` 不存在：从 **`templates/prd-spec/prd-spec.cn.md.template`**（或 `--lang=en`）复制；**已存在则不覆盖**。  
+   - 创建 `.pipeline/`、**`docs/`**（确保存在，用于 **`prd-spec.md`** 与各端子目录）、各 `docs/<端>/`（**仅** `declared` 中端，须在 parse 之后调用或 bootstrap 内调 parse）。  
+   - `docs/prd-spec.md` 不存在：从 **`templates/prd-spec/prd-spec.cn.md.template`**（或 `--lang=en`）复制；**已存在则不覆盖**。  
    - `config.*.json` / `config.env` 不存在：从模板复制；**已存在默认不覆盖**。缺模板必填键时：**stderr 说明 + 退出 1**，或经 **`--allow-fill-missing-keys`** 且在交互/显式确认后做 **additive 补齐**（与 `input-spec.md` §3 一致，具体 flag 名可在实现中定稿但须写入 `SKILL.md`）。  
    - `.pipeline/stages.json` 不存在：自 **`stages.json.template`** 拷贝初始化；已存在则 **`merge-stages.cjs` 合并**，禁止整文件覆盖。  
    - `.gitignore` 未忽略 `.agent-sessions/`：**stderr 警告**，不阻断。  
@@ -235,7 +235,7 @@ ai-prd3/
 
 当且仅当：
 
-- `docs/inputs/prd-spec.md` 存在且通过 `prd-validate-spec.cjs`；  
+- `docs/prd-spec.md` 存在且通过 `prd-validate-spec.cjs`；  
 - 每个 `declared` 端下 `prd.md` 与 `feature_list.md` 存在且通过 `prd-validate-derived.cjs`；  
 - `docs/config.dev.json`、`docs/config.release.json`、`docs/config.env` 存在且通过 `prd-validate-config.cjs`；  
 - `.pipeline/stages.json` 中 **`stages.prd.status=completed`** 且 **`stages.prd.validation.passed=true`**；  
@@ -272,7 +272,7 @@ ai-prd3/
 
 ### 8.2 禁止项（须出现在 `SKILL.md`）
 
-- **不得**把评审意见、讨论纪要默认追加进 **`docs/inputs/prd-spec.md`**。  
+- **不得**把评审意见、讨论纪要默认追加进 **`docs/prd-spec.md`**。  
 - **不得**把各端 **`prd.md`** 当批注白板。对端调整须：**评审记录 `suggested_prd_spec_changes` → 用户同意 → 回到 prd 流程改 prd-spec → 再派生**。  
 - **不得**把密钥写入 `config.dev.json` / `config.release.json`。
 
@@ -333,7 +333,7 @@ ai-prd3/
 在 **`prd-write-stage.cjs`** 将 prd 标为完成前计算：
 
 ```
-canonical_prd_spec = UTF-8( docs/inputs/prd-spec.md 全文，换行规范化：仅 \n )
+canonical_prd_spec = UTF-8( docs/prd-spec.md 全文，换行规范化：仅 \n )
 summary_hash = SHA256( canonical_prd_spec )
 ```
 

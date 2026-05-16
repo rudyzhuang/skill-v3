@@ -4,7 +4,7 @@
 
 **输入**
 
-- `docs/inputs/prd-spec.md`
+- `docs/prd-spec.md`
 - 各端 `prd.md`、`feature_list.md`
 - `docs/config.*.json`（仅非敏感配置）
 

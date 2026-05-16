@@ -29,7 +29,7 @@ This file is the single source of truth for the PRD stage. `ai-prd3` derives eac
 
 Declare **`client_targets`** for this phase as a **single-level unordered list** (aligned with `stages.json` → `client_targets.declared`). `ai-prd3` only generates `docs/<client_target>/prd.md` and `docs/<client_target>/feature_list.md` for targets listed below.
 
-The Markdown anchor for this heading is **`#client-targets`**, matching `client_targets.derivation_source` (`docs/inputs/prd-spec.md#client-targets`).
+The Markdown anchor for this heading is **`#client-targets`**, matching `client_targets.derivation_source` (`docs/prd-spec.md#client-targets`).
 
 Allowed slugs only: `website`, `admin`, `backend`, `miniapp`, `mobile`, `desktop`, `agent`. Use one list item per line; wrapping each slug in backticks (for example `` `website` ``) is recommended for machine parsing.
 

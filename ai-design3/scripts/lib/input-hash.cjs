@@ -18,7 +18,7 @@ function computeDesignInputHash(projectRoot, featureIds) {
     const abs = path.join(projectRoot, rel);
     if (fs.existsSync(abs)) files[rel.split(path.sep).join('/')] = sha256Hex(fs.readFileSync(abs, 'utf8'));
   };
-  addFile(path.join('docs', 'inputs', 'prd-spec.md'));
+  addFile(path.join('docs', 'prd-spec.md'));
   addFile(path.join('docs', 'config.dev.json'));
   addFile(path.join('docs', 'config.release.json'));
   for (const fid of featureIds) {

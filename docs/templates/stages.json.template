@@ -31,8 +31,8 @@
       "desktop",
       "agent"
     ],
-    "_doc": "Parse client_targets from docs/inputs/prd-spec.md: first H2 titled exactly ## 端 (Client Targets) (CN) or ## Client Targets (EN); take the first unordered list whose items are allowed slugs (see allowed_values). Markdown anchor for CN heading: #client-targets.",
-    "derivation_source": "docs/inputs/prd-spec.md#client-targets"
+    "_doc": "Parse client_targets from docs/prd-spec.md: first H2 titled exactly ## 端 (Client Targets) (CN) or ## Client Targets (EN); take the first unordered list whose items are allowed slugs (see allowed_values). Markdown anchor for CN heading: #client-targets.",
+    "derivation_source": "docs/prd-spec.md#client-targets"
   },
   "stages": {
     "prd": {
@@ -41,7 +41,7 @@
       "completed_at": null,
       "inputs": {
         "summary_hash": "",
-        "source_prd_spec": "docs/inputs/prd-spec.md",
+        "source_prd_spec": "docs/prd-spec.md",
         "raw_input_refs": []
       },
       "outputs": {
@@ -59,7 +59,7 @@
         "summary": "",
         "required_files": [
           {
-            "path": "docs/inputs/prd-spec.md",
+            "path": "docs/prd-spec.md",
             "exists": false,
             "valid": false
           },
@@ -92,7 +92,7 @@
       "inputs": {
         "summary_hash": "",
         "requires_stage": "prd",
-        "source_prd_spec": "docs/inputs/prd-spec.md",
+        "source_prd_spec": "docs/prd-spec.md",
         "feature_lists": []
       },
       "outputs": {

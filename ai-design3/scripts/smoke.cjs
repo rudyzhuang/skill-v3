@@ -51,7 +51,7 @@ function main() {
   write(stagesPath, JSON.stringify(stages, null, 2));
 
   const fid = 'smoke_feat_01';
-  write(path.join(tmp, 'docs', 'inputs', 'prd-spec.md'), '# Smoke PRD\n');
+  write(path.join(tmp, 'docs', 'prd-spec.md'), '# Smoke PRD\n');
   const cfgMin = {
     _schema: { name: 'skill-v3-project-config', version: 1, environment: 'dev' },
     project: { name: 'smoke' },

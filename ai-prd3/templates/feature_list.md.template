@@ -1,6 +1,6 @@
 # Feature List
 
-This file is generated for one `client_target` from `docs/inputs/prd-spec.md`. Keep it deterministic so downstream stages can parse or validate it.
+This file is generated for one `client_target` from `docs/prd-spec.md`. Keep it deterministic so downstream stages can parse or validate it.
 
 ## Metadata
 
@@ -9,7 +9,7 @@ This file is generated for one `client_target` from `docs/inputs/prd-spec.md`. K
 | schema_name | skill-v3-feature-list |
 | schema_version | 1 |
 | client_target |  |
-| source | docs/inputs/prd-spec.md |
+| source | docs/prd-spec.md |
 | generated_by | ai-prd3 |
 | generated_at |  |
 

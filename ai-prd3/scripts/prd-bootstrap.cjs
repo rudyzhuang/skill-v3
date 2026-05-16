@@ -54,11 +54,11 @@ function main() {
   const skillDir = skillDirFrom(__filename);
   const tplRoot = path.join(skillDir, 'templates');
 
-  const prdSpec = path.join(projectRoot, 'docs', 'inputs', 'prd-spec.md');
+  const prdSpec = path.join(projectRoot, 'docs', 'prd-spec.md');
   const lang = args.lang === 'en' ? 'en' : 'cn';
   const prdTpl = path.join(tplRoot, 'prd-spec', lang === 'en' ? 'prd-spec.en.md.template' : 'prd-spec.cn.md.template');
 
-  fs.mkdirSync(path.join(projectRoot, 'docs', 'inputs'), { recursive: true });
+  fs.mkdirSync(path.join(projectRoot, 'docs'), { recursive: true });
   copyIfMissing(prdTpl, prdSpec);
 
   const cfgDev = path.join(projectRoot, 'docs', 'config.dev.json');

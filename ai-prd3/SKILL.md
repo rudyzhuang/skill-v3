@@ -2,7 +2,7 @@
 name: ai-prd3
 version: "0.2.3"
 description: >-
-  Skill V3 第三代 PRD 与需求评审（prd-review）：维护 docs/inputs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md，
+  Skill V3 第三代 PRD 与需求评审（prd-review）：维护 docs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md，
   更新 .pipeline/stages.json 的 prd 与 prd_review 及 inputs.summary_hash；prd-review 终检通过后可生成人话版实施节奏摘要（report）。
   在用户提到 ai-prd3、第三代 PRD、Skill V3 prd、prd-review、需求评审或需执行 bootstrap/validate-prd/write-prd/report 时使用。
 disable-model-invocation: true
@@ -24,7 +24,7 @@ disable-model-invocation: true
 
 | 路径 | 说明 |
 | --- | --- |
-| `docs/inputs/prd-spec.md` | PRD 总源头 |
+| `docs/prd-spec.md` | PRD 总源头 |
 | `docs/<client_target>/prd.md` | 从 prd-spec 派生 |
 | `docs/<client_target>/feature_list.md` | 从 prd-spec 派生 |
 | `docs/config.dev.json` / `docs/config.release.json` | 非敏感配置 |
@@ -90,7 +90,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 
 ## 6. prd-review 禁止项（`prd3.md` §8.2）
 
-- **不得**把评审意见、讨论纪要默认追加进 **`docs/inputs/prd-spec.md`**。
+- **不得**把评审意见、讨论纪要默认追加进 **`docs/prd-spec.md`**。
 - **不得**把各端 **`prd.md`** 当批注白板；对端调整须走 **`suggested_prd_spec_changes` → 用户同意 → 回到 prd 改 prd-spec → 再派生**。
 - **不得**把密钥写入 **`config.dev.json` / `config.release.json`**。
 

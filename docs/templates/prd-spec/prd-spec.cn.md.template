@@ -29,7 +29,7 @@
 
 本节以**单层无序列表**声明本期涉及的 **`client_targets`**（与 `.pipeline/stages.json` 中 `client_targets.declared` 对应）。`ai-prd3` 仅为下列列表中出现的端生成 `docs/<client_target>/prd.md` 与 `docs/<client_target>/feature_list.md`。
 
-本标题在 Markdown 中的锚点为 **`#client-targets`**，与 `stages.json` 内 `client_targets.derivation_source`（`docs/inputs/prd-spec.md#client-targets`）对齐。
+本标题在 Markdown 中的锚点为 **`#client-targets`**，与 `stages.json` 内 `client_targets.derivation_source`（`docs/prd-spec.md#client-targets`）对齐。
 
 取值只能是：`website`、`admin`、`backend`、`miniapp`、`mobile`、`desktop`、`agent`。每项占一行无序列表，建议使用行内代码包裹端名（例如 `` `website` ``），便于机器解析。
 

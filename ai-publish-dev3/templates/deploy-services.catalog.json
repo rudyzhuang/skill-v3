@@ -6,7 +6,7 @@
   },
   "selection_policy": {
     "do_not_copy_catalog_wholesale": true,
-    "generated_config_rule": "Only write the selected provider and services inferred from docs/inputs/prd-spec.md and user confirmation. Unselected providers and unused services must not be written to docs/config.dev.json or docs/config.release.json.",
+    "generated_config_rule": "Only write the selected provider and services inferred from docs/prd-spec.md and user confirmation. Unselected providers and unused services must not be written to docs/config.dev.json or docs/config.release.json.",
     "requires_user_confirmation_when_ambiguous": true,
     "secret_policy": "Credentials and tokens must be written only to docs/config.env or an approved secret manager."
   },

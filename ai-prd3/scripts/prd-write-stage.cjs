@@ -57,7 +57,7 @@ function main() {
   stagesFresh.stages.prd.completed_at = now;
   stagesFresh.stages.prd.inputs = stagesFresh.stages.prd.inputs || {};
   stagesFresh.stages.prd.inputs.summary_hash = summaryHash;
-  stagesFresh.stages.prd.inputs.source_prd_spec = 'docs/inputs/prd-spec.md';
+  stagesFresh.stages.prd.inputs.source_prd_spec = 'docs/prd-spec.md';
   stagesFresh.stages.prd.outputs = stagesFresh.stages.prd.outputs || {};
   stagesFresh.stages.prd.outputs.client_targets = declared.slice();
   stagesFresh.stages.prd.outputs.timed_out = false;
@@ -96,7 +96,7 @@ function main() {
   for (const slug of declared) {
     gen.push(`docs/${slug}/prd.md`, `docs/${slug}/feature_list.md`);
   }
-  gen.push('docs/config.dev.json', 'docs/config.release.json', 'docs/config.env', 'docs/inputs/prd-spec.md');
+  gen.push('docs/config.dev.json', 'docs/config.release.json', 'docs/config.env', 'docs/prd-spec.md');
   stagesFresh.stages.prd.generated_files = [...new Set(gen)];
 
   stagesFresh.pipeline = stagesFresh.pipeline || {};

@@ -60,7 +60,7 @@
 | 维度 | 约定 |
 | --- | --- |
 | **前置门闸** | `stages.prd_review.status === "completed"` 且 `stages.prd_review.outputs.decision === "passed"`；本期 `feature_id` 列表来自 `stages.prd_review.review.phase_plan[*].feature_ids` 的并集（未列入本期的 feature **不得**在本轮 design 中处理）。 |
-| **主要输入** | `docs/inputs/prd-spec.md`；各端 `docs/<client_target>/prd.md` 与 `docs/<client_target>/feature_list.md`；`docs/config.dev.json` / `docs/config.release.json`（非敏感）；`stages.json` 中 prd-review 结论块。 |
+| **主要输入** | `docs/prd-spec.md`；各端 `docs/<client_target>/prd.md` 与 `docs/<client_target>/feature_list.md`；`docs/config.dev.json` / `docs/config.release.json`（非敏感）；`stages.json` 中 prd-review 结论块。 |
 | **主要输出** | 每 feature 一份**可机读、可版本管理**的设计规格（见 §5.1），并在 `stages.design.outputs.design_specs[]` 中登记：`feature_id`、`client_target`、**产物路径**、`status`（如 `draft` / `approved` 等，若模板未锁枚举则与实现一致即可）、`shared_changes[]`（跨端共享层变更，见 [`input-spec.md`](../input-spec.md) §8 阶段 3）。 |
 | **禁止** | 本阶段**不**生成五种契约终稿（`types` / `api` / `schema` / `test_spec` / `design_snapshot` 文件）；不直接写实现代码。 |
 | **完成条件** | `stages.design.status === "completed"` 且 `stages.design.validation.passed === true`；且本期每个目标 feature 在 `design_specs[]` 中均有通过校验的条目。 |
@@ -96,8 +96,7 @@
   .pipeline/
     stages.json
   docs/
-    inputs/
-      prd-spec.md
+    prd-spec.md
     <client_target>/           # website | admin | backend | ...
       prd.md
       feature_list.md

@@ -740,7 +740,7 @@ function minimalPrdMdForTarget(slug) {
     `# ${slug} — PRD 派生稿（迁移占位）`,
     '',
     '本文件由 `migrate-v2-to-v3.cjs` 生成，用于通过 ai-prd3 的 `validate-derived` 门闸。',
-    '请根据 `docs/inputs/prd-spec.md` 中该端的「## 7. 各端专属需求」与核心功能表补全后，再执行 `write-prd` 或手工维护。',
+    '请根据 `docs/prd-spec.md` 中该端的「## 7. 各端专属需求」与核心功能表补全后，再执行 `write-prd` 或手工维护。',
     '',
     '## 范围摘要（待替换）',
     '',
@@ -968,7 +968,7 @@ async function main() {
 
   // 骨架：缺失才写模板
   ensureDir(path.join(projectRoot, '.pipeline'));
-  ensureDir(path.join(projectRoot, 'docs', 'inputs'));
+  ensureDir(path.join(projectRoot, 'docs'));
 
   const destStages = path.join(projectRoot, '.pipeline', 'stages.json');
   if (!exists(destStages)) {
@@ -991,11 +991,11 @@ async function main() {
     copyTemplateFileIfMissing(args.commit, dryLabel, templatesRoot, 'config.env.template', projectRoot, 'docs/config.env');
   }
 
-  const prdSpec = path.join(projectRoot, 'docs', 'inputs', 'prd-spec.md');
+  const prdSpec = path.join(projectRoot, 'docs', 'prd-spec.md');
   if (!exists(prdSpec)) {
     const specBody = initialPrdSpecCnFromTemplate(templatesRoot, effectiveClientTargets);
     writeIfCommit(args.commit, dryLabel, prdSpec, specBody, false);
-  } else console.log(`[skip] 已存在 docs/inputs/prd-spec.md`);
+  } else console.log(`[skip] 已存在 docs/prd-spec.md`);
 
   for (const slug of effectiveClientTargets) {
     const prdMd = path.join(projectRoot, 'docs', slug, 'prd.md');

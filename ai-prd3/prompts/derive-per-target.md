@@ -1,6 +1,6 @@
 # 按端派生 `prd.md` 与 `feature_list.md`
 
-你是 **ai-prd3 / prd** 的派生作者。输入：**已定稿的** `docs/inputs/prd-spec.md`。输出：为每个已声明 `client_target` 生成或更新：
+你是 **ai-prd3 / prd** 的派生作者。输入：**已定稿的** `docs/prd-spec.md`。输出：为每个已声明 `client_target` 生成或更新：
 
 - `docs/<slug>/prd.md`
 - `docs/<slug>/feature_list.md`

@@ -219,9 +219,9 @@ function runOneSmokeRound(roundLabel) {
   const TMP2 = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ai-prd3-smoke-'));
   r = run(['bootstrap', `--project=${TMP2}`], ROOT);
   assert.strictEqual(r.status, 0, r.stderr);
-  let spec = fs.readFileSync(path.join(TMP2, 'docs', 'inputs', 'prd-spec.md'), 'utf8');
+  let spec = fs.readFileSync(path.join(TMP2, 'docs', 'prd-spec.md'), 'utf8');
   spec = spec.replace(/^##\s+端\s*\(Client Targets\)\s*$/m, '## Bad Client Targets Heading');
-  fs.writeFileSync(path.join(TMP2, 'docs', 'inputs', 'prd-spec.md'), spec, 'utf8');
+  fs.writeFileSync(path.join(TMP2, 'docs', 'prd-spec.md'), spec, 'utf8');
   r = run(['validate-prd', `--project=${TMP2}`], ROOT);
   assert.strictEqual(r.status, 1, '缺少 §6.1 端标题时应 validate 失败');
   fs.rmSync(TMP2, { recursive: true, force: true });
@@ -229,9 +229,9 @@ function runOneSmokeRound(roundLabel) {
   const TMP3 = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ai-prd3-smoke-'));
   r = run(['bootstrap', `--project=${TMP3}`], ROOT);
   assert.strictEqual(r.status, 0, r.stderr);
-  spec = fs.readFileSync(path.join(TMP3, 'docs', 'inputs', 'prd-spec.md'), 'utf8');
+  spec = fs.readFileSync(path.join(TMP3, 'docs', 'prd-spec.md'), 'utf8');
   spec = spec.replace(/`website`/m, '`not_a_valid_target`');
-  fs.writeFileSync(path.join(TMP3, 'docs', 'inputs', 'prd-spec.md'), spec, 'utf8');
+  fs.writeFileSync(path.join(TMP3, 'docs', 'prd-spec.md'), spec, 'utf8');
   r = run(['validate-prd', `--project=${TMP3}`], ROOT);
   assert.strictEqual(r.status, 1, '非法 client_target slug 时应失败');
   fs.rmSync(TMP3, { recursive: true, force: true });
@@ -251,8 +251,8 @@ function runOneSmokeRound(roundLabel) {
   }
   r = run(['write-prd', `--project=${TMP4}`], ROOT);
   assert.strictEqual(r.status, 0, r.stderr);
-  spec = fs.readFileSync(path.join(TMP4, 'docs', 'inputs', 'prd-spec.md'), 'utf8');
-  fs.writeFileSync(path.join(TMP4, 'docs', 'inputs', 'prd-spec.md'), `${spec}\n`, 'utf8');
+  spec = fs.readFileSync(path.join(TMP4, 'docs', 'prd-spec.md'), 'utf8');
+  fs.writeFileSync(path.join(TMP4, 'docs', 'prd-spec.md'), `${spec}\n`, 'utf8');
   r = run(['validate-prd', `--project=${TMP4}`], ROOT);
   assert.strictEqual(r.status, 1, 'prd-spec 漂移后 validate-prd 须失败（prd_spec_drift）');
   fs.rmSync(TMP4, { recursive: true, force: true });

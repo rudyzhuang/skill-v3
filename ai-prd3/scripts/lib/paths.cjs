@@ -59,7 +59,7 @@ function stagesPath(projectRoot) {
 }
 
 function prdSpecPath(projectRoot) {
-  return path.join(projectRoot, 'docs', 'inputs', 'prd-spec.md');
+  return path.join(projectRoot, 'docs', 'prd-spec.md');
 }
 
 module.exports = {
