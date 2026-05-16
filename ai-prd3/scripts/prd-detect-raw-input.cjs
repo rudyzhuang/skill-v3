@@ -26,7 +26,7 @@ function main() {
     .createHash('sha256')
     .update(functionalSection, 'utf8')
     .digest('hex');
-  const functionalChange = cachedFunctional && cachedFunctional !== functionalHash;
+  const functionalChange = !!cachedFunctional && cachedFunctional !== functionalHash;
 
   const specPath = path.join(root, 'docs', 'prd-spec.md');
   let declared = parsed.client_targets;
