@@ -67,11 +67,15 @@ async function listFlutterDevicesMachine() {
  * 优先级：config 指定 id（若在线）→ 真机 → 已运行模拟器 → 任意候选。
  * @returns {{ id: string, kind: 'physical'|'emulator', name?: string } | null}
  */
+function platformMatchesTarget(targetPlatform, platform) {
+  const tp = String(targetPlatform || '').toLowerCase();
+  if (platform === 'ios') return tp === 'ios';
+  return tp === 'android' || tp.startsWith('android-');
+}
+
 function pickConnectedDevice(devices, platform, preferredId) {
-  const want = platform === 'ios' ? 'ios' : 'android';
   const candidates = devices.filter((d) => {
-    const tp = String(d.targetPlatform || '').toLowerCase();
-    if (tp !== want) return false;
+    if (!platformMatchesTarget(d.targetPlatform, platform)) return false;
     return d.isSupported !== false;
   });
 
@@ -207,24 +211,32 @@ async function ensureMobileDevice(platform, config) {
     );
   }
 
-  const launchId =
-    mc.preferredId && emu.ids.includes(mc.preferredId)
-      ? mc.preferredId
-      : emu.ids[0];
+  const launchOrder = [
+    ...(mc.preferredId && emu.ids.includes(mc.preferredId) ? [mc.preferredId] : []),
+    ...emu.ids.filter((id) => id !== mc.preferredId),
+  ];
 
-  const launched = await launchEmulator(launchId);
-  if (!launched) {
-    return envBlocker(
-      platform,
-      `flutter emulators --launch ${launchId} 失败；请在本机手动启动模拟器或连接真机`
-    );
+  let lastLaunchError = '';
+  for (const launchId of launchOrder) {
+    picked = await waitForDevice(platform, mc.preferredId, 5);
+    if (picked) break;
+
+    const launched = await launchEmulator(launchId);
+    if (!launched) {
+      lastLaunchError = `flutter emulators --launch ${launchId} 失败`;
+      continue;
+    }
+
+    picked = await waitForDevice(platform, mc.preferredId, mc.bootWaitS);
+    if (picked) break;
+    lastLaunchError = `模拟器 ${launchId} 启动后 ${mc.bootWaitS}s 内仍无可用设备`;
   }
 
-  picked = await waitForDevice(platform, mc.preferredId, mc.bootWaitS);
   if (!picked) {
     return envBlocker(
       platform,
-      `模拟器 ${launchId} 启动后 ${mc.bootWaitS}s 内仍无可用设备；请检查模拟器镜像或手动启动`
+      lastLaunchError ||
+        `已尝试 ${launchOrder.length} 个模拟器仍无可用设备；请检查模拟器镜像或手动启动`
     );
   }
 
@@ -268,9 +280,14 @@ async function ensureMobileBuild(mobileDir, platform, deviceKind) {
   return { ok: true };
 }
 
-async function flutterInstall(mobileDir, deviceId) {
+async function flutterInstall(mobileDir, deviceId, platform) {
   log(`安装应用到设备 ${deviceId}`);
-  const r = await runWithTimeout('flutter', ['install', '-d', deviceId], {
+  const installArgs = ['install', '-d', deviceId];
+  const debugApk = path.join(mobileDir, 'build', 'app', 'outputs', 'flutter-apk', 'app-debug.apk');
+  if (platform === 'android' && fs.existsSync(debugApk)) {
+    installArgs.push('--debug');
+  }
+  const r = await runWithTimeout('flutter', installArgs, {
     cwd: mobileDir,
     timeoutMs: 300000,
   });
@@ -333,7 +350,7 @@ async function prepareMobileAndRun(projectRoot, platform, config) {
   }
 
   if (mc.installBefore) {
-    const inst = await flutterInstall(root, dev.deviceId);
+    const inst = await flutterInstall(root, dev.deviceId, platform);
     if (!inst.ok) return { ok: false, deviceId: dev.deviceId, error: inst.error };
   }
 
