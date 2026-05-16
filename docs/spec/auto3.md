@@ -142,6 +142,7 @@ ai-auto3/
 
 1. **`prd` 完成**：`stages.prd.status === "completed"` 且 `stages.prd.validation.passed === true`。  
 2. **`prd-review` 完成且可进入 design**：`stages.prd_review.status === "completed"`、`outputs.decision === "passed"`（**`conditional_passed` 不放行**）；`stages.prd_review.review.phase_plan[*].feature_ids` 合并去重后**非空**。  
+   读取全部已声明端 `docs/<target>/feature_list.md`，构建本项目 feature 全集；若存在未进入 `phase_plan` 且未显式 `deferred` 的 `feature_id`，则 preflight 失败（退出码 1）。  
 3. **配置文件存在且通过 schema**：`docs/config.dev.json`、`docs/config.release.json` 存在且 **`_schema.version`** 与本 skill 支持版本一致；**`config.dev.json`** 中 **`deploy.provider`** 与 **`deploy.services[]`** 与本期需部署的端一致（细则可与 **publish3** 对齐）；**`config.release.json`** 即使 **`release.enabled=false`** 亦须能通过校验。  
 4. **`docs/config.env`**：存在；包含所选 provider **必填密钥的变量名**；若 **`deploy.enabled === true`**，则对应密钥**值**非空。  
 5. **密钥与 JSON 隔离**：对 **`config.dev.json` / `config.release.json`** 执行 **`security.forbidden_json_key_patterns`** 静态扫描（键名或值形态，规则来源以 **`config.*.json.template`** 为准），命中 → 失败。  
@@ -178,6 +179,7 @@ ai-auto3/
 1. 执行 **§5.1**；失败则跳到步骤 7（仍生成 report 时：须带失败原因）。  
 2. 申请 **pipeline** PID 锁（**§8.1**）。  
 3. 自 **`from-stage`** 起遍历阶段链至 **`smoke`**：  
+   默认采用 **Phase 外循环**（见 **§5.8**）：先按 `phase_plan` 顺序选择当前 phase（第一个通常为 `mvp`），在该 phase 内完成 `design → contract → design-review`，再进入 `codegen → ... → build → deploy → smoke`，完成后生成 phase 报告，再切到下一 phase。  
    - 若 **§6** 判定「已完成」且无 **`--force-rerun`** → 打日志「跳过」并 continue。  
    - 若本阶段为 **`contract`** 且 **`human_approval.status === "pending"`** → **§5.2** 写 **`blocked`** → **停跑**（退出码按子 skill 最近一次或 **1** 择定，须在 **§7** 文档化）。  
    - 否则 **spawn** 对应子 skill（**§2.3**），传入 **`--project`** 与本阶段 **`timeouts.stages.<stage>_s`**（从 **`docs/config.dev.json`** 读取，缺省按模板）；若被调用方为 **ai-code3**，还须遵守 **§5.6** 与 **§5.7**（**`--feature`** 非空、**feature group** 划分与并行上限、**`merge-push`** 前汇合）。  
@@ -274,6 +276,18 @@ ai-auto3/
 - **`merge-push` / `build`**：仍须在 **`codegen`～`code-review` 全组**（本期 **`--features`** 范围内**所有** group）均**成功结束后**，**单次串行** spawn，**`--feature=`** 为本期 id **全集**（与 **§5.6.1** 一致）。  
 - **`stages.json` 竞态**：多 group 并行**不**免除 **§5.6.2**；若当前实现仍为整文件覆盖写回，**推荐**将 **`feature_group_max_parallel` 默认保持为较低值**或实现「单写者合并 / 分片更新」后再提高并行度。
 
+### 5.8 按 Phase + 优先级执行（定稿）
+
+当 `stages.prd_review.review.phase_plan` 可用时，`autorun.cjs` 必须按以下顺序编排，而不是把全集 feature 一次性贯穿到尾：
+
+1. **phase 选择**：按 `phase_plan` 顺序执行，默认首期为 `mvp`；后续依次进入下一 phase。  
+2. **phase 内设计波次（先做完）**：当前 phase 的全部 feature 先完成 `design`、`contract`、`design-review`，未全部通过不得进入该 phase 的 code 波次。  
+3. **phase 内开发波次（并行）**：在当前 phase 内按优先级（P0→P1→P2→P3）与依赖关系分组并行调用 **ai-code3**（沿用 §5.6、§5.7），直到该 phase 完成 `build`（以及启用时的 `deploy/smoke`）。  
+4. **phase 报告**：每个 phase 结束后生成阶段性报告（建议落盘 `.pipeline/reports/phase-<phase>.md`，并在总 report 中索引）。  
+5. **切换下一 phase**：仅当当前 phase 结果为可放行（`success` 或按团队策略允许的 `partial`）才进入下一 phase；否则停跑并输出阻塞原因。
+
+**约束**：所谓「加载所有 feature」指启动时加载全集用于完整性校验与排队，但实际执行必须按 phase 分批推进；`mvp` 完成前不得提前执行后续 phase 的 code 波次。
+
 ---
 
 ## 6. 「已完成」跳过与强制重跑
@@ -339,14 +353,16 @@ ai-auto3/
 | --- | --- |
 | **默认文件** | **`~/.cursor/skills/_registry/registry.sqlite`** |
 | **创建** | **ai-auto3**（或 **`registry-sync.cjs`**）首次需要时 **`mkdir -p`** 并初始化 DDL |
-| **表（v0）** | **`projects`**（`project_id` 索引）、**`pipeline_runs`**（`project_id, started_at`）、**`stage_events`**（`run_id, stage`）（**`input-spec.md` §3.2**） |
+| **表（v0）** | **`projects`**（`project_id` 索引）、**`pipeline_runs`**（`project_id, started_at`）、**`stage_events`**（`run_id, stage`）、**`phase_runs`**（`run_id, phase`）、**`project_runtime_state`**（`project_id` 当前 phase/stage 快照）（**`input-spec.md` §3.2**） |
 | **与 `stages.json` 冲突** | **以仓库内 `stages.json` 为准**；DB 在下次启动 **reconcile**（**`input-spec.md` §4.4**） |
 
 ### 9.2 最小 DDL 建议（实现可调整，但须兼容「可重建」）
 
 - **`projects`**：`project_id`（PK）、`root_path`、`last_seen_at`、`stages_schema_version`。  
 - **`pipeline_runs`**：`run_id`（PK）、`project_id`、`session_id`、`started_at`、`ended_at`、`exit_code`、`stopped_at_stage`。  
-- **`stage_events`**：`id`（PK）、`run_id`、`stage`、`child_exit_code`、`duration_ms`、`skipped`（bool）、`notes`。
+- **`stage_events`**：`id`（PK）、`run_id`、`stage`、`child_exit_code`、`duration_ms`、`skipped`（bool）、`notes`。  
+- **`phase_runs`**：`id`（PK）、`run_id`、`phase`、`priority_bucket`、`started_at`、`ended_at`、`result`。  
+- **`project_runtime_state`**：`project_id`（PK）、`active_run_id`、`current_phase`、`current_stage`、`pending_features_json`、`updated_at`（用于中断恢复）。
 
 **可重建性**：删除整个 **`registry.sqlite`** 后，下次运行须能仅从各项目的 **`stages.json`** 恢复 **`projects`** 行并继续工作。
 
@@ -403,6 +419,9 @@ ai-auto3/
 - [x] **`deploy.enabled === true`** 时 **`pipeline.autorun.allow_destructive_deploy === true`** 才 spawn dev deploy；否则 **1** 且有 **report**（与 **`publish3.md` §5.1.1** 一致）。  
 - [x] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。  
 - [x] 每次 spawn **ai-code3** 均带**非空** **`--feature=`**；**§5.7** 下按 **group** 调用（组内多 id 逗号拼接），**`pipeline.autorun.feature_group_max_parallel`** 生效；**§5.6.2** 竞态策略与 **`SKILL.md`** 一致（**无**未协调的整文件盲写）。
+- [x] 按 **Phase 外循环**执行：`mvp`（或 phase_plan 首项）先完整跑完 `design` 到 `smoke/report` 再进入下一 phase。  
+- [x] 当前 phase 内按优先级（P0→P3）与依赖分组并行调用 ai-code3，`merge-push/build` 仍单次汇合。  
+- [x] 编排中间态（当前 phase/stage、待处理 feature 队列、phase 结果）均落到项目级 DB 记录，可在中断后恢复。
 
 ---
 

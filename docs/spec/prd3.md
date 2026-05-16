@@ -226,7 +226,8 @@ ai-prd3/
 
 4. **LLM**（`prompts/derive-per-target.md`）：按端写 `prd.md` 与 `feature_list.md`。
 
-5. **`prd-validate-derived.cjs`**：存在性、`feature_list.md` 章节骨架、Feature 表非空、ID 可解析。
+5. **`prd-validate-derived.cjs`**：存在性、`feature_list.md` 章节骨架、Feature 表非空、ID 可解析。  
+   且须执行 **Feature 全量覆盖校验**：以 `docs/prd-spec.md` 中本期可实现的功能集合（含通用能力与各端专属能力）为全集，对照各端 `feature_list.md` 的 Features 表，要求每个功能都映射到至少一个 `feature_id`，不得出现「PRD 有功能但 feature_list 无条目」。
 
 6. **`prd-validate-config.cjs`**：JSON 必填键、`_schema`、**附录 B** 密钥扫描（`security.forbidden_json_key_patterns` + 值形态启发式）。
 
@@ -281,6 +282,7 @@ ai-prd3/
 
 1. **前置门闸**：`stages.prd.status=completed` 且 `stages.prd.validation.passed=true`；否则 **1**。  
 2. **AI / LLM**（`prompts/prd-review.md`）：产出 **结构化 JSON**（由 **§4.1** 所列 **`templates/schemas/prd-review-output.v1.schema.json`** 经 **AJV** 在 **`prd-review-write-stage.cjs` 合并前**机器校验；依赖见 **`ai-prd3/package.json`**（在 **`ai-prd3/`** 目录执行 **`npm install`**）），**禁止** LLM 直接整文件改写 `stages.json`。  
+   评审推理时必须先加载全部已声明端的 `feature_list.md`，构建 **feature 全集**，再为全集中的每个 `feature_id` 给出且仅给出一个 `phase` 与一个 `priority`（允许 `deferred` 标记），禁止遗漏、重复归档或仅对部分 feature 分期。
 3. **`prd-review-write-stage.cjs`**（或由 **`run.cjs finalize-prd-review`** 自动调用）：合并 JSON 到 `stages.prd_review`；维护 `review.*`、`outputs.decision`、`conditions`、`blocking_issues`、`validation.*`。**此步不得**将 `status` 置为 **`completed`**，**不得**将 `validation.passed` 置为 **`true`**（避免未终检即「假完成」）。  
 4. **`prd-review-validate.cjs`（终检）`**（**`finalize-prd-review`** 会自动调用）：满足 **§8.4** 全部条件后：将 **`stages.prd_review.status`** 置为 **`completed`**、**`validation.passed=true`**，并写入 **§9.2** `inputs.summary_hash` 及 **`outputs.can_enter_design`** 等终态字段。若本步失败，**必须**保持或回写 **`failed`**、`validation.passed=false`，且 **§9.2** 哈希须为**空或表示无效**（与未完成语义一致，由实现二选一并写入 `SKILL.md`）。  
 5. **实施节奏摘要（§8.8）**：终检**成功**落盘 `stages.json` 后，生成 **`.pipeline/reports/prd-implementation-summary.md`**（**须**含 **「AI 评审门闸结果」** 小节，依据 **`stages.prd_review`** 与 **`review.phase_plan`**、各端 **`feature_list.md`**）；生成失败须 **stderr 警告**但**不改变**终检成功与退出码 **0**（避免摘要 I/O 误伤主门闸）。
@@ -292,6 +294,7 @@ ai-prd3/
 1. `stages.prd_review.status=completed` 且 `outputs.decision=passed`（**`conditional_passed` 不算通过**）；  
 2. **`blocking_issues.length === 0`**（若同时维护 **`validation.blocking_issues_count`**，须为 **0** 且与数组一致）；若曾出现 **`conditional_passed`**，则须 **`validation.conditions_resolved=true`**，且所有 **`conditions`** 已在 `stages.json`（或链接跟踪处）标记为已落实，且 **`outputs.decision` 已改写为 `passed`**（与 **`input-spec.md` §8 阶段 2** 一致）；  
 3. **本期** `review.phase_plan[*].feature_ids` 合并去重后非空，且每个 `feature_id` 至少在**某一个**已声明端（`declared`）的 **`feature_list.md`** → Features 表中存在（与 **`input-spec.md` §8 阶段 2**「本期各特性具备明确 design 输入」一致；**`validation.design_inputs_ready`** 由脚本根据规则置位，终检见本条第 6 点）；  
+   同时对全集执行分期完整性检查：`feature_list.md` 可解析到的全部 `feature_id` 必须都被 `review.phase_plan` 或 `review.deferred_features` 覆盖，且每个条目须带优先级（如 P0/P1/P2/P3 或等价枚举）。
 4. **`validation.config_secret_scan_passed=true`**（对当前 `config.*.json` 重跑附录 B 规则；对应 **`input-spec.md` §8 阶段 2**「密钥仅在 `config.env`、JSON 无敏感键名命中」）；  
 5. **`stages.prd_review.inputs.summary_hash`** 已按 **§9.2** 写入；  
 6. **`outputs.can_enter_design=true`**，且 **`validation.design_inputs_ready=true`**、**`validation.passed=true`**（与 `stages.json.template` 中 `prd_review` 块字段一致；终检通过时由脚本写入）。
@@ -400,6 +403,7 @@ summary_hash = SHA256( concat(parts) )
 | prd 全流程成功 | `stages.prd` completed + **§9.1** hash 非空 |
 | prd-review `decision=passed` 但 `feature_ids` 全空 | 终检退出 1 |
 | `conditional_passed` 且 `conditions` 非空且未置 `passed` | 不满足 §8.4 之 **passed** 语义，终检退出 1 |
+| `feature_list.md` 存在 feature 未被 `phase_plan`/`deferred_features` 覆盖，或缺优先级 | `validate-prd-review` 终检退出 1 |
 | 手工重跑 prd / prd-review 无确认 | 退出 1 |
 | 英文 prd-spec 声明端但缺 **`## 7. Target-Specific Requirements`** 下 **`### <slug>`** | `validate-prd` 退出 1 |
 | 改 prd-spec 一字后未重跑 prd | **`validate-prd`** 首步 **`prd-validate-spec`**：若 **`stages.prd` 已完成**且 **`prd-spec.md`** 的 SHA-256 ≠ **`inputs.summary_hash`** → **退出 1**（`prd_spec_drift`）；须 **`validate-prd` + `write-prd`** 或 **`bootstrap --force`** 后重做 prd |
@@ -484,6 +488,7 @@ summary_hash = SHA256( concat(parts) )
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.5 | 2026-05-16 | 强化 **feature 全量覆盖**：`§7.2` 增补「PRD 功能 → feature_list」覆盖校验；`§8.3` / `§8.4` 增补 **AI 评审必须对 feature 全集自动分配 `phase` + `priority`** 且禁止遗漏；`§12` 增补对应终检用例。 |
 | 0.4 | 2026-05-16 | **§4.1 / §4.2** 增补 **`prd-implementation-report.cjs`** 与 **`report`** 子命令；**§8.3** 终检成功后写 **§8.8** 人话摘要；新增 **§8.8**；**附录 C** 增补 report 勾选项。 |
 | 0.3 | 2026-05-15 | **§6.4** legacy 触发条件与 **`stages.prd.validation.summary`** 落盘约定；**§4.2** 增补 **`validate-prd-review`** 前置失败写 **`stages.prd_review`**；**§7.2** 修正 config 扫描键名为 **`security.*`**；**§8.3** 明确 **AJV** 与 **`npm install`**；**§12** 增补 **`smoke.cjs`** 连续两轮验收。 |
 | 0.2 | 2026-05-15 | **§4.2** 澄清 `write-prd-review` 与 **§8.3** 哈希语义；**§11** 增补 **`ai-prd3.ndjson`**、**`--session-id`**.log、**SIGINT→2**；**§12** 漂移用例定稿；**附录 C** 增补 **§7.2** / 日志 / 漂移 / **§7.4** 勾选项。 |

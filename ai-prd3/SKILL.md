@@ -51,7 +51,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed**（`prd3.md` §4.2 末段） |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |
 | `validate-prd-review` | 前置门闸 + **终检**；通过写 **§9.2** `prd_review.inputs.summary_hash` 与 **`completed`**；成功后写 **`.pipeline/reports/prd-implementation-summary.md`**（`prd3.md` §8.8） |
-| `write-prd-review` | 合并前先校验 `phase_plan.feature_ids` 必须存在于 `docs/<target>/feature_list.md`；校验通过后再写入 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希） |
+| `write-prd-review` | 合并前先校验 `phase_plan.feature_ids` 必须存在于 `docs/<target>/feature_list.md`；并要求 **feature 全集**可被 `phase_plan` / `deferred_features` 完整覆盖且具备优先级；校验通过后再写入 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希） |
 | **`finalize-prd-review`** | **推荐（Agent 默认）**：`write-prd-review` + `validate-prd-review` 一键串联（须 **`--json=`**）；**不设单独人工签审**；通过后同上自动生成 **report** 文件 |
 | `report` | **`prd_review` 已完成**且 **`outputs.decision=passed`** 时：重写 **`.pipeline/reports/prd-implementation-summary.md`** 并 **stdout** 全文 |
 
@@ -94,6 +94,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 - **不得**把评审意见、讨论纪要默认追加进 **`docs/prd-spec.md`**。
 - **不得**把各端 **`prd.md`** 当批注白板；对端调整须走 **`suggested_prd_spec_changes` → 对话中确认后回到 prd 改 prd-spec → 再派生**（**不设**单独「人工签审」节点，但总规变更仍须在对话中显式确认）。
 - **不得**把密钥写入 **`config.dev.json` / `config.release.json`**。
+- **不得**遗漏 feature：评审前须加载全部 `docs/<target>/feature_list.md`，AI 自动推理后必须为每个 `feature_id` 给出 `phase` 与优先级（或显式 `deferred`）。
 
 ## 7. 重跑与 `--force`（§7.5 / §8.6）
 
