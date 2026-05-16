@@ -143,11 +143,22 @@ async function runSmoke(projectRoot, opts = {}) {
   if (xs.warn) console.error(xs.warn);
   const configChecks = smoke.checks || [];
   const merged = mergeSmokeChecks(xs.checks, configChecks);
+  const safeOnly = smoke.safe_only === true;
+  const effectiveChecks =
+    safeOnly && configChecks.length > 0
+      ? configChecks
+      : safeOnly
+        ? merged.filter((c) => {
+            const m = (c.method || 'GET').toUpperCase();
+            return m === 'GET' || m === 'HEAD';
+          })
+        : merged;
   const checksSource = [];
-  if (xs.sources && xs.sources.length) checksSource.push('api.yaml:x-smoke');
+  if (!safeOnly && xs.sources && xs.sources.length) checksSource.push('api.yaml:x-smoke');
   if (configChecks.length) checksSource.push('config.smoke.checks');
+  if (safeOnly && configChecks.length === 0) checksSource.push('safe_only:get-head-only');
 
-  if (merged.length === 0) {
+  if (effectiveChecks.length === 0) {
     if (opts.requireSmoke) {
       return {
         code: 1,
@@ -159,7 +170,7 @@ async function runSmoke(projectRoot, opts = {}) {
       const dep = stages.stages && stages.stages.deploy;
       const hint = (dep && dep.outputs && dep.outputs.deploy_url) || '';
       const baseUrl = resolveSmokeBaseUrl(config, stages);
-      const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(merged)));
+      const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(effectiveChecks)));
       writeSmokeSkipped(
         stPath,
         summaryHash,
@@ -187,7 +198,7 @@ async function runSmoke(projectRoot, opts = {}) {
       if (!opts.dryRun) {
         const hint = (dep && dep.outputs && dep.outputs.deploy_url) || '';
         const baseUrl = resolveSmokeBaseUrl(config, stages);
-        const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(merged)));
+        const summaryHash = sha256Stable(smokeSummaryInput(smoke, baseUrl, hint, normalizeForHash(effectiveChecks)));
         writeSmokeSkipped(
           stPath,
           summaryHash,
@@ -205,7 +216,7 @@ async function runSmoke(projectRoot, opts = {}) {
 
   const baseUrl = resolveSmokeBaseUrl(config, stages);
   const summaryHash = sha256Stable(
-    smokeSummaryInput(smoke, baseUrl, (dep.outputs && dep.outputs.deploy_url) || '', normalizeForHash(merged))
+    smokeSummaryInput(smoke, baseUrl, (dep.outputs && dep.outputs.deploy_url) || '', normalizeForHash(effectiveChecks))
   );
   const sm = stages.stages && stages.stages.smoke;
   if (smokeStageCompleted(sm, summaryHash, opts.forceRerun)) {
@@ -252,7 +263,7 @@ async function runSmoke(projectRoot, opts = {}) {
     'utf8'
   );
 
-  log(`smoke start checks=${merged.length} session=${sessionId || 'none'}`);
+  log(`smoke start checks=${effectiveChecks.length} session=${sessionId || 'none'} safe_only=${safeOnly}`);
 
   const timeoutMs = stageTimeoutSeconds(config, 'smoke_s') * 1000;
   const hbMs = heartbeatIntervalMs(config);
@@ -265,7 +276,7 @@ async function runSmoke(projectRoot, opts = {}) {
         label: 'smoke',
         onHeartbeat: () => log(`alive: smoke pid=${process.pid}`),
       },
-      async () => runHttpSmokeChecks(merged, baseUrl)
+      async () => runHttpSmokeChecks(effectiveChecks, baseUrl)
     );
 
     const now = new Date().toISOString();
@@ -287,7 +298,7 @@ async function runSmoke(projectRoot, opts = {}) {
           },
           outputs: {
             ...(prev.outputs || {}),
-            checks: merged.map((c) => ({
+            checks: effectiveChecks.map((c) => ({
               name: c.name || c.path,
               method: c.method || 'GET',
               path: c.path,
@@ -297,7 +308,7 @@ async function runSmoke(projectRoot, opts = {}) {
               latency_ms: null,
               error: 'timeout',
             })),
-            failed_paths: merged.map((c) => c.path),
+            failed_paths: effectiveChecks.map((c) => c.path),
             skip_reason: '',
             timed_out: true,
             timeout_reason: 'smoke',
@@ -347,7 +358,7 @@ async function runSmoke(projectRoot, opts = {}) {
           },
           outputs: {
             ...(prev.outputs || {}),
-            checks: merged.map((c) => ({
+            checks: effectiveChecks.map((c) => ({
               name: c.name || c.path,
               method: c.method || 'GET',
               path: c.path,
@@ -357,7 +368,7 @@ async function runSmoke(projectRoot, opts = {}) {
               latency_ms: null,
               error: httpResult.failures.join('; '),
             })),
-            failed_paths: merged.map((c) => c.path),
+            failed_paths: effectiveChecks.map((c) => c.path),
             skip_reason: '',
             timed_out: false,
             timeout_reason: null,
@@ -394,7 +405,7 @@ async function runSmoke(projectRoot, opts = {}) {
         },
         outputs: {
           ...(prev.outputs || {}),
-          checks: merged.map((c) => ({
+          checks: effectiveChecks.map((c) => ({
             name: c.name || c.path,
             method: c.method || 'GET',
             path: c.path,
