@@ -9,6 +9,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { URL } = require('url');
 const { requireAbsoluteProject } = require('./lib/summary.cjs');
 const { buildDashboard, buildRegistryPayload } = require('./lib/dashboard.cjs');
@@ -23,10 +24,32 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+function openBrowser(url) {
+  if (process.env.AI_DASH3_NO_OPEN === '1') return;
+  let cmd;
+  let args;
+  if (process.platform === 'darwin') {
+    cmd = 'open';
+    args = [url];
+  } else if (process.platform === 'win32') {
+    cmd = 'cmd';
+    args = ['/c', 'start', '', url];
+  } else {
+    cmd = 'xdg-open';
+    args = [url];
+  }
+  try {
+    spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+  } catch {
+    /* ignore — user can open URL manually */
+  }
+}
+
 function parseArgs(argv) {
-  const out = { port: 9473, host: '127.0.0.1', project: null };
+  const out = { port: 9473, host: '127.0.0.1', project: null, open: false };
   for (const a of argv.slice(2)) {
-    if (a.startsWith('--port=')) out.port = parseInt(a.slice('--port='.length), 10);
+    if (a === '--open') out.open = true;
+    else if (a.startsWith('--port=')) out.port = parseInt(a.slice('--port='.length), 10);
     else if (a.startsWith('--host=')) out.host = a.slice('--host='.length);
     else if (a.startsWith('--project=')) out.project = a.slice('--project='.length);
   }
@@ -164,6 +187,10 @@ function main(argv) {
     process.stdout.write(`ai-dash3 web: ${url}\n`);
     if (opts.project) {
       process.stdout.write(`default project: ${safeProjectRoot(opts.project)}\n`);
+    }
+    if (opts.open) {
+      openBrowser(url);
+      process.stdout.write('opened in default browser (--open)\n');
     }
     process.stdout.write('Ctrl+C to stop\n');
   });

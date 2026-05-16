@@ -17,7 +17,7 @@ const {
 
 function parseArgs(argv) {
   const rest = argv.slice(2);
-  const out = { subcommand: 'status', project: null, out: null };
+  const out = { subcommand: 'status', project: null, out: null, open: false };
   const known = new Set(['status', 'json', 'write-md', 'serve']);
   if (rest.length && known.has(rest[0])) {
     out.subcommand = rest.shift();
@@ -27,6 +27,7 @@ function parseArgs(argv) {
     else if (a.startsWith('--out=')) out.out = a.slice('--out='.length);
     else if (a.startsWith('--port=')) out.port = a.slice('--port='.length);
     else if (a.startsWith('--host=')) out.host = a.slice('--host='.length);
+    else if (a === '--open') out.open = true;
   }
   return out;
 }
@@ -45,6 +46,7 @@ function main() {
     if (args.port) serveArgv.push(`--port=${args.port}`);
     if (args.host) serveArgv.push(`--host=${args.host}`);
     if (args.project) serveArgv.push(`--project=${args.project}`);
+    if (args.open) serveArgv.push('--open');
     const { main: serveMain } = require('./serve.cjs');
     return serveMain(serveArgv);
   }

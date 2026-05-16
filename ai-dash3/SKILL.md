@@ -24,10 +24,25 @@ disable-model-invocation: true
 
 需要 **本机 registry 对齐**时：请用 **`ai-auto3`** 的 **`sync-registry`**（见 **`docs/spec/auto3.md`**），**不是**本 skill。
 
-## 一行命令
+## Agent 会话（必读）
+
+用户通过 **`/ai-dash3`**、触发词或「打开看板 / 本地网页」唤起本 skill 时，**不得**仅跑 **`status`** 就结束。须按序执行：
+
+1. **后台**启动 Web（`block_until_ms: 0` 或等价后台方式），**`--project` 用业务仓绝对路径**：
 
 ```bash
-node ~/.cursor/skills/ai-dash3/scripts/run.cjs status --project=$(pwd)
+node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=/abs/path/to/project
+```
+
+2. 向用户给出终端输出的 **`ai-dash3 web:`** URL（默认 **`http://127.0.0.1:9473/`**）。
+3. **可选**：再跑 **`status`** 或 **`json`**，在对话里贴一段 CLI 摘要；**不能**用 CLI 摘要替代 Web。
+
+用户明确只要终端快照（如「不要网页」「只要 status」）时，才仅用 **`status` / `json` / `write-md`**。
+
+## 一行命令（脚本 / 人工）
+
+```bash
+node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=$(pwd)
 ```
 
 （**`--project` 必须为业务项目根的绝对路径**；本 skill **零** npm 依赖，**不必** `npm install`。）
@@ -39,15 +54,15 @@ node ~/.cursor/skills/ai-dash3/scripts/run.cjs status --project=$(pwd)
 | **`status`**（默认） | 人类可读看板 → **stdout** |
 | **`json`** | 单行 **JSON** → **stdout**（`dash3.md` §7） |
 | **`write-md`** | 写入 **Markdown**；**`--out=`** 默认 **`.pipeline/reports/dash-status.md`** |
-| **`serve`** | 启动本地 Web 看板（默认 **`http://127.0.0.1:9473/`**）；**`--port=`**、**`--host=`**、可选 **`--project=`** 默认选中项目 |
+| **`serve`** | 启动本地 Web 看板（默认 **`http://127.0.0.1:9473/`**）；**`--port=`**、**`--host=`**、**`--open`**（启动后用系统默认浏览器打开）、可选 **`--project=`** 默认选中项目 |
 
 ### 本地 Web 看板
 
 ```bash
-node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --project=$(pwd)
+node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=$(pwd)
 ```
 
-浏览器打开终端提示的 URL。多项目列表来自 **ai-auto3** `registry-export.cjs`（须已在 **ai-auto3/** 执行过 **`npm install`** 且跑过 **`sync-registry`**）。页面每 3 秒自动刷新，只读、不触发 autorun。
+**`--open`** 在 macOS / Linux / Windows 上调用系统命令打开 URL；设 **`AI_DASH3_NO_OPEN=1`** 可禁用。多项目列表来自 **ai-auto3** `registry-export.cjs`（须已在 **ai-auto3/** 执行过 **`npm install`** 且跑过 **`sync-registry`**）。页面每 3 秒自动刷新，只读、不触发 autorun。
 
 ## 退出码（`dash3.md` §8）
 

@@ -87,6 +87,9 @@
 | --- | --- |
 | **`--out=<path>`** | 仅 **`write-md`**：输出路径（默认 **`.pipeline/reports/dash-status.md`**）。 |
 | **`--port=` / `--host=`** | 仅 **`serve`**：监听端口（默认 **9473**）与绑定地址（默认 **127.0.0.1**，仅本机）。 |
+| **`--open`** | 仅 **`serve`**：监听成功后用系统默认浏览器打开看板 URL；**`AI_DASH3_NO_OPEN=1`** 可禁用。 |
+
+**Agent 唤起约定**：用户通过 **`/ai-dash3`** 或触发词使用本 skill 时，Agent **须**后台执行 **`serve --open --project=<绝对路径>`**，**不得**仅以 **`status`** 结束；用户明确要求「只要终端 / 不要网页」时例外（见 **`ai-dash3/SKILL.md`** §Agent 会话）。
 
 ### 3.4 本地 Web 看板（**`serve`**）
 
