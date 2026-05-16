@@ -63,8 +63,15 @@ function formatLocalTime(iso) {
 let serveMeta = { pid: null, host: '127.0.0.1', port: null };
 
 function updateStopButtons(dash) {
+  const restartBtn = $('restartServeBtn');
   const serveBtn = $('stopServeBtn');
   const pipeBtn = $('stopPipelineBtn');
+  if (restartBtn) {
+    restartBtn.disabled = false;
+    const port = serveMeta.port || window.location.port || '9473';
+    const pid = serveMeta.pid != null ? serveMeta.pid : '—';
+    restartBtn.title = `停止并重启当前 ai-dash3 serve（${serveMeta.host || '127.0.0.1'}:${port}，PID ${pid}），加载最新代码`;
+  }
   if (serveBtn) {
     serveBtn.disabled = false;
     const port = serveMeta.port || window.location.port || '9473';
@@ -90,7 +97,7 @@ function setBanner(overall, dash) {
     extra = ' · 锁文件残留（进程已退出）';
   }
   if (dash.registry_stale_run) {
-    extra += ' · registry 有未结束 run（进程可能已退出，可点「停止所有后台任务」清理）';
+    extra += ' · registry 有未结束 run（进程可能已退出，可点「停止任务后台」清理）';
   } else if (dash.autorun_active) {
     extra += ' · autorun 运行中';
   }
@@ -121,7 +128,7 @@ function renderRuntime(dash) {
   fillKv($('runtimeDl'), [
     ['autorun 活跃', dash.autorun_active ? '是' : '否'],
     ['PID 锁存活', dash.pid_lock_alive ? '是' : '否'],
-    ['registry 僵尸 run', dash.registry_stale_run ? '是（建议停止所有后台任务）' : '否'],
+    ['registry 僵尸 run', dash.registry_stale_run ? '是（建议停止任务后台）' : '否'],
     ['registry 未结束 run', dash.registry_run_active ? '是' : '否'],
     ['当前 codegen feature', dash.active_codegen_feature_id || '—'],
     ['当前 phase', rt.current_phase],
@@ -311,6 +318,52 @@ async function loadDashboard() {
   }
 }
 
+async function restartServe() {
+  const port = serveMeta.port || window.location.port || '9473';
+  const host = serveMeta.host || window.location.hostname || '127.0.0.1';
+  const pid = serveMeta.pid != null ? serveMeta.pid : '（见终端）';
+  if (
+    !window.confirm(
+      `确定重启当前看板后台？\n\n将关闭并重新启动本页面对应的 ai-dash3 serve：\n${host}:${port}（PID ${pid}）\n\n后台将以相同参数重启以加载最新代码，页面将在新后台启动后自动刷新。`
+    )
+  ) {
+    return;
+  }
+  const btn = $('restartServeBtn');
+  btn.disabled = true;
+  btn.textContent = '重启中…';
+  if (timer) clearInterval(timer);
+  timer = null;
+  try {
+    await fetchJson('/api/restart-serve', { method: 'POST' });
+  } catch {
+    /* 连接断开是正常现象 */
+  }
+  const baseUrl = `${window.location.protocol}//${host}:${port}`;
+  const maxAttempts = 20;
+  let attempts = 0;
+  const poll = async () => {
+    attempts++;
+    try {
+      const r = await fetch(`${baseUrl}/api/config`, { cache: 'no-store' });
+      if (r.ok) {
+        window.location.reload();
+        return;
+      }
+    } catch {
+      /* 后台还未就绪 */
+    }
+    if (attempts < maxAttempts) {
+      setTimeout(poll, 600);
+    } else {
+      window.alert('重启超时，请手动刷新页面或检查终端输出。');
+      btn.textContent = '重启本后台';
+      btn.disabled = false;
+    }
+  };
+  setTimeout(poll, 800);
+}
+
 async function stopServe() {
   const port = serveMeta.port || window.location.port || '9473';
   const host = serveMeta.host || window.location.hostname || '127.0.0.1';
@@ -373,7 +426,7 @@ async function stopPipeline() {
     window.alert(`停止失败：${e.message}`);
     await loadDashboard();
   } finally {
-    btn.textContent = '停止所有后台任务';
+    btn.textContent = '停止任务后台';
     updateStopButtons(lastDashboard);
   }
 }
@@ -426,6 +479,9 @@ async function init() {
       btn.disabled = false;
       btn.textContent = '刷新';
     }
+  });
+  $('restartServeBtn').addEventListener('click', () => {
+    restartServe().catch((e) => window.alert(String(e.message || e)));
   });
   $('stopServeBtn').addEventListener('click', () => {
     stopServe().catch((e) => window.alert(String(e.message || e)));

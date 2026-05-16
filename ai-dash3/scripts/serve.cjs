@@ -149,6 +149,31 @@ function createServer(opts) {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/restart-serve') {
+      const restartArgs = [`--port=${opts.port}`, `--host=${opts.host}`];
+      if (opts.project) restartArgs.push(`--project=${opts.project}`);
+      sendJson(res, 200, {
+        schema: 'ai-dash3.restart-serve.v1',
+        ok: true,
+        pid: process.pid,
+        host: opts.host,
+        port: opts.port,
+        message: 'ai-dash3 serve restarting',
+      });
+      setImmediate(() => {
+        try {
+          spawn(process.execPath, [__filename, ...restartArgs], {
+            detached: true,
+            stdio: 'ignore',
+          }).unref();
+        } catch {
+          /* ignore spawn errors */
+        }
+        scheduleStopServe(server);
+      });
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/stop') {
       const root = safeProjectRoot(url.searchParams.get('project')) || defaultProject;
       if (!root) {
