@@ -14,6 +14,7 @@ const { URL } = require('url');
 const { requireAbsoluteProject } = require('./lib/summary.cjs');
 const { buildDashboard, buildRegistryPayload } = require('./lib/dashboard.cjs');
 const { fetchRegistryExport } = require('./lib/registry-bridge.cjs');
+const { invokeStopPipeline } = require('./lib/stop-bridge.cjs');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
 const MIME = {
@@ -128,6 +129,27 @@ function createServer(opts) {
       return sendJson(res, 200, {
         schema: 'ai-dash3.config.v1',
         default_project_root: defaultProject,
+      });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/stop') {
+      const root = safeProjectRoot(url.searchParams.get('project')) || defaultProject;
+      if (!root) {
+        return sendJson(res, 400, {
+          schema: 'ai-dash3.error.v1',
+          error: 'invalid_project',
+          message: 'missing or invalid ?project=<absolute path>',
+        });
+      }
+      const result = invokeStopPipeline(root);
+      cachedRegistry.at = 0;
+      return sendJson(res, result.ok ? 200 : 207, {
+        schema: 'ai-dash3.stop.v1',
+        project_root: root,
+        ok: result.ok,
+        exit_code: result.exit_code,
+        ...(result.data || {}),
+        error: result.error || null,
       });
     }
 

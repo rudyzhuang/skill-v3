@@ -40,7 +40,7 @@
 | --- | --- |
 | **写 `stages.json`** | 含「为对齐展示而微调 JSON」；**唯一真源**只能由对应阶段 skill / **ai-auto3** 依契约更新。 |
 | **spawn 子 skill** | 不得 `spawn` **`ai-design3` / `ai-code3` / `ai-publish-*` / `ai-auto3`** 作为 dash 子命令的副作用。 |
-| **持锁 / 释锁** | **`.agent-sessions/locks/pipeline.pid`** 仅允许 **存在性 + 进程存活** 类只读检测（见 **§5.3**）。 |
+| **持锁 / 释锁（默认）** | **`.agent-sessions/locks/pipeline.pid`** 默认仅 **存在性 + 进程存活** 只读检测（见 **§5.3**）。**例外**：Web **`POST /api/stop`** 经 **`ai-auto3/scripts/stop-pipeline.cjs`** 终止该项目相关进程并移除陈旧锁、清理 registry **`project_runtime_state`**（**不**写 **`stages.json`** 业务字段）。 |
 | **代写 report 正文** | **`.pipeline/reports/*`** 中由 **ai-prd3 / ai-auto3** 等生成的文件，dash **只列举路径**，**不**覆盖。可选 **`write-md`** 输出到**单独文件名**（默认 **`dash-status.md`**），与 **`prd-implementation-summary.md`** 等并存。 |
 
 ### 2.3 与 ai-auto3 的协作话术
@@ -185,7 +185,8 @@
 | **`GET /assets/*`** | 静态 CSS/JS |
 | **`GET /api/config`** | **`{ schema: "ai-dash3.config.v1", default_project_root }`** |
 | **`GET /api/registry`** | 项目列表 + **active_runs**（经 registry-export） |
-| **`GET /api/dashboard?project=<abs>`** | **`ai-dash3.dashboard.v1`**：含 **§7** 的 **`summary`**、**`features[]`**（**`pipeline_status`**）、**`runtime`**、**`recent_runs`**、**`overall`** |
+| **`GET /api/dashboard?project=<abs>`** | **`ai-dash3.dashboard.v1`**：含 **§7** 的 **`summary`**、**`features[]`**（**`pipeline_status`**）、**`runtime`**、**`recent_runs`**、**`overall`**、**`pipeline_stoppable`** |
+| **`POST /api/stop?project=<abs>`** | 调用 **ai-auto3** **`stop-pipeline.cjs`**：对该项目的 **autorun / ai-code3 / cursor-agent** 等匹配进程 **SIGTERM→SIGKILL**，移除 **`pipeline.pid`** 锁（若可安全删除），结束 registry 未闭合 **run**（**`exit_code=130`**、**`stopped_at_stage=user_stop`**）并 **clear** **`project_runtime_state`**。响应 **`ai-dash3.stop.v1`**；仍有存活进程时 HTTP **207**、**`ok: false`**。 |
 
 **`features[].pipeline_status`** 枚举：**`pending` | `in_progress` | `completed` | `failed` | `deferred`**（启发式，见实现 **`lib/features.cjs`**）。
 

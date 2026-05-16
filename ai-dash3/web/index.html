@@ -22,6 +22,7 @@
         <input id="projectPath" type="text" spellcheck="false" placeholder="/path/to/your/project" />
       </label>
       <button type="button" id="refreshBtn">刷新</button>
+      <button type="button" id="stopBtn" class="btn-danger" title="停止该项目的 autorun 及关联子进程">停止运行</button>
       <label class="auto-refresh">
         <input type="checkbox" id="autoRefresh" checked />
         每 3 秒自动刷新
@@ -94,7 +95,7 @@
   </main>
 
   <footer class="footer">
-    <p>只读看板 · 不触发 autorun · registry 经 ai-auto3 <code>registry-export.cjs</code></p>
+    <p>看板只读 · 「停止运行」会终止该项目 pipeline 后台进程 · registry 经 <code>registry-export.cjs</code></p>
   </footer>
 
   <script src="/assets/app.js"></script>

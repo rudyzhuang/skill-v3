@@ -60,6 +60,37 @@ function smokeServe() {
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       const http = require('http');
+      const stopReq = http.request(
+        {
+          hostname: '127.0.0.1',
+          port,
+          path: `/api/stop?project=${encodeURIComponent(FIXTURE)}`,
+          method: 'POST',
+        },
+        (stopRes) => {
+          let stopBody = '';
+          stopRes.on('data', (c) => {
+            stopBody += c;
+          });
+          stopRes.on('end', () => {
+            try {
+              const stopJson = JSON.parse(stopBody);
+              if (stopJson.schema !== 'ai-dash3.stop.v1') {
+                reject(new Error(`bad stop schema: ${stopJson.schema}`));
+                return;
+              }
+            } catch (e) {
+              reject(e);
+              return;
+            }
+            fetchDashboard();
+          });
+        }
+      );
+      stopReq.on('error', reject);
+      stopReq.end();
+
+      function fetchDashboard() {
       http
         .get(`http://127.0.0.1:${port}/api/dashboard?project=${encodeURIComponent(FIXTURE)}`, (res) => {
           let body = '';
@@ -74,6 +105,10 @@ function smokeServe() {
                 reject(new Error(`bad dashboard schema: ${o.schema}`));
                 return;
               }
+              if (typeof o.pipeline_stoppable !== 'boolean') {
+                reject(new Error('dashboard missing pipeline_stoppable'));
+                return;
+              }
               resolve();
             } catch (e) {
               reject(e);
@@ -84,6 +119,7 @@ function smokeServe() {
           server.close();
           reject(e);
         });
+      }
     });
   });
 }

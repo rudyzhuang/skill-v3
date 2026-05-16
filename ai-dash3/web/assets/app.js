@@ -32,13 +32,24 @@ function $(id) {
 
 let registryProjects = [];
 let currentProjectRoot = '';
+let lastDashboard = null;
 let timer = null;
 
-async function fetchJson(url) {
-  const r = await fetch(url, { cache: 'no-store' });
+async function fetchJson(url, options) {
+  const r = await fetch(url, { cache: 'no-store', ...options });
   const data = await r.json();
-  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  if (!r.ok && r.status !== 207) throw new Error(data.message || data.error || `HTTP ${r.status}`);
   return data;
+}
+
+function updateStopButton(dash) {
+  const btn = $('stopBtn');
+  if (!btn) return;
+  const stoppable = !!(dash && dash.pipeline_stoppable);
+  btn.disabled = !currentProjectRoot || !stoppable;
+  btn.title = stoppable
+    ? '停止该项目的 autorun、ai-code3、cursor-agent 等后台进程'
+    : '当前未检测到该项目的 pipeline 后台进程';
 }
 
 function setBanner(overall, dash) {
@@ -240,6 +251,8 @@ async function loadDashboard() {
   currentProjectRoot = root;
   try {
     const dash = await fetchJson(`/api/dashboard?project=${encodeURIComponent(root)}`);
+    lastDashboard = dash;
+    updateStopButton(dash);
     setBanner(dash.overall, dash);
     renderRuntime(dash);
     renderSummary(dash);
@@ -248,8 +261,48 @@ async function loadDashboard() {
     renderBlockers(dash);
     renderRuns(dash);
   } catch (e) {
+    lastDashboard = null;
+    updateStopButton(null);
     $('statusBanner').className = 'status-banner overall-failed';
     $('statusBanner').innerHTML = `<span class="error-text">${escapeHtml(e.message)}</span>`;
+  }
+}
+
+async function stopPipeline() {
+  const root = $('projectPath').value.trim();
+  if (!root) {
+    window.alert('请先填写项目绝对路径');
+    return;
+  }
+  if (
+    !window.confirm(
+      `确定停止该项目所有流水线后台进程？\n\n${root}\n\n将发送 SIGTERM/SIGKILL 给 autorun、ai-code3、cursor-agent 等，并清除 registry 运行态。`
+    )
+  ) {
+    return;
+  }
+  const btn = $('stopBtn');
+  btn.disabled = true;
+  btn.textContent = '停止中…';
+  try {
+    const result = await fetchJson(`/api/stop?project=${encodeURIComponent(root)}`, { method: 'POST' });
+    const n = result.processes_matched ?? (result.processes && result.processes.length) ?? 0;
+    const left = (result.still_running && result.still_running.length) || 0;
+    let msg = result.ok
+      ? `已停止：匹配 ${n} 个进程，锁文件${result.lock_removed ? '已' : '未'}清除。`
+      : `已发送停止信号（${n} 个进程）；仍有 ${left} 个进程存活，请查看终端或手动结束。`;
+    if (result.runs_finished && result.runs_finished.length) {
+      msg += ` 已结束 registry run：${result.runs_finished.length} 条。`;
+    }
+    window.alert(msg);
+    await loadRegistry();
+    await loadDashboard();
+  } catch (e) {
+    window.alert(`停止失败：${e.message}`);
+    await loadDashboard();
+  } finally {
+    btn.textContent = '停止运行';
+    updateStopButton(lastDashboard);
   }
 }
 
@@ -285,6 +338,9 @@ async function init() {
   $('refreshBtn').addEventListener('click', async () => {
     await loadRegistry();
     await loadDashboard();
+  });
+  $('stopBtn').addEventListener('click', () => {
+    stopPipeline().catch((e) => window.alert(String(e.message || e)));
   });
   $('autoRefresh').addEventListener('change', scheduleAutoRefresh);
 

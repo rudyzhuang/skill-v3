@@ -90,6 +90,22 @@ button {
   cursor: pointer;
 }
 
+button.btn-danger {
+  background: #5c2329;
+  border-color: var(--bad);
+  color: #ffd4d4;
+}
+
+button.btn-danger:hover:not(:disabled) {
+  background: #7a2e36;
+  border-color: #ff8a8a;
+}
+
+button.btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 button:hover {
   filter: brightness(1.08);
 }
