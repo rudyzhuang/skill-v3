@@ -137,6 +137,23 @@ function remoteExists(projectRoot, remote) {
 }
 
 /**
+ * 列出两个提交点之间的变更文件（含新增/修改/重命名/删除）。
+ * @param {string} projectRoot
+ * @param {string} fromRef
+ * @param {string} toRef
+ * @returns {string[]}
+ */
+function listChangedPathsBetween(projectRoot, fromRef, toRef) {
+  if (!fromRef || !toRef) return [];
+  const r = git(projectRoot, ['diff', '--name-only', `${fromRef}..${toRef}`], { stdio: 'pipe' });
+  if (r.status !== 0) return [];
+  return String(r.stdout || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
  * @returns {{ ok: true } | { ok: false, stderr?: string }}
  */
 function pushTarget(projectRoot, remote, targetBranch) {
@@ -210,6 +227,7 @@ module.exports = {
   isCleanWorkingTree,
   collectWorktreeRows,
   listFeatureBranchesToMerge,
+  listChangedPathsBetween,
   mergeFeatureBranchesIntoTarget,
   mergeFeatureBranchesIntoTargetAsync,
   remoteExists,

@@ -79,10 +79,11 @@ function testHappyMerge() {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-code3-mp-ok-'));
   if (git(cwd, ['init']) !== 0) throw new Error('init');
   if (git(cwd, ['branch', '-M', 'main']) !== 0) throw new Error('branch');
-  fs.writeFileSync(path.join(cwd, 'a.txt'), 'base\n', 'utf8');
+  fs.mkdirSync(path.join(cwd, 'src', 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'src', 'backend', 'a.txt'), 'base\n', 'utf8');
   commitAll(cwd, 'base');
   if (git(cwd, ['checkout', '-b', 'feat']) !== 0) throw new Error('checkout feat');
-  fs.writeFileSync(path.join(cwd, 'b.txt'), 'from-feat\n', 'utf8');
+  fs.writeFileSync(path.join(cwd, 'src', 'backend', 'b.txt'), 'from-feat\n', 'utf8');
   commitAll(cwd, 'feat');
   if (git(cwd, ['checkout', 'main']) !== 0) throw new Error('checkout main');
 
@@ -93,7 +94,7 @@ function testHappyMerge() {
 
   const r = runMergePush(cwd);
   assert.strictEqual(r.status, 0, `happy merge exit 0, stderr=${r.stderr}`);
-  assert.ok(fs.existsSync(path.join(cwd, 'b.txt')), 'merged file b.txt');
+  assert.ok(fs.existsSync(path.join(cwd, 'src', 'backend', 'b.txt')), 'merged file src/backend/b.txt');
   const doc = JSON.parse(fs.readFileSync(path.join(cwd, '.pipeline', 'stages.json'), 'utf8'));
   assert.strictEqual(doc.stages.merge_push.validation.passed, true);
   assert.strictEqual(doc.stages.merge_push.outputs.merge_status, 'completed');
@@ -124,6 +125,36 @@ function testMergeConflictExit6() {
   assert.strictEqual(fs.readFileSync(path.join(cwd, 'x.txt'), 'utf8').trim(), 'main-line');
 }
 
+function testSourceLayoutGuardExit1() {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-code3-mp-layout-'));
+  if (git(cwd, ['init']) !== 0) throw new Error('init');
+  if (git(cwd, ['branch', '-M', 'main']) !== 0) throw new Error('branch');
+  fs.mkdirSync(path.join(cwd, 'src', 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'src', 'backend', 'ok.ts'), 'export const ok = 1;\n', 'utf8');
+  commitAll(cwd, 'base');
+  if (git(cwd, ['checkout', '-b', 'feat']) !== 0) throw new Error('checkout feat');
+  fs.mkdirSync(path.join(cwd, 'legacy'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'legacy', 'bad.ts'), 'export const bad = 1;\n', 'utf8');
+  commitAll(cwd, 'bad layout');
+  if (git(cwd, ['checkout', 'main']) !== 0) throw new Error('checkout main');
+
+  writeConfig(cwd);
+  const wt = [{ feature_id: 'f1', branch: 'feat', worktree_path: cwd, commit: '', files_expected: [], files_changed: [], test_files_expected: [], test_files_changed: [] }];
+  writeStages(cwd, wt);
+  commitAll(cwd, 'pipeline files');
+
+  const r = runMergePush(cwd);
+  assert.strictEqual(r.status, 1, `layout guard exit 1, stderr=${r.stderr}`);
+  const doc = JSON.parse(fs.readFileSync(path.join(cwd, '.pipeline', 'stages.json'), 'utf8'));
+  assert.strictEqual(doc.stages.merge_push.validation.passed, false);
+  assert.ok(
+    Array.isArray(doc.stages.merge_push.outputs.source_layout_violations) &&
+      doc.stages.merge_push.outputs.source_layout_violations.length > 0,
+    'layout violations must be recorded'
+  );
+}
+
 testHappyMerge();
 testMergeConflictExit6();
+testSourceLayoutGuardExit1();
 console.log('ai-code3 self-test-merge-push: ok');

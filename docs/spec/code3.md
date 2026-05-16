@@ -174,6 +174,8 @@ ai-code3/
 | `docs/config.env` | **可选依赖**：默认 typecheck/test/build **不要求**文件存在；仅当脚本显式需要凭证时读取 |
 | `.agent-sessions/` | 会话日志、锁、长日志子目录（**应**被 `.gitignore`） |
 | **worktree** | 由 **codegen** 创建；路径写入 **`stages.codegen.outputs.worktrees[].worktree_path`** |
+| `src/<client_target>/` | merge 后端代码主目录（`website/admin/backend/mobile/desktop/miniapp/agent`） |
+| `src/shared/` / `src/common/` / `src/sdk/` | 允许的共享代码目录（可选） |
 
 **`client_target` 允许值**（与 `stages.json.template` → `client_targets.allowed_values` 一致）：  
 `website` / `admin` / `backend` / `miniapp` / `mobile` / `desktop` / `agent`。
@@ -371,6 +373,7 @@ ai-code3/
 - **干净树门闸**：进入真实 merge 前，业务仓 **`git status --porcelain` 须为空**（须先提交或暂存含 `.pipeline/stages.json` 的变更）。**PID 锁**在干净检查**通过之后**再创建，避免 **`.agent-sessions/`** 未纳入 `.gitignore` 时误伤门闸。  
 - **待合并分支**：优先读取 **`stages.codegen.outputs.worktrees[]`**；若为空则 **`stages.code_review.inputs.worktrees[]`**。对每个元素解析 **`branch`**；若缺省则在对应 **`worktree_path`** 上执行 **`git rev-parse --abbrev-ref HEAD`**。与 **`target_branch`**（`docs/config.dev.json` 的 **`git.default_branch`** 或 `merge_push.inputs.target_branch`，默认 **`main`**）相同的分支跳过合并。其余分支在 **`projectRoot`** 上按序执行 **`git merge --no-ff`**；冲突则 **`git merge --abort`**，写 **`merge_status=conflict`**，**退出 6**。  
 - **推送**：**`git.allow_push=true`** 时执行 **`git push <remote> <target_branch>`**（**`git.remote`**，默认 **`origin`**）；未配置 remote → **退出 7**；push 非零退出 → **7**；子进程超时下限由 **`timeouts.stages.merge_push_s`** 推导为单次 git 调用的超时毫秒数（见 **`scripts/lib/merge-git.cjs`**）。**`--stub-remaining`** 仍为占位合并，不执行真实 git。  
+- **源码目录落位门闸**：合并成功后，脚本会检查本次合并引入的源码文件路径。源码文件必须位于 **`src/<client_target>/`**（`website/admin/backend/mobile/desktop/miniapp/agent`）或共享目录 **`src/shared/`**、**`src/common/`**、**`src/sdk/`**。若命中如 `legacy/*.ts`、`backend/*.py`（仓库根下非 `src/`）或 `src/<unknown>/` 等不合规路径，则 `merge_push` 标记 **failed**、记录 `outputs.source_layout_violations[]`，并以 **退出码 1** 阻断进入 build。  
 - **实现文件**：**`merge-push.cjs`** + **`lib/merge-git.cjs`**；合并自测 **`scripts/self-test-merge-push.cjs`**。
 
 ---

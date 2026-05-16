@@ -42,6 +42,8 @@ disable-model-invocation: true
 | `docs/config.release.json` | 与 dev 结构对齐；可选扫描 |
 | `docs/config.env` | 可选；存在时不得在日志中打印完整密钥值 |
 | `.agent-sessions/` | 会话日志、锁（应 `.gitignore`） |
+| `src/<client_target>/` | 端代码主目录（`website/admin/backend/mobile/desktop/miniapp/agent`） |
+| `src/shared/` `src/common/` `src/sdk/` | 允许的共享代码目录（可选） |
 
 **`client_targets` 允许值**：`website` / `admin` / `backend` / `miniapp` / `mobile` / `desktop` / `agent`。
 
@@ -55,7 +57,7 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 | --- | --- |
 | （缺省）或 `all` | 自 **codegen** 顺序执行至 **build**（满足「已完成则跳过」三条件时跳过，见 `docs/spec/code3.md` 附录 A · A.3） |
 | `preflight` | 校验项目根、`docs/config.dev.json`、`.pipeline/stages.json` 可读、**`_schema.version`**、附录 B 式 **secret-scan**（不写回阶段状态）；可选 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 预检 **§7.2**；**各阶段业务门闸**由各 `*.cjs` 在执行时校验 |
-| `codegen` / `typecheck` / `test` / `code-review` / `merge-push` / `build` | 单阶段；仍执行该阶段前置门闸 |
+| `codegen` / `typecheck` / `test` / `code-review` / `merge-push` / `build` | 单阶段；仍执行该阶段前置门闸（`merge-push` 含源码目录落位校验） |
 | `clean` / `clean-worktrees` | 仅 **`clean.cjs`**（**不**跑 preflight）；须 **`AI_CODE3_CLEAN_CONFIRM=yes`** |
 
 **常用选项**：`--from-stage=`、`--to-stage=`、`--feature=`（**逗号分隔多 id** 合法）、`--force-rerun=<stage>`、`--dry-run`、`--session-id=`。
@@ -104,6 +106,7 @@ node ai-code3/scripts/smoke.cjs
 - 不隐式执行 deploy / smoke。
 - 不并行多进程抢写 **`stages.json`**（同 scope 锁见脚本实现）。
 - **`code-review` 不得**篡改 **`stages.test`** / **`typecheck`** / **`codegen`** 的通过性字段。
+- **`merge-push` 后源码落位必须合规**：源码文件需位于 `src/<client_target>/` 或共享目录（`src/shared|common|sdk`）；否则记为失败并阻断进入 build。
 
 ## 附加资源
 

@@ -20,6 +20,90 @@ function mergePushStageTimeoutMs(config) {
   return 300 * 1000;
 }
 
+function collectDeclaredClientTargets(doc, config) {
+  const out = [];
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (!s) return;
+    if (!out.includes(s)) out.push(s);
+  };
+  const declared = doc?.client_targets?.declared;
+  if (Array.isArray(declared)) declared.forEach(push);
+  const generated = doc?.client_targets?.generated;
+  if (Array.isArray(generated)) generated.forEach(push);
+  const defaults = config?.project?.default_client_targets;
+  if (Array.isArray(defaults)) defaults.forEach(push);
+  const buildTargets = config?.build?.client_targets;
+  if (buildTargets && typeof buildTargets === 'object') {
+    Object.keys(buildTargets).forEach(push);
+  }
+  if (out.length === 0) {
+    return ['website', 'admin', 'backend', 'mobile', 'desktop', 'miniapp', 'agent'];
+  }
+  return out;
+}
+
+function normalizeRelPath(p) {
+  return String(p || '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .trim();
+}
+
+function isLikelySourceFile(relPath) {
+  const p = normalizeRelPath(relPath).toLowerCase();
+  if (!p) return false;
+  const exts = [
+    '.js',
+    '.cjs',
+    '.mjs',
+    '.ts',
+    '.tsx',
+    '.jsx',
+    '.py',
+    '.go',
+    '.rs',
+    '.java',
+    '.kt',
+    '.swift',
+    '.dart',
+    '.php',
+    '.rb',
+    '.cs',
+    '.cpp',
+    '.cc',
+    '.c',
+    '.h',
+    '.hpp',
+    '.vue',
+    '.svelte',
+  ];
+  return exts.some((ext) => p.endsWith(ext));
+}
+
+function validateMergedSourceLayout(changedPaths, allowedTargets) {
+  const allowedSrcPrefixes = allowedTargets.map((t) => `src/${t}/`);
+  const sharedPrefixes = ['src/shared/', 'src/common/', 'src/sdk/'];
+  const violations = [];
+  for (const raw of changedPaths || []) {
+    const p = normalizeRelPath(raw);
+    if (!p) continue;
+    if (p.startsWith('docs/') || p.startsWith('.pipeline/') || p.startsWith('.agent-sessions/')) continue;
+    if (p.startsWith('src/')) {
+      const inTarget = allowedSrcPrefixes.some((prefix) => p.startsWith(prefix));
+      const inShared = sharedPrefixes.some((prefix) => p.startsWith(prefix));
+      if (!inTarget && !inShared) {
+        violations.push(`${p} (must be under src/<client_target>/ or shared roots)`);
+      }
+      continue;
+    }
+    if (isLikelySourceFile(p)) {
+      violations.push(`${p} (source file outside src/)`);
+    }
+  }
+  return { violations };
+}
+
 async function run(ctx) {
   const { projectRoot, options } = ctx;
 
@@ -240,6 +324,31 @@ async function run(ctx) {
     doc = stagesIo.readStagesSync(projectRoot);
     const mergeStepMs = mergePushStageTimeoutMs(config);
     const featureBranches = mergeGit.listFeatureBranchesToMerge(projectRoot, doc, targetBranch);
+    const preMergeHeadRes = mergeGit.git(projectRoot, ['rev-parse', 'HEAD'], { stdio: 'pipe' });
+    if (preMergeHeadRes.status !== 0) {
+      const msg = 'merge_push failed: cannot resolve pre-merge HEAD';
+      doc = stagesIo.updateStage(doc, 'merge_push', {
+        status: 'failed',
+        completed_at: new Date().toISOString(),
+        outputs: {
+          ...doc.stages?.merge_push?.outputs,
+          merge_status: 'pending',
+          error: msg,
+          duration_ms: 0,
+          timed_out: false,
+          timeout_reason: null,
+        },
+        validation: {
+          ...doc.stages?.merge_push?.validation,
+          passed: false,
+          summary: msg,
+        },
+      });
+      stagesIo.writeStagesSync(projectRoot, doc);
+      console.error(`failed_stage=merge_push: ${msg}`);
+      return 1;
+    }
+    const preMergeHead = String(preMergeHeadRes.stdout || '').trim();
     doc = stagesIo.updateStage(doc, 'merge_push', {
       status: 'running',
       started_at: doc.stages?.merge_push?.started_at || now,
@@ -318,6 +427,49 @@ async function run(ctx) {
     }
 
     const mergeCommit = mergeResult.mergeCommit;
+    const changedPaths = mergeGit.listChangedPathsBetween(projectRoot, preMergeHead, mergeCommit);
+    const allowedTargets = collectDeclaredClientTargets(doc, config);
+    const layoutCheck = validateMergedSourceLayout(changedPaths, allowedTargets);
+    if (layoutCheck.violations.length > 0) {
+      const err = `source layout guard failed after merge: ${layoutCheck.violations.join('; ')}`;
+      const completedAt = new Date().toISOString();
+      doc = stagesIo.updateStage(doc, 'merge_push', {
+        status: 'failed',
+        completed_at: completedAt,
+        inputs: {
+          ...doc.stages?.merge_push?.inputs,
+          requires_stage: 'code_review',
+          worktrees: wt,
+          target_branch: targetBranch,
+          allow_push: allowPush,
+          summary_hash: hash,
+        },
+        outputs: {
+          ...doc.stages?.merge_push?.outputs,
+          merge_status: 'completed',
+          target_branch: targetBranch,
+          merge_commit: mergeCommit,
+          push_requested: false,
+          push_status: 'not_requested',
+          conflict_files: [],
+          error: err,
+          merged_changed_paths: changedPaths,
+          source_layout_violations: layoutCheck.violations,
+          duration_ms: 0,
+          timed_out: false,
+          timeout_reason: null,
+        },
+        validation: {
+          ...doc.stages?.merge_push?.validation,
+          passed: false,
+          summary: err,
+        },
+      });
+      stagesIo.writeStagesSync(projectRoot, doc);
+      console.error(`failed_stage=merge_push: ${err}`);
+      return 1;
+    }
+
     const remote = config.git?.remote || 'origin';
     let pushStatus = 'not_requested';
     let pushErr = '';
@@ -424,6 +576,8 @@ async function run(ctx) {
         push_status: pushStatus,
         conflict_files: [],
         error: '',
+        merged_changed_paths: changedPaths,
+        source_layout_violations: [],
         duration_ms: 0,
         timed_out: false,
         timeout_reason: null,
