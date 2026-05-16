@@ -37,7 +37,7 @@ function runRound(label) {
         console.error('smoke: bad schema', o.schema);
         process.exit(1);
       }
-      if (!Array.isArray(o.rows) || o.rows.length !== 14) {
+      if (!Array.isArray(o.rows) || o.rows.length !== 15) {
         console.error('smoke: rows length', o.rows && o.rows.length);
         process.exit(1);
       }
@@ -134,10 +134,20 @@ function smokeServeInvalidJson() {
   });
 }
 
+function smokeFeatures() {
+  const r = spawnSync(process.execPath, [path.join(__dirname, 'self-test-features.cjs')], {
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) {
+    throw new Error(r.stderr || r.stdout || 'self-test-features failed');
+  }
+}
+
 Promise.resolve()
+  .then(() => smokeFeatures())
   .then(() => smokeServe())
   .then(() => smokeServeInvalidJson())
-  .then(() => console.log('smoke: all passed (2 rounds + serve api + invalid json)'))
+  .then(() => console.log('smoke: all passed (features + 2 rounds + serve api + invalid json)'))
   .catch((e) => {
     console.error('smoke failed:', e.message || e);
     process.exit(1);

@@ -42,6 +42,61 @@ function worktreeFeatureIds(doc) {
   return out;
 }
 
+/** `.pipeline/worktrees/v3-fc-<feature_id>/` 目录（stages 可能未合并全量 worktrees） */
+function worktreesOnDisk(projectRoot) {
+  const dir = path.join(projectRoot, '.pipeline', 'worktrees');
+  const out = new Set();
+  if (!fs.existsSync(dir)) return out;
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    const m = /^v3-fc-(.+)$/.exec(name);
+    if (m && m[1]) out.add(m[1]);
+  }
+  return out;
+}
+
+function collectFeatureWorktreeIds(doc, projectRoot) {
+  const out = new Set(worktreeFeatureIds(doc || {}));
+  for (const fid of worktreesOnDisk(projectRoot)) out.add(fid);
+  return out;
+}
+
+/**
+ * codegen 是否已在 worktree 落盘（启发式：package.json 或非空 src/）
+ * @param {string} projectRoot
+ * @param {string} featureId
+ */
+function isFeatureCodegenDone(projectRoot, featureId) {
+  const fid = String(featureId || '').trim();
+  if (!fid) return false;
+  const wt = path.join(projectRoot, '.pipeline', 'worktrees', `v3-fc-${fid}`);
+  if (!fs.existsSync(wt)) return false;
+  if (fs.existsSync(path.join(wt, 'package.json'))) return true;
+  const src = path.join(wt, 'src');
+  try {
+    if (fs.existsSync(src) && fs.statSync(src).isDirectory()) {
+      return fs.readdirSync(src).some((n) => !n.startsWith('.'));
+    }
+  } catch {
+    /* */
+  }
+  return false;
+}
+
+/**
+ * 本期尚未完成 codegen 的 feature_id 列表（供 autorun pending_features_json）
+ * @param {string} projectRoot
+ * @param {string[]} featureIds
+ */
+function filterRemainingCodegenQueue(projectRoot, featureIds) {
+  return featureIds.filter((fid) => !isFeatureCodegenDone(projectRoot, fid));
+}
+
 function parsePendingFeatures(runtime) {
   if (!runtime || !runtime.pending_features_json) return new Set();
   try {
@@ -121,19 +176,21 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
   const phases = collectPhasePlans(doc || {});
   const deferred = collectDeferredIds(doc || {});
   const listMeta = doc ? parseFeatureLists(projectRoot, doc) : {};
-  const worktrees = worktreeFeatureIds(doc || {});
-  const pending = parsePendingFeatures(runtime);
-  const codegenDone = doc ? isStageDone(doc, 'codegen') : false;
+  const worktrees = collectFeatureWorktreeIds(doc, projectRoot);
+  const pendingQueue = parsePendingFeatures(runtime);
   const projectFailed = doc ? projectHasFailedStage(doc) : false;
   const currentPhase = runtime?.current_phase ? String(runtime.current_phase) : '';
   const currentStage = runtime?.current_stage ? String(runtime.current_stage) : '';
   const autorunActive = pidLock?.alive === true;
+  const codegenRunning = String(doc?.stages?.codegen?.status || '') === 'running';
 
   const features = [];
   for (const { phase, feature_ids: featureIds } of phases) {
     for (const fid of featureIds) {
       let pipeline_status = 'pending';
       const hints = [];
+      const codegenDone = isFeatureCodegenDone(projectRoot, fid);
+      const hasWorktree = worktrees.has(fid);
 
       if (deferred.has(fid)) {
         pipeline_status = 'deferred';
@@ -141,25 +198,24 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
       } else if (listMeta[fid]?.status === 'blocked') {
         pipeline_status = 'failed';
         hints.push('blocked_in_feature_list');
-      } else if (projectFailed && (pending.has(fid) || phase === currentPhase)) {
+      } else if (projectFailed && (pendingQueue.has(fid) || phase === currentPhase)) {
         pipeline_status = 'failed';
         hints.push('project_stage_failed');
-      } else if (autorunActive && pending.has(fid)) {
-        pipeline_status = 'in_progress';
-        hints.push('autorun_active_pending');
-      } else if (worktrees.has(fid) && codegenDone) {
+      } else if (codegenDone) {
         pipeline_status = 'completed';
-        hints.push('codegen_worktree_done');
-      } else if (worktrees.has(fid) || pending.has(fid)) {
+        hints.push('worktree_codegen_artifacts');
+        if (hasWorktree) hints.push('has_worktree');
+      } else if (hasWorktree) {
         pipeline_status = 'in_progress';
-        if (worktrees.has(fid)) hints.push('has_worktree');
-        if (pending.has(fid)) hints.push('in_pending_list');
-      }
-
-      const designPath = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
-      if (fs.existsSync(designPath) && pipeline_status === 'pending') {
-        pipeline_status = 'in_progress';
-        hints.push('design_spec_exists');
+        hints.push('has_worktree');
+        if (autorunActive && codegenRunning) hints.push('codegen_running');
+      } else if (autorunActive && codegenRunning && pendingQueue.has(fid)) {
+        // 在队列中但 worktree 尚未创建：仍为待处理（排队），非处理中
+        pipeline_status = 'pending';
+        hints.push('queued_for_codegen');
+      } else {
+        pipeline_status = 'pending';
+        if (pendingQueue.has(fid)) hints.push('in_pending_queue');
       }
 
       features.push({
@@ -182,7 +238,7 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
           active_run_id: runtime.active_run_id || null,
           current_phase: currentPhase || null,
           current_stage: currentStage || null,
-          pending_features: [...pending],
+          pending_features: [...pendingQueue],
           updated_at: runtime.updated_at || null,
         }
       : {
@@ -200,4 +256,8 @@ module.exports = {
   collectPhasePlans,
   buildFeatureBoard,
   parseFeatureLists,
+  worktreesOnDisk,
+  isFeatureCodegenDone,
+  collectFeatureWorktreeIds,
+  filterRemainingCodegenQueue,
 };

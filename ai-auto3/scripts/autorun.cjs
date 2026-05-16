@@ -31,6 +31,7 @@ const {
   planFeatureGroupWaves,
   groupSortKey,
 } = require('./lib/feature-groups.cjs');
+const { filterRemainingCodegenQueue } = require('../../ai-dash3/scripts/lib/features.cjs');
 
 const DESIGN_CHAIN = [
   'scan-design-style',
@@ -501,6 +502,16 @@ async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun, fea
  * 同一阶段层内：最多 maxParallel 路 ai-code3 并行（auto3.md §5.7）。
  * @param {string[][]} layerGroups 本层每个元素为一组 feature_id[]
  */
+function refreshCodegenPendingFeatures(projectRoot, phaseFeatureIds) {
+  const doc = readStages(projectRoot);
+  const projectId = doc?.project?.project_id;
+  if (!projectId) return;
+  const remaining = filterRemainingCodegenQueue(projectRoot, phaseFeatureIds);
+  updateProjectRuntimeState(projectId, {
+    pending_features_json: JSON.stringify(remaining),
+  });
+}
+
 async function runLayerGroupsParallel(
   projectRoot,
   cmd,
@@ -511,7 +522,8 @@ async function runLayerGroupsParallel(
   sessionPrefixForCode3,
   forceRerun,
   maxParallel,
-  forceStub
+  forceStub,
+  phaseFeatureIdsForPending
 ) {
   const items = layerGroups.map((members) => ({
     members,
@@ -556,6 +568,13 @@ async function runLayerGroupsParallel(
           failKey = key;
         }
         return;
+      }
+      if (
+        stageKey === 'codegen' &&
+        Array.isArray(phaseFeatureIdsForPending) &&
+        phaseFeatureIdsForPending.length
+      ) {
+        refreshCodegenPendingFeatures(projectRoot, phaseFeatureIdsForPending);
       }
     }
   }
@@ -621,7 +640,8 @@ async function runCodeStageWithFeatureGroups(
       `${sessionId}-${stageKey}`,
       forceRerun,
       maxP,
-      forceStub
+      forceStub,
+      stageKey === 'codegen' ? featureIds : null
     );
     if (code !== 0) return code;
   }
@@ -905,11 +925,12 @@ async function main() {
         const phaseRunId = startPhaseRun(runId, phase, '');
         appendLog(projectRoot, sessionId, `phase begin: ${phase} features=${phaseFeatStr}`);
         console.error(`[ai-auto3] phase begin phase=${phase} feature_count=${phaseFeatureIds.length}`);
+        const pendingAtPhaseStart = filterRemainingCodegenQueue(projectRoot, phaseFeatureIds);
         updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
           active_run_id: runId,
           current_phase: phase,
           current_stage: '',
-          pending_features_json: JSON.stringify(phaseFeatureIds),
+          pending_features_json: JSON.stringify(pendingAtPhaseStart),
         });
 
         for (const stage of slice) {
@@ -928,11 +949,15 @@ async function main() {
             by: 'ai-auto3',
           });
           writeStages(projectRoot, doc);
+          const pendingForStage =
+            stage === 'codegen'
+              ? filterRemainingCodegenQueue(projectRoot, phaseFeatureIds)
+              : phaseFeatureIds;
           updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
             active_run_id: runId,
             current_phase: phase,
             current_stage: stage,
-            pending_features_json: JSON.stringify(phaseFeatureIds),
+            pending_features_json: JSON.stringify(pendingForStage),
           });
           console.error(`[ai-auto3] stage begin phase=${phase} stage=${stage}`);
 
