@@ -99,7 +99,8 @@ function parseCoreFeatures(specText) {
   return out;
 }
 
-function derivePerTargetFiles(projectRoot, targets, specText) {
+function derivePerTargetFiles(projectRoot, targets, specText, options = {}) {
+  const overwrite = options.overwrite === true;
   const now = new Date().toISOString();
   const allFeatures = parseCoreFeatures(specText);
   const featureListTpl = path.join(skillDirFrom(__filename), 'templates', 'feature_list.md.template');
@@ -169,7 +170,7 @@ function derivePerTargetFiles(projectRoot, targets, specText) {
       .join('\n\n');
 
     const flPath = path.join(targetDir, 'feature_list.md');
-    if (!fs.existsSync(flPath)) {
+    if (overwrite || !fs.existsSync(flPath)) {
       let text = featureListTplText
         .replace('| client_target |  |', `| client_target | ${slug} |`)
         .replace('| generated_at |  |', `| generated_at | ${now} |`);
@@ -182,7 +183,7 @@ function derivePerTargetFiles(projectRoot, targets, specText) {
     }
 
     const prdPath = path.join(targetDir, 'prd.md');
-    if (!fs.existsSync(prdPath)) {
+    if (overwrite || !fs.existsSync(prdPath)) {
       const featureIds = (perTarget.length ? perTarget : [{ featureId: fallbackId }])
         .map((f) => `- \`${f.featureId}\``)
         .join('\n');
@@ -327,7 +328,7 @@ function main() {
   for (const slug of parse.slugs) {
     fs.mkdirSync(path.join(projectRoot, 'docs', slug), { recursive: true });
   }
-  derivePerTargetFiles(projectRoot, parse.slugs, specText);
+  derivePerTargetFiles(projectRoot, parse.slugs, specText, { overwrite: args.force === true });
 
   stages.stages = stages.stages || {};
   stages.stages.prd = stages.stages.prd || {};

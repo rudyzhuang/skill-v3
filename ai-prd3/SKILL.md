@@ -46,7 +46,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 
 | 子命令 | 职责 |
 | --- | --- |
-| `bootstrap` | 目录与模板拷贝、`stages` 合并、`stages.prd` → `running`；**`stages.prd.outputs.client_targets`** 与 `client_targets.declared` 对齐（§6）；当目标端目录缺少 `docs/<target>/prd.md` / `feature_list.md` 时自动按 `prd-spec` 生成最小可校验派生文件 |
+| `bootstrap` | 目录与模板拷贝、`stages` 合并、`stages.prd` → `running`；**`stages.prd.outputs.client_targets`** 与 `client_targets.declared` 对齐（§6）；默认仅在缺文件时生成 `docs/<target>/prd.md` / `feature_list.md`，`--force` 时会按当前 `prd-spec` **重写派生文件**，避免 `feature_id_not_in_lists` 漂移 |
 | `parse-targets` | stdout 打印 `declared[]`（调试） |
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed**（`prd3.md` §4.2 末段） |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |

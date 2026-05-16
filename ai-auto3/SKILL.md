@@ -57,6 +57,8 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 - **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。
 - 在 `design` 宏链路开跑前，`autorun.cjs` 会对 `prd_review.phase_plan` 中缺失的 `docs/designs/<feature_id>.design.json` 做最小 seed（`status=draft`），避免 `scan-design-style` 因缺文件直接失败。
 - `autorun.cjs` 调用 `ai-code3` 时默认附带 `--stub-remaining`，并注入 `AI_CODE3_SKIP_AGENT=1`、`AI_CODE3_ALLOW_NO_AGENT_PASS=yes`（可用 `pipeline.autorun.allow_no_agent_pass=false` 关闭）以及 `AI_CODE3_CODEGEN_CONFIRM=yes`（避免重跑覆盖门闸中断），用于本地无外部 Agent CLI 场景持续编排。
+- 当目标链路包含 `deploy_smoke` 且检测到 `ai-publish-dev3` 缺少 `js-yaml` 时，`autorun.cjs` 会先在 `ai-publish-dev3/` 自动执行一次 `npm install`，避免运行期出现 `x-smoke` 解析被动跳过。
+- `feature-plan` 的“contract 无匹配 feature_id”提示在一次 autorun 中会按内容去重，仅首轮输出，避免多阶段重复刷屏。
 
 ## deploy 门闸（dev）
 

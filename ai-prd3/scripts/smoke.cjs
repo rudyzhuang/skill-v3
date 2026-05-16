@@ -81,7 +81,7 @@ function runOneSmokeRound(roundLabel) {
   assert.strictEqual(r.status, 0, `bootstrap ${r.stderr}`);
 
   r = run(['validate-prd', `--project=${TMP}`], ROOT);
-  assert.strictEqual(r.status, 1, '缺派生文件时应 validate 失败');
+  assert.strictEqual(r.status, 0, 'bootstrap 默认应生成最小可校验派生文件');
 
   for (const slug of ['website', 'backend']) {
     const dir = path.join(TMP, 'docs', slug);
@@ -228,7 +228,10 @@ function runOneSmokeRound(roundLabel) {
   r = run(['bootstrap', `--project=${TMP3}`], ROOT);
   assert.strictEqual(r.status, 0, r.stderr);
   spec = fs.readFileSync(path.join(TMP3, 'docs', 'prd-spec.md'), 'utf8');
-  spec = spec.replace(/`website`/m, '`not_a_valid_target`');
+  spec = spec.replace(
+    /(##\s*端\s*\(Client Targets\)\s*\n)([\s\S]*?)(\n##\s+)/m,
+    `$1\n- \`not_a_valid_target\`\n$3`
+  );
   fs.writeFileSync(path.join(TMP3, 'docs', 'prd-spec.md'), spec, 'utf8');
   r = run(['validate-prd', `--project=${TMP3}`], ROOT);
   assert.strictEqual(r.status, 1, '非法 client_target slug 时应失败');

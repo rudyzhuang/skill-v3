@@ -158,6 +158,47 @@ function featureCsv(ids) {
   return ids.join(',');
 }
 
+function getSkillRootFromScript(scriptAbsPath) {
+  return path.dirname(path.dirname(scriptAbsPath));
+}
+
+function hasPublishDevYamlDependency() {
+  const publishRun = scriptPath('ai-publish-dev3', 'scripts/run.cjs');
+  const publishRoot = getSkillRootFromScript(publishRun);
+  try {
+    require.resolve('js-yaml', { paths: [publishRoot] });
+    return { ok: true, publishRoot };
+  } catch {
+    return { ok: false, publishRoot };
+  }
+}
+
+function ensurePublishDevDepsForDeploy(slice) {
+  if (!slice.includes('deploy_smoke')) return { ok: true };
+  const dep = hasPublishDevYamlDependency();
+  if (dep.ok) return { ok: true };
+  console.error('[ai-auto3] 检测到 ai-publish-dev3 缺少 js-yaml，自动执行 npm install');
+  const ins = spawnSync('npm', ['install'], {
+    cwd: dep.publishRoot,
+    stdio: 'inherit',
+    encoding: 'utf8',
+  });
+  if (ins.status !== 0) {
+    return {
+      ok: false,
+      message: `ai-auto3: 自动安装 ai-publish-dev3 依赖失败（cwd=${dep.publishRoot}）`,
+    };
+  }
+  const verify = hasPublishDevYamlDependency();
+  if (!verify.ok) {
+    return {
+      ok: false,
+      message: `ai-auto3: npm install 后仍未检测到 js-yaml（cwd=${dep.publishRoot}）`,
+    };
+  }
+  return { ok: true };
+}
+
 function shouldAutoApproveContract(cfg) {
   const v = cfg?.pipeline?.autorun?.auto_contract_approval;
   return v !== false;
@@ -382,11 +423,15 @@ async function runCodeStageWithFeatureGroups(
   featureIds,
   cfg,
   sessionId,
-  forceRerun
+  forceRerun,
+  warningCache
 ) {
   const doc = readStages(projectRoot);
   const plan = planFeatureGroupWaves(featureIds, doc, projectRoot);
   for (const w of plan.warnings) {
+    const key = String(w);
+    if (warningCache && warningCache.has(key)) continue;
+    if (warningCache) warningCache.add(key);
     appendLog(projectRoot, sessionId, `[feature-plan] ${w}`);
     console.error(`[ai-auto3][feature-plan] ${w}`);
   }
@@ -495,6 +540,11 @@ async function main() {
   const sessionId = opts.sessionId || crypto.randomUUID();
   const slice = sliceStages(opts.fromStage, opts.toStage);
   if (!slice) process.exit(1);
+  const deps = ensurePublishDevDepsForDeploy(slice);
+  if (!deps.ok) {
+    console.error(deps.message);
+    process.exit(1);
+  }
 
   if (opts.subcommand === 'preflight-only') {
     const ck = runAutorunChecklist(projectRoot, { featuresFilter: opts.features });
@@ -592,6 +642,7 @@ async function main() {
   let failureReason = '';
   let stoppedAt = '';
   let runId = '';
+  const featurePlanWarningCache = new Set();
 
   try {
     runId = startRun(doc.project?.project_id || 'unknown', sessionId);
@@ -742,7 +793,8 @@ async function main() {
               featureIds,
               cfg,
               sessionId,
-              opts.forceRerun
+              opts.forceRerun,
+              featurePlanWarningCache
             );
           }
           if (code !== 0) {
