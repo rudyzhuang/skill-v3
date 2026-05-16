@@ -81,6 +81,57 @@ function runDiffGuard(repoRoot, relPaths) {
   return { exit: 1, reason: r.stderr || 'git_diff_failed' };
 }
 
+function ensureGitRepoForCodegen(projectRoot, baseBranch) {
+  const inside = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree'], {
+    encoding: 'utf8',
+  });
+  if (inside.status === 0 && String(inside.stdout || '').trim() === 'true') return { ok: true };
+
+  const init = spawnSync('git', ['-C', projectRoot, 'init'], { encoding: 'utf8' });
+  if (init.status !== 0) {
+    const recheck = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree'], {
+      encoding: 'utf8',
+    });
+    if (recheck.status === 0 && String(recheck.stdout || '').trim() === 'true') {
+      return { ok: true };
+    }
+    return { ok: false, reason: init.stderr || 'git_init_failed' };
+  }
+
+  const target = baseBranch || 'main';
+  const cur = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
+  const currentBranch = String(cur.stdout || '').trim();
+  if (!currentBranch || currentBranch !== target) {
+    const chk = spawnSync('git', ['-C', projectRoot, 'checkout', '-B', target], { encoding: 'utf8' });
+    if (chk.status !== 0) {
+      return { ok: false, reason: chk.stderr || 'git_checkout_base_failed' };
+    }
+  }
+
+  spawnSync('git', ['-C', projectRoot, 'add', '-A'], { encoding: 'utf8' });
+  const hasHead = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+  if (hasHead.status !== 0) {
+    const commit = spawnSync(
+      'git',
+      ['-C', projectRoot, 'commit', '--allow-empty', '-m', 'chore: initialize repository for ai-code3 autorun'],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || 'ai-code3',
+          GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || 'ai-code3@local',
+          GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || 'ai-code3',
+          GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || 'ai-code3@local',
+        },
+      }
+    );
+    if (commit.status !== 0) {
+      return { ok: false, reason: commit.stderr || commit.stdout || 'git_initial_commit_failed' };
+    }
+  }
+  return { ok: true };
+}
+
 function baseBranchFromDoc(doc, config) {
   return (
     config.git?.default_branch ||
@@ -100,6 +151,138 @@ function shouldSkipTestAgentPhase(testSpecAbs) {
     /* ignore */
   }
   return false;
+}
+
+function writeIfMissing(absPath, content) {
+  if (fs.existsSync(absPath)) return false;
+  fs.mkdirSync(path.dirname(absPath), { recursive: true });
+  fs.writeFileSync(absPath, content, 'utf8');
+  return true;
+}
+
+function ensureNoAgentHealthScaffold(worktreePath) {
+  let touched = 0;
+  const pkg = {
+    name: 'health-minimal-app',
+    version: '0.1.0',
+    private: true,
+    scripts: {
+      'start:backend': 'node backend/server.cjs',
+      'start:website': 'node website/server.cjs',
+      test: 'node tests/health.test.cjs',
+      build: 'node scripts/build.cjs',
+    },
+  };
+  if (writeIfMissing(path.join(worktreePath, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`)) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'backend', 'server.cjs'),
+      `'use strict';\n` +
+        `const http = require('http');\n` +
+        `const PORT = Number(process.env.BACKEND_PORT || 3001);\n` +
+        `const server = http.createServer((req, res) => {\n` +
+        `  if (req.url === '/api/health' && req.method === 'GET') {\n` +
+        `    res.setHeader('Content-Type', 'application/json');\n` +
+        `    res.setHeader('Access-Control-Allow-Origin', '*');\n` +
+        `    res.end(JSON.stringify({ status: 'healthy', service: 'backend', timestamp: new Date().toISOString() }));\n` +
+        `    return;\n` +
+        `  }\n` +
+        `  res.statusCode = 404;\n` +
+        `  res.end('not found');\n` +
+        `});\n` +
+        `server.listen(PORT, () => console.log('backend listening on', PORT));\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'index.html'),
+      `<!doctype html>\n<html><head><meta charset="utf-8"><title>Health</title></head>\n` +
+        `<body><h1>Health Status</h1><pre id="out">loading...</pre><script src="/app.js"></script></body></html>\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'app.js'),
+      `(async function(){\n` +
+        `  const out = document.getElementById('out');\n` +
+        `  const base = window.BACKEND_BASE_URL || 'http://localhost:3001';\n` +
+        `  try {\n` +
+        `    const r = await fetch(base + '/api/health');\n` +
+        `    const j = await r.json();\n` +
+        `    out.textContent = JSON.stringify(j, null, 2);\n` +
+        `  } catch (e) {\n` +
+        `    out.textContent = 'error: ' + (e && e.message ? e.message : String(e));\n` +
+        `  }\n` +
+        `})();\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'website', 'server.cjs'),
+      `'use strict';\n` +
+        `const http = require('http');\n` +
+        `const fs = require('fs');\n` +
+        `const path = require('path');\n` +
+        `const PORT = Number(process.env.WEBSITE_PORT || 3000);\n` +
+        `const root = __dirname;\n` +
+        `http.createServer((req, res) => {\n` +
+        `  const p = req.url === '/' ? '/index.html' : req.url;\n` +
+        `  const abs = path.join(root, p.replace(/^\\//, ''));\n` +
+        `  if (!abs.startsWith(root) || !fs.existsSync(abs)) { res.statusCode = 404; res.end('not found'); return; }\n` +
+        `  if (abs.endsWith('.js')) res.setHeader('Content-Type', 'text/javascript');\n` +
+        `  if (abs.endsWith('.html')) res.setHeader('Content-Type', 'text/html; charset=utf-8');\n` +
+        `  res.end(fs.readFileSync(abs));\n` +
+        `}).listen(PORT, () => console.log('website listening on', PORT));\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'tests', 'health.test.cjs'),
+      `'use strict';\n` +
+        `const { spawn } = require('child_process');\n` +
+        `const http = require('http');\n` +
+        `const child = spawn(process.execPath, ['backend/server.cjs'], { stdio: 'ignore' });\n` +
+        `function req(pathname){\n` +
+        `  return new Promise((resolve,reject)=>{\n` +
+        `    const r = http.request({ host:'127.0.0.1', port:3001, path:pathname, method:'GET' }, (res)=>{\n` +
+        `      let b=''; res.on('data',c=>b+=c); res.on('end',()=>resolve({status:res.statusCode, body:b}));\n` +
+        `    });\n` +
+        `    r.on('error',reject); r.end();\n` +
+        `  });\n` +
+        `}\n` +
+        `(async()=>{\n` +
+        `  try {\n` +
+        `    await new Promise(r=>setTimeout(r, 400));\n` +
+        `    const res = await req('/api/health');\n` +
+        `    if (res.status !== 200) throw new Error('status=' + res.status);\n` +
+        `    const j = JSON.parse(res.body);\n` +
+        `    if (j.status !== 'healthy') throw new Error('unexpected payload');\n` +
+        `    process.exit(0);\n` +
+        `  } catch (e) {\n` +
+        `    console.error(e && e.message ? e.message : String(e));\n` +
+        `    process.exit(1);\n` +
+        `  } finally {\n` +
+        `    child.kill('SIGTERM');\n` +
+        `  }\n` +
+        `})();\n`
+    )
+  ) touched += 1;
+  if (
+    writeIfMissing(
+      path.join(worktreePath, 'scripts', 'build.cjs'),
+      `'use strict';\n` +
+        `const fs = require('fs');\n` +
+        `const path = require('path');\n` +
+        `const dist = path.join(process.cwd(), 'dist');\n` +
+        `fs.mkdirSync(path.join(dist, 'website', 'default'), { recursive: true });\n` +
+        `fs.mkdirSync(path.join(dist, 'backend', 'default'), { recursive: true });\n` +
+        `fs.copyFileSync(path.join(process.cwd(), 'website', 'index.html'), path.join(dist, 'website', 'default', 'index.html'));\n` +
+        `fs.copyFileSync(path.join(process.cwd(), 'website', 'app.js'), path.join(dist, 'website', 'default', 'app.js'));\n` +
+        `fs.copyFileSync(path.join(process.cwd(), 'backend', 'server.cjs'), path.join(dist, 'backend', 'default', 'server.cjs'));\n` +
+        `console.log('build done');\n`
+    )
+  ) touched += 1;
+  return touched;
 }
 
 async function run(ctx) {
@@ -154,6 +337,17 @@ async function run(ctx) {
     return 1;
   }
 
+  const config = loadDevConfig(projectRoot);
+  const base = baseBranchFromDoc(doc, config);
+  const ensureRepo = ensureGitRepoForCodegen(projectRoot, base);
+  if (!ensureRepo.ok) {
+    console.error(`failed_stage=codegen ${ensureRepo.reason || 'ensure_git_repo_failed'}`);
+    writeTerminal(projectRoot, doc, 'codegen', 'failed', {
+      summary: ensureRepo.reason || 'ensure_git_repo_failed',
+    });
+    return 1;
+  }
+
   const dgMain = runDiffGuard(projectRoot, relPaths);
   if (dgMain.exit !== 0) {
     if (dgMain.exit === 5) {
@@ -191,8 +385,6 @@ async function run(ctx) {
     return 0;
   }
 
-  const config = loadDevConfig(projectRoot);
-  const base = baseBranchFromDoc(doc, config);
   const codegenMs = stageTimeoutMs(config, 'codegen_s', 1800);
   const subMs = Math.max(60_000, Math.floor(codegenMs / 4));
   const sessionId = options.sessionId || '';
@@ -303,6 +495,12 @@ async function run(ctx) {
       }
       implStatus = 'skipped';
       testStatus = 'skipped';
+      for (const row of wtResult.rows) {
+        const t = ensureNoAgentHealthScaffold(row.worktree_path);
+        if (t > 0) {
+          console.error(`codegen scaffolded ${t} files for no-agent mode in ${row.worktree_path}`);
+        }
+      }
     } else {
       for (const row of wtResult.rows) {
         const ir = await invokeCodegenAgent({

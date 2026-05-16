@@ -48,6 +48,168 @@ function copyIfMissing(src, dest) {
   return false;
 }
 
+/**
+ * Parse core features table from prd-spec.
+ * Expected table order:
+ * | 功能 ID | 名称 | 涉及端 | 优先级 | 阶段 | 描述 | 验收摘要 |
+ */
+function parseCoreFeatures(specText) {
+  const lines = specText.split('\n');
+  const out = [];
+  let inCore = false;
+  let inTable = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^##\s+6\.\s*核心功能\s*$/.test(line)) {
+      inCore = true;
+      continue;
+    }
+    if (inCore && /^##\s+/.test(line) && !/^##\s+6\.\s*核心功能\s*$/.test(line)) {
+      break;
+    }
+    if (!inCore) continue;
+    if (!inTable && /^\|\s*功能 ID\s*\|\s*名称\s*\|\s*涉及端\s*\|/.test(line)) {
+      inTable = true;
+      continue;
+    }
+    if (!inTable || !line.startsWith('|')) continue;
+    if (/^\|\s*[-: ]+\|/.test(line)) continue;
+    const cells = line
+      .split('|')
+      .slice(1, -1)
+      .map((v) => v.trim());
+    if (cells.length < 7) continue;
+    const [featureId, name, targets, priority, phase, description, acceptance] = cells;
+    if (!featureId || /^功能 ID$/i.test(featureId)) continue;
+    if (!/^[A-Za-z0-9_.-]+$/.test(featureId)) continue;
+    const relatedTargets = targets
+      .split(',')
+      .map((v) => v.trim().toLowerCase())
+      .filter(Boolean);
+    out.push({
+      featureId,
+      name,
+      relatedTargets,
+      priority: priority || 'must',
+      phase: phase || 'mvp',
+      description,
+      acceptance,
+    });
+  }
+  return out;
+}
+
+function derivePerTargetFiles(projectRoot, targets, specText) {
+  const now = new Date().toISOString();
+  const allFeatures = parseCoreFeatures(specText);
+  const featureListTpl = path.join(skillDirFrom(__filename), 'templates', 'feature_list.md.template');
+  const featureListTplText = fs.readFileSync(featureListTpl, 'utf8');
+
+  for (const slug of targets) {
+    const targetDir = path.join(projectRoot, 'docs', slug);
+    fs.mkdirSync(targetDir, { recursive: true });
+    const perTarget = allFeatures.filter((f) => f.relatedTargets.includes(slug));
+    const fallbackId = `${slug.toUpperCase()}-BOOTSTRAP-001`;
+    const rows = (perTarget.length ? perTarget : [{
+      featureId: fallbackId,
+      name: `${slug} bootstrap placeholder`,
+      relatedTargets: [slug],
+      priority: 'must',
+      phase: 'mvp',
+      description: 'bootstrap generated placeholder feature',
+      acceptance: 'replace with real feature from docs/prd-spec.md',
+    }])
+      .map((f) =>
+        `| ${f.featureId} | health | ${f.name || f.featureId} | draft | ${f.priority} | ${f.phase} | ${f.relatedTargets.join(',')} | ${f.acceptance || ''} |`
+      )
+      .join('\n');
+    const details = (perTarget.length ? perTarget : [{
+      featureId: fallbackId,
+      name: `${slug} bootstrap placeholder`,
+      relatedTargets: [slug],
+      priority: 'must',
+      phase: 'mvp',
+      description: 'bootstrap generated placeholder feature',
+      acceptance: 'replace with real feature from docs/prd-spec.md',
+    }])
+      .map((f) => [
+        `### \`${f.featureId}\`: \`${f.name || f.featureId}\``,
+        '',
+        '- Area: health',
+        '- Status: `draft`',
+        `- Priority: \`${f.priority}\``,
+        `- Phase: \`${f.phase}\``,
+        `- Client target: \`${slug}\``,
+        `- Related targets: ${f.relatedTargets.join(',')}`,
+        '- Source requirement: docs/prd-spec.md#6-核心功能',
+        `- Description: ${f.description || ''}`,
+        '- User value: 快速确认系统可用',
+        '- Dependencies: none',
+        '- Risks: placeholder may be inaccurate if prd table changed',
+        '',
+        '#### Acceptance Criteria',
+        '',
+        '- Given 服务已启动',
+        `- When 调用 ${slug === 'backend' ? '/api/health' : 'health 页面'}`,
+        '- Then 返回或展示 healthy 状态',
+        '',
+        '#### Design Input Notes',
+        '',
+        '- Data / entity hints: health status object',
+        '- API / integration hints: backend health endpoint',
+        '- UI / flow hints: single status card',
+        '- Non-functional constraints: low latency',
+        '',
+        '#### Review Notes',
+        '',
+        '- prd-review decision: pending',
+        '- Blocking issues: none',
+        '- Follow-up: refine during design stage',
+      ].join('\n'))
+      .join('\n\n');
+
+    const flPath = path.join(targetDir, 'feature_list.md');
+    if (!fs.existsSync(flPath)) {
+      let text = featureListTplText
+        .replace('| client_target |  |', `| client_target | ${slug} |`)
+        .replace('| generated_at |  |', `| generated_at | ${now} |`);
+      text = text.replace('|  |  |  | draft | must | mvp |  |  |', rows);
+      text = text.replace(
+        /### `<FEATURE-ID>`: `<Feature Name>`[\s\S]*$/,
+        details
+      );
+      fs.writeFileSync(flPath, `${text}\n`, 'utf8');
+    }
+
+    const prdPath = path.join(targetDir, 'prd.md');
+    if (!fs.existsSync(prdPath)) {
+      const featureIds = (perTarget.length ? perTarget : [{ featureId: fallbackId }])
+        .map((f) => `- \`${f.featureId}\``)
+        .join('\n');
+      const prdText = [
+        `# ${slug} PRD`,
+        '',
+        `该文件由 ai-prd3 bootstrap 自动生成。来源：\`docs/prd-spec.md\`。`,
+        '',
+        '## Scope',
+        '',
+        `- Client target: \`${slug}\``,
+        '- Goal: deliver minimal health feature for local verification',
+        '',
+        '## Features',
+        '',
+        featureIds,
+        '',
+        '## Dependencies',
+        '',
+        '- Source spec: docs/prd-spec.md',
+        '- Config: docs/config.dev.json',
+      ].join('\n');
+      fs.writeFileSync(prdPath, `${prdText}\n`, 'utf8');
+    }
+  }
+}
+
 function main() {
   const args = parseArgs(process.argv);
   const projectRoot = requireProject(args);
@@ -165,6 +327,7 @@ function main() {
   for (const slug of parse.slugs) {
     fs.mkdirSync(path.join(projectRoot, 'docs', slug), { recursive: true });
   }
+  derivePerTargetFiles(projectRoot, parse.slugs, specText);
 
   stages.stages = stages.stages || {};
   stages.stages.prd = stages.stages.prd || {};

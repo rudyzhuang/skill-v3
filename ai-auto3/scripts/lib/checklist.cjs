@@ -177,8 +177,19 @@ function runAutorunChecklist(projectRoot, opts = {}) {
   }
 
   const patterns = (devCfg.security && devCfg.security.forbidden_json_key_patterns) || [];
-  const badDev = scanJsonForForbidden(devCfg, patterns);
-  const badRel = scanJsonForForbidden(relCfg, patterns);
+  /** 扫描用副本：排除 security 内「模式定义」与易误伤 schema 键名，避免自匹配（checklist#5） */
+  function configJsonForForbiddenScan(cfg) {
+    const c = JSON.parse(JSON.stringify(cfg));
+    if (c.security && typeof c.security === 'object') {
+      delete c.security.forbidden_json_key_patterns;
+      if (typeof c.security.secret_env_path === 'string') {
+        delete c.security.secret_env_path;
+      }
+    }
+    return c;
+  }
+  const badDev = scanJsonForForbidden(configJsonForForbiddenScan(devCfg), patterns);
+  const badRel = scanJsonForForbidden(configJsonForForbiddenScan(relCfg), patterns);
   if (badDev.length || badRel.length) {
     const msg = [...badDev, ...badRel].map((h) => `${h.path}: ${h.detail}`).join('\n');
     return { ok: false, message: `checklist#5 forbidden 扫描命中:\n${msg}` };

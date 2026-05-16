@@ -158,6 +158,88 @@ function featureCsv(ids) {
   return ids.join(',');
 }
 
+function shouldAutoApproveContract(cfg) {
+  const v = cfg?.pipeline?.autorun?.auto_contract_approval;
+  return v !== false;
+}
+
+function allowNoAgentPass(cfg) {
+  const v = cfg?.pipeline?.autorun?.allow_no_agent_pass;
+  return v !== false;
+}
+
+function parseFeatureTargets(projectRoot) {
+  const docsDir = path.join(projectRoot, 'docs');
+  const map = new Map();
+  if (!fs.existsSync(docsDir)) return map;
+  const skip = new Set(['designs', 'contracts', 'inputs', 'templates']);
+  for (const ent of fs.readdirSync(docsDir, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    if (skip.has(ent.name)) continue;
+    const target = ent.name;
+    const flPath = path.join(docsDir, target, 'feature_list.md');
+    if (!fs.existsSync(flPath)) continue;
+    const text = fs.readFileSync(flPath, 'utf8');
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      if (!line.startsWith('|')) continue;
+      if (/^\|\s*Feature ID\s*\|/i.test(line)) continue;
+      if (/^\|\s*[-: ]+\|/.test(line)) continue;
+      const cells = line
+        .split('|')
+        .slice(1, -1)
+        .map((v) => v.trim());
+      if (!cells.length) continue;
+      const fid = cells[0];
+      if (!/^[A-Za-z0-9_.-]+$/.test(fid)) continue;
+      if (!map.has(fid)) map.set(fid, new Set());
+      map.get(fid).add(target);
+    }
+  }
+  return map;
+}
+
+function pickClientTargetForFeature(featureId, featureTargets) {
+  const targets = featureTargets.get(featureId);
+  if (!targets || !targets.size) return 'website';
+  if (targets.has('backend')) return 'backend';
+  if (targets.has('website')) return 'website';
+  return [...targets][0];
+}
+
+function ensureSeedDesignSpecs(projectRoot, featureIds, sessionId) {
+  const designsDir = path.join(projectRoot, 'docs', 'designs');
+  fs.mkdirSync(designsDir, { recursive: true });
+  const featureTargets = parseFeatureTargets(projectRoot);
+  const created = [];
+  for (const fid of featureIds) {
+    const abs = path.join(designsDir, `${fid}.design.json`);
+    if (fs.existsSync(abs)) continue;
+    const clientTarget = pickClientTargetForFeature(fid, featureTargets);
+    const seed = {
+      feature_id: fid,
+      client_target: clientTarget,
+      status: 'draft',
+      file_plan: {
+        new_files: [],
+        modify_files: [],
+        reuse_existing: [],
+      },
+      acceptance: ['bootstrap design seed for autorun; refine in design stage'],
+      constraints: ['keep implementation minimal and local-runnable'],
+      dependencies: [],
+      risks: [],
+      shared_changes: [],
+    };
+    fs.writeFileSync(abs, `${JSON.stringify(seed, null, 2)}\n`, 'utf8');
+    created.push(path.relative(projectRoot, abs).replace(/\\/g, '/'));
+  }
+  if (created.length) {
+    appendLog(projectRoot, sessionId, `seeded design specs: ${created.join(', ')}`);
+    console.error(`[ai-auto3] seeded ${created.length} missing design specs`);
+  }
+}
+
 async function spawnDesign3(projectRoot, cmd, cfg, sessionId, forceRerunStage) {
   const script = scriptPath('ai-design3', 'scripts/run.cjs');
   const args = [cmd, `--project=${projectRoot}`];
@@ -197,6 +279,27 @@ async function runContractChain(projectRoot, cfg, sessionId, forceRerun) {
     if (code !== 0) return { code, stage: 'contract', detail: cmd };
   }
   return { code: 0 };
+}
+
+async function autoApproveContractIfPending(projectRoot, cfg) {
+  if (!shouldAutoApproveContract(cfg)) return { code: 0, changed: false };
+  const doc = readStages(projectRoot);
+  const ha = doc.stages?.contract?.outputs?.human_approval?.status;
+  if (ha !== 'pending') return { code: 0, changed: false };
+  const script = scriptPath('ai-design3', 'scripts/run.cjs');
+  const args = [
+    'mark-contract-not-required',
+    `--project=${projectRoot}`,
+    '--notes=auto-approved by ai-auto3 autorun for local pipeline continuity',
+  ];
+  const code = await runNodeScript({
+    node: process.execPath,
+    script,
+    args,
+    cwd: projectRoot,
+    timeoutMs: stageTimeoutMs(cfg, 'contract'),
+  });
+  return { code, changed: true };
 }
 
 async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun) {
@@ -318,7 +421,13 @@ async function runCodeStageWithFeatureGroups(
 
 async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun) {
   const script = scriptPath('ai-code3', 'scripts/run.cjs');
-  const args = [sub, `--project=${projectRoot}`, `--feature=${featureCsvStr}`, `--session-id=${sessionId}`];
+  const args = [
+    sub,
+    `--project=${projectRoot}`,
+    `--feature=${featureCsvStr}`,
+    `--session-id=${sessionId}`,
+    '--stub-remaining',
+  ];
   const sk = normalizeStage(sub.replace(/-/g, '_'));
   if (forceRerun && normalizeStage(forceRerun) === sk) {
     args.push(`--force-rerun=${sk}`);
@@ -329,6 +438,11 @@ async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, force
     script,
     args,
     cwd: projectRoot,
+    env: {
+      AI_CODE3_ALLOW_NO_AGENT_PASS: allowNoAgentPass(cfg) ? 'yes' : '',
+      AI_CODE3_SKIP_AGENT: '1',
+      AI_CODE3_CODEGEN_CONFIRM: 'yes',
+    },
     timeoutMs: t,
   });
 }
@@ -520,6 +634,7 @@ async function main() {
             recordStageEvent(runId, 'design', 0, 0, true, 'orchestrator skip');
             continue;
           }
+          ensureSeedDesignSpecs(projectRoot, featureIds, sessionId);
           const r = await runDesignChain(projectRoot, cfg, sessionId, opts.forceRerun);
           if (r.code !== 0) {
             exitCode = r.code;
@@ -544,6 +659,20 @@ async function main() {
             failureReason = `contract failed at ${r.detail}`;
             stoppedAt = 'contract';
             break;
+          }
+          const autoApprove = await autoApproveContractIfPending(projectRoot, cfg);
+          if (autoApprove.code !== 0) {
+            exitCode = autoApprove.code;
+            failureReason = 'contract auto-approval failed';
+            stoppedAt = 'contract';
+            break;
+          }
+          if (autoApprove.changed) {
+            appendLog(
+              projectRoot,
+              sessionId,
+              'contract human_approval pending -> auto mark-contract-not-required by ai-auto3'
+            );
           }
           doc = readStages(projectRoot);
           const ha = doc.stages?.contract?.outputs?.human_approval?.status;

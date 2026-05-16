@@ -49,7 +49,7 @@ node scripts/run.cjs --project=/abs/path/to/repo \
 | `lib/summary-hash.cjs` | `inputs.summary_hash`（`publish3.md` §6.3，含合并后 x-smoke 规范化输入） |
 | `lib/artifacts.cjs` | `artifact_ref` 与 `(client_target, sub_platform)` 映射 |
 | `lib/config-env.cjs` | 解析 `docs/config.env`（占位校验入口） |
-| `lib/forbidden-scan.cjs` | `security.forbidden_json_key_patterns`；**`security.*` 模板键名不参与子串匹配**以免误报 `secret_env_path` |
+| `lib/forbidden-scan.cjs` | `security.forbidden_json_key_patterns`；**`security.*` 模板键名不参与子串匹配**以免误报 `env_file_path` 等元数据键名 |
 | `lib/run-with-timeout.cjs` | 子步骤超时（`publish3.md` §4.1、§9）；**smoke** 异步 HTTP 可可靠触发 **退出 3** |
 | `lib/timeouts.cjs` | 读取 `config.dev.json.timeouts.stages.deploy_s` / `smoke_s` 与 `subcommand.heartbeat_interval_s`（缺省与模板一致） |
 | `lib/session-log.cjs` | `.agent-sessions/<session_id>.log` 追加；与 **`alive:`** 心跳（由 `run-with-timeout` 定时回调写入） |

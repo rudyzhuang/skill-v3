@@ -19,7 +19,7 @@ function collectForbiddenKeyViolations(value, patterns, prefix = '') {
     for (const k of Object.keys(value)) {
       const p = prefix ? `${prefix}.${k}` : k;
       const kl = k.toLowerCase();
-      // security.* 为模板元数据键名（如 secret_env_path），不参与 forbidden 子串匹配（publish3 §7.1.5 防误报）
+      // security.* 为模板元数据键名（如 env_file_path），不参与 forbidden 子串匹配（publish3 §7.1.5 防误报）
       const underSecurity = p === 'security' || p.startsWith('security.');
       if (!underSecurity) {
         for (const pat of patterns) {

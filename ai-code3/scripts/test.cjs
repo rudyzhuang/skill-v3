@@ -84,10 +84,14 @@ async function run(ctx) {
   const timeoutMs = stageTimeoutS(config, 'test_s', 1800) * 1000;
   const agentSubMs = Math.max(60_000, Math.floor(timeoutMs / 4));
 
-  const testCmd =
-    config?.build?.commands?.test ||
-    (fs.existsSync(path.join(projectRoot, 'package.json')) ? 'npm test' : '');
-
+  const targets = resolveTestTargets(doc, projectRoot, options.featureIds || []);
+  let testCmd = config?.build?.commands?.test || '';
+  if (!testCmd) {
+    const hasPkgInTargets =
+      fs.existsSync(path.join(projectRoot, 'package.json')) ||
+      targets.some((t) => fs.existsSync(path.join(t.worktree_path, 'package.json')));
+    if (hasPkgInTargets) testCmd = 'npm test --if-present';
+  }
   if (!testCmd) {
     const msg =
       'test blocked: set docs/config.dev.json build.commands.test or add package.json with npm test';
@@ -96,7 +100,6 @@ async function run(ctx) {
     return 1;
   }
 
-  const targets = resolveTestTargets(doc, projectRoot, options.featureIds || []);
   const fixCmd = config?.build?.commands?.test_fix;
   const noAgent = skipTestFixAgent();
 

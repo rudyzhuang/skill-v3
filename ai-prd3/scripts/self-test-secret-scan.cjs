@@ -11,9 +11,9 @@ const forbidden = ['secret', 'token', 'api_key', 'apikey', 'password', 'credenti
 assert.strictEqual(scanJsonSecrets({ api_key: 'x' }, forbidden).ok, false, '顶层 api_key 须失败');
 
 assert.strictEqual(
-  scanJsonSecrets({ security: { secret_env_path: 'docs/config.env' } }, forbidden).ok,
+  scanJsonSecrets({ security: { env_file_path: 'docs/config.env' } }, forbidden).ok,
   true,
-  'secret_env_path 白名单须通过',
+  'env_file_path 不含 forbidden 子串时须通过',
 );
 
 assert.strictEqual(

@@ -30,7 +30,8 @@ disable-model-invocation: true
 ## codegen 与 Cursor Agent（规划真源）
 
 - **worktree + 分相 Agent、环境变量、CI 跳过策略、状态字段** 以 **`docs/spec/code3.md` §7.4–§7.12** 为准（对齐上一代 **ai-codegen2**，状态落在 **`stages.codegen.outputs.worktrees[]`** 与 **`outputs.agent`**）。  
-- **`codegen.cjs`** 已拆分 **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`**、**`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**；**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
+- **`codegen.cjs`** 已拆分 **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`**、**`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**；若业务目录尚未初始化 git，codegen 会先自动 `git init` + 初始提交，再进入 worktree 与 diff-guard；**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
+- 当 `AI_CODE3_SKIP_AGENT=1` 且 `AI_CODE3_ALLOW_NO_AGENT_PASS=yes` 时，codegen 会在 worktree 自动 seed 最小本地可运行健康示例（`backend/website/tests/scripts` + `package.json`），以保证后续 `test/build` 可继续。
 
 ## 业务项目路径（相对 `<project_root>/`）
 

@@ -212,6 +212,87 @@ function resolveContractArtifactPaths(projectRoot, featureId, contractsDirRel) {
   return { types, api, schema, test_spec: testSpec, design_snapshot: designSnapshot };
 }
 
+function ensureContractArtifactsSeed(projectRoot, featureId, contractsDirRel) {
+  const cdir = contractsDirRel.split('/').join(path.sep);
+  const base = path.join(projectRoot, cdir, featureId);
+  fs.mkdirSync(base, { recursive: true });
+
+  const designRel = designSpecRel(projectRoot, featureId);
+  const designAbs = path.join(projectRoot, designRel);
+  let clientTarget = 'website';
+  let designDoc = null;
+  if (fs.existsSync(designAbs)) {
+    try {
+      designDoc = readJson(designAbs);
+      if (typeof designDoc.client_target === 'string' && designDoc.client_target.trim()) {
+        clientTarget = designDoc.client_target.trim();
+      }
+    } catch (_) {
+      /* keep defaults */
+    }
+  }
+
+  const typesPy = path.join(base, `${featureId}.types.py`);
+  if (!fs.existsSync(typesPy)) {
+    fs.writeFileSync(
+      typesPy,
+      `"""Auto-seeded by ai-design3 register-contract-artifacts."""\n\n` +
+        `from dataclasses import dataclass\n\n` +
+        `@dataclass\nclass ${featureId.replace(/[^A-Za-z0-9]/g, '_')}Payload:\n` +
+        `    status: str = "healthy"\n`,
+      'utf8'
+    );
+  }
+
+  const apiYaml = path.join(base, `${featureId}.api.yaml`);
+  if (!fs.existsSync(apiYaml)) {
+    const endpoint = featureId.toLowerCase().includes('health') ? '/api/health' : `/api/${featureId.toLowerCase()}`;
+    fs.writeFileSync(
+      apiYaml,
+      `openapi: 3.0.3\n` +
+        `info:\n  title: ${featureId} API\n  version: "1.0.0"\n` +
+        `paths:\n  ${endpoint}:\n    get:\n      x-smoke: true\n      responses:\n        "200":\n          description: OK\n`,
+      'utf8'
+    );
+  }
+
+  const schemaSql = path.join(base, `${featureId}.schema.sql`);
+  if (!fs.existsSync(schemaSql)) {
+    const table = `seed_${featureId.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+    fs.writeFileSync(
+      schemaSql,
+      `-- Auto-seeded by ai-design3\nCREATE TABLE IF NOT EXISTS ${table} (\n  id INTEGER PRIMARY KEY,\n  status TEXT NOT NULL,\n  created_at TEXT NOT NULL\n);\n`,
+      'utf8'
+    );
+  }
+
+  const testSpec = path.join(base, `${featureId}.test-spec.md`);
+  if (!fs.existsSync(testSpec)) {
+    fs.writeFileSync(
+      testSpec,
+      `# ${featureId} Test Spec\n\n## Happy Path\n\n- Given service is running\n- When request target endpoint\n- Then response status is 200\n`,
+      'utf8'
+    );
+  }
+
+  const snapshot = path.join(base, `${featureId}.design.snapshot.json`);
+  if (!fs.existsSync(snapshot)) {
+    const snap = {
+      feature_id: featureId,
+      client_target: clientTarget,
+      snapshot_version: 1,
+      derived_from_spec_path: designRel.split(path.sep).join('/'),
+      api_outline: Array.isArray(designDoc?.api_outline) ? designDoc.api_outline : [],
+      data_outline: Array.isArray(designDoc?.data_outline) ? designDoc.data_outline : [],
+      acceptance: Array.isArray(designDoc?.acceptance) ? designDoc.acceptance : [],
+      constraints: Array.isArray(designDoc?.constraints) ? designDoc.constraints : [],
+      file_plan: designDoc?.file_plan && typeof designDoc.file_plan === 'object' ? designDoc.file_plan : {},
+      shared_changes: Array.isArray(designDoc?.shared_changes) ? designDoc.shared_changes : [],
+    };
+    fs.writeFileSync(snapshot, `${JSON.stringify(snap, null, 2)}\n`, 'utf8');
+  }
+}
+
 /** design3 §5：从磁盘 design.json 复制进 stages.design.outputs.design_specs[] */
 function pickDesignSpecRow(featureId, relFs, doc) {
   const row = {
@@ -658,6 +739,7 @@ function main() {
     const contractsDirRel = readContractsDirRel(root);
     const artifacts = [];
     for (const fid of ids) {
+      ensureContractArtifactsSeed(root, fid, contractsDirRel);
       const paths = resolveContractArtifactPaths(root, fid, contractsDirRel);
       const row = { feature_id: fid, ...paths };
       const r = validateJson(v.validateArtifactItem, row, `artifacts[${fid}]`);

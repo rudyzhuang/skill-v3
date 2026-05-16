@@ -9,10 +9,11 @@ const VALUE_SECRET_PATTERNS = [
 ];
 
 /**
- * 键名仍含「secret」等子串但为结构性字段，不应命中 forbidden 子串规则。
- * （与 docs/templates/config.*.json.template 中 security 块字段对齐。）
+ * 键名仍含「secret」等子串但为结构性字段，不应命中 forbidden 子串规则（遗留 `secret_env_path`）。
+ * 推荐模板键名为 **`env_file_path`**（不含敏感子串，无需白名单）。
+ * `forbidden_json_key_patterns` 自身键名亦须豁免，以免与模式列表语义冲突。
  */
-const ALLOWED_KEY_NAMES = new Set(['secret_env_path', 'forbidden_json_key_patterns']);
+const ALLOWED_KEY_NAMES = new Set(['forbidden_json_key_patterns', 'secret_env_path']);
 
 /**
  * @param {unknown} obj

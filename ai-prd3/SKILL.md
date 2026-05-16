@@ -46,7 +46,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 
 | 子命令 | 职责 |
 | --- | --- |
-| `bootstrap` | 目录与模板拷贝、`stages` 合并、`stages.prd` → `running`；**`stages.prd.outputs.client_targets`** 与 `client_targets.declared` 对齐（§6） |
+| `bootstrap` | 目录与模板拷贝、`stages` 合并、`stages.prd` → `running`；**`stages.prd.outputs.client_targets`** 与 `client_targets.declared` 对齐（§6）；当目标端目录缺少 `docs/<target>/prd.md` / `feature_list.md` 时自动按 `prd-spec` 生成最小可校验派生文件 |
 | `parse-targets` | stdout 打印 `declared[]`（调试） |
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed**（`prd3.md` §4.2 末段） |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |
@@ -65,7 +65,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 - `--json=<path>`：**`write-prd-review` / `finalize-prd-review`** 的合并输入（绝对路径或相对项目根）。
 - **`report`**：`prd_review` 已完成时单独重打摘要；行为见上表（**不参与**门闸）。
 
-**附录 B（密钥扫描）**：`prd-validate-config.cjs` 与 `prd-review-validate.cjs` 使用 `lib/secret-scan.cjs`：读取 `config.dev.json` 的 `security.forbidden_json_key_patterns` 对键名做小写**子串**匹配，并对 string 值跑启发式。模板字段 **`secret_env_path`** 等见 `secret-scan.cjs` 白名单（避免与 `prd3.md` §17 字面「子串」冲突的结构性键名误杀）。
+**附录 B（密钥扫描）**：`prd-validate-config.cjs` 与 `prd-review-validate.cjs` 使用 `lib/secret-scan.cjs`：读取 `config.dev.json` 的 `security.forbidden_json_key_patterns` 对键名做小写**子串**匹配，并对 string 值跑启发式。模板字段 **`security.env_file_path`**（`.env` 文件相对路径，**非**密钥内容）为推荐键名；遗留 **`secret_env_path`** 与模式定义键名见 `secret-scan.cjs` 白名单，以免与 `prd3.md` §17 字面「子串」规则误杀。
 
 **超时（`prd3.md` §11）**：`run.cjs` 对受控子进程使用 `lib/run-with-timeout.cjs`，默认超时秒数来自 **`docs/config.dev.json` → `timeouts.stages.prd_s` / `prd_review_s`**。超时：**退出码 3**，并写当前阶段 `outputs.timed_out` / `duration_ms` / `timeout_reason`（`lib/stage-status.cjs`）。
 

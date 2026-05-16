@@ -14,6 +14,9 @@ const VALUE_HEURISTICS = [
   /AKIA[0-9A-Z]{16}/,
 ];
 
+/** 与 ai-prd3 / ai-design3 模板 security 块对齐；推荐 `env_file_path`，遗留 `secret_env_path` 仍须豁免 */
+const ALLOWED_KEY_NAMES = new Set(['forbidden_json_key_patterns', 'secret_env_path']);
+
 /**
  * @param {unknown} root - parsed config JSON
  * @param {string[]} extraPatterns - from security.forbidden_json_key_patterns
@@ -33,10 +36,12 @@ function scanConfigObject(root, extraPatterns = []) {
     }
     if (typeof obj !== 'object') return;
     for (const k of Object.keys(obj)) {
-      const lk = k.toLowerCase();
-      for (const pat of keyPatterns) {
-        if (pat && lk.includes(pat)) {
-          errors.push(`forbidden_key_pattern: ${prefix}.${k} matches ${pat}`);
+      if (!ALLOWED_KEY_NAMES.has(k)) {
+        const lk = k.toLowerCase();
+        for (const pat of keyPatterns) {
+          if (pat && lk.includes(pat)) {
+            errors.push(`forbidden_key_pattern: ${prefix}.${k} matches ${pat}`);
+          }
         }
       }
       const v = obj[k];

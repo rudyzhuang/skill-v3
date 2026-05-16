@@ -51,7 +51,9 @@ async function run(ctx) {
   const config = loadDevConfig(projectRoot);
   const timeoutMs = stageTimeoutS(config, 'build_s', 1800) * 1000;
   const cwd = projectRoot;
-  const buildCmd = config?.build?.commands?.build;
+  const buildCmd =
+    config?.build?.commands?.build ||
+    (fs.existsSync(path.join(projectRoot, 'package.json')) ? 'npm run build --if-present' : '');
 
   const clientTargets = config?.build?.client_targets;
   const declared = config?.project?.default_client_targets || Object.keys(clientTargets || {});

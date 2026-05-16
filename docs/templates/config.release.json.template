@@ -96,7 +96,7 @@
     ]
   },
   "security": {
-    "secret_env_path": "docs/config.env",
+    "env_file_path": "docs/config.env",
     "forbidden_json_key_patterns": [
       "secret",
       "token",

@@ -49,7 +49,7 @@
     "checks": []
   },
   "security": {
-    "secret_env_path": "docs/config.env",
+    "env_file_path": "docs/config.env",
     "forbidden_json_key_patterns": ["secret", "token", "api_key", "apikey", "password", "credential", "private_key"]
   },
   "metadata": { "created_by": "fixture", "created_at": null, "updated_at": null }
