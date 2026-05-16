@@ -30,9 +30,9 @@ cd skill-v3
 
 （若使用 HTTPS：`https://github.com/rudyzhuang/skill-v3.git`。）
 
-### 2. 将各 `ai-*3` 安装到 Cursor skills 目录
+### 2. 将各 skill 安装到 Cursor skills 目录
 
-本仓根目录下需安装的 skill 子目录包括：
+本仓根目录下需安装的 **流水线 skill**（`ai-*3`）与 **可选的迁移 skill** 如下：
 
 - `ai-prd3`
 - `ai-design3`
@@ -40,6 +40,7 @@ cd skill-v3
 - `ai-auto3`
 - `ai-publish-dev3`
 - `ai-publish-release3`
+- `migrate-v2-to-v3`（仅在有 **V2 → V3 老仓迁移**需求时链接；无 `package.json`，**不必** `npm install`）
 
 **做法 A（推荐）：符号链接** — 本仓更新后全局目录即跟随更新。
 
@@ -48,7 +49,7 @@ cd skill-v3
 ```bash
 SKILLS_ROOT="$HOME/.cursor/skills"
 mkdir -p "$SKILLS_ROOT"
-for d in ai-prd3 ai-design3 ai-code3 ai-auto3 ai-publish-dev3 ai-publish-release3; do
+for d in ai-prd3 ai-design3 ai-code3 ai-auto3 ai-publish-dev3 ai-publish-release3 migrate-v2-to-v3; do
   ln -sfn "<REPO>/$d" "$SKILLS_ROOT/$d"
 done
 ```
@@ -59,7 +60,7 @@ done
 $Repo = "C:\path\to\skill-v3"
 $Skills = Join-Path $env:USERPROFILE ".cursor\skills"
 New-Item -ItemType Directory -Force -Path $Skills | Out-Null
-foreach ($d in "ai-prd3","ai-design3","ai-code3","ai-auto3","ai-publish-dev3","ai-publish-release3") {
+foreach ($d in "ai-prd3","ai-design3","ai-code3","ai-auto3","ai-publish-dev3","ai-publish-release3","migrate-v2-to-v3") {
   $target = Join-Path $Skills $d
   if (Test-Path $target) { Remove-Item $target -Force }
   New-Item -ItemType SymbolicLink -Path $target -Target (Join-Path $Repo $d) | Out-Null
@@ -122,29 +123,23 @@ done
    - `ai-deploy2`、`ai-smoke2`、`ai-dash2`
    - 以及 **`auto-build-pro`**、**`auto-build-project-with-prd`** 等旧编排/并行 skill（若曾安装）。
 3. **（可选）** 若曾使用本版 **registry** 且希望从零重建：删除 **`~/.cursor/skills/_registry/`**（或其中 `registry.sqlite`）；下次运行 **ai-auto3** 会按需再建（见 `ai-auto3/SKILL.md`）。
-4. 按上文 **「按操作系统安装与使用」** 仅安装本仓的 **`ai-*3`**。
+4. 按上文 **「按操作系统安装与使用」** 安装本仓的 **`ai-*3`**；若有老仓迁移需求，一并链接 **`migrate-v2-to-v3`**。
 5. **业务项目**：V3 **不会**读取旧版 `stages.json`、各端 `deployment_plan.json`、业务仓内旧 `scripts/config.env` 等；老项目需按 `docs/input-spec.md` 第九节做一次迁移或重建配置，再跑 V3。
 
 **命名对照（便于你对照删哪些旧目录）**：见 `docs/input-spec.md` **§4.2** 表格「上一版 ↔ 本版 skill 映射」。
 
 ---
 
-## 仓库根目录 `scripts/`（用途说明）
+## `migrate-v2-to-v3`（迁移用 Cursor skill）
 
-本目录存放 **skill-v3 仓库级** 的辅助脚本，**不是**某个 `ai-*3` skill 的一部分，也**不需要**复制或链接到 `~/.cursor/skills/`。与各 skill 自带的 `ai-*/scripts/**`（随 Agent 或 CLI 调用）区分开。
-
-| 文件 | 用途 |
-| --- | --- |
-| **`migrate-v2-to-v3.cjs`** | 在**业务项目**上做一次 **V2 → V3** 数据契约迁移（依据 `docs/input-spec.md` §9.3 等）。默认 **dry-run**；加 **`--commit`** 才写盘。可能依赖本机 **`sqlite3` CLI** 读取旧版 SQLite 状态表；详见脚本文件头注释中的用法与覆盖范围。 |
-
-在克隆后的 **skill-v3 仓库根**执行示例：
+**V2 → V3** 一次性迁移脚本与说明集中在目录 **`migrate-v2-to-v3/`**（与其它 skill 同级），内含 **`SKILL.md`** 与 **`scripts/migrate-v2-to-v3.cjs`**。可与 **`ai-*3`** 一样链到 **`~/.cursor/skills/migrate-v2-to-v3/`**，便于在对话中用触发词唤起；执行迁移时在 **skill-v3 仓库根**调用：
 
 ```bash
-node scripts/migrate-v2-to-v3.cjs --project=/abs/path/to/business-repo
-node scripts/migrate-v2-to-v3.cjs --project=/abs/path/to/business-repo --commit
+node migrate-v2-to-v3/scripts/migrate-v2-to-v3.cjs --project=/abs/path/to/business-repo
+node migrate-v2-to-v3/scripts/migrate-v2-to-v3.cjs --project=/abs/path/to/business-repo --commit
 ```
 
-未覆盖的迁移项仍需对照 `docs/input-spec.md` **§9.3** 手工处理或自行扩展脚本。
+默认 **`--templates-root`** 指向 skill-v3 根（含 **`docs/templates/`**）；若只拷贝了 `migrate-v2-to-v3` 子目录，须显式传入 **`--templates-root`**。可能依赖本机 **`sqlite3` CLI**；未覆盖项见 **`docs/input-spec.md` §9.3** 与 **`migrate-v2-to-v3/SKILL.md`**。
 
 ---
 

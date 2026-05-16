@@ -3,19 +3,21 @@
  * skill-v3：v2（ai-*2 / 旧流水线）→ v3 数据契约一次性迁移脚本。
  * 依据 docs/input-spec.md §9.3 与 §9.3.4；默认 dry-run，需 --commit 才落盘。
  *
- * 用法：
- *   node scripts/migrate-v2-to-v3.cjs --project=/path/to/business-repo
- *   node scripts/migrate-v2-to-v3.cjs --project=... --commit
- *   node scripts/migrate-v2-to-v3.cjs --project=... --db=/path/pipeline.db
- *   node scripts/migrate-v2-to-v3.cjs --project=... --non-interactive --answers-json='{"inventory":"scripts/cloudflare/inventory.json"}'
+ * 用法（在 skill-v3 仓库根执行，或将脚本路径换为全局安装目录）：
+ *   node migrate-v2-to-v3/scripts/migrate-v2-to-v3.cjs --project=/path/to/business-repo
+ *   node migrate-v2-to-v3/scripts/migrate-v2-to-v3.cjs --project=... --commit
+ *   node migrate-v2-to-v3/scripts/migrate-v2-to-v3.cjs --project=... --db=/path/pipeline.db
+ *   node migrate-v2-to-v3/scripts/migrate-v2-to-v3.cjs --project=... --non-interactive --answers-json='{"inventory":"scripts/cloudflare/inventory.json"}'
  *
- * 模板根目录默认为本仓库（脚本所在 skill-v3 根）下的 docs/templates。
+ * 模板根目录默认为 **skill-v3 仓库根**（含 `docs/templates`）；本文件位于 `migrate-v2-to-v3/scripts/` 下时自动解析为上级目录的上级。
  * 覆盖：--templates-root=/path/to/skill-v3
  *
  * 当前脚本覆盖范围（其余请手工对照 input-spec §9.3.2）：
  * - 文件：inventory.json、deployment_plan.json、feature_list.json→md、scripts/config.env→docs/config.env
  * - SQLite：review_state / design_state / contract_state / codegen_state / test_state（需本机 sqlite3 CLI）
- * - 未自动合并的表：typecheck_state、review_code_state、merge 以外的 deploy/smoke/release 等，需后续手工或扩展脚本
+ * - 未自动合并的表：typecheck_state、review_code_state、codegen_state.test_codegen_status/agent.model、
+ *   merge 以外的 deploy/smoke/release 等，需后续手工或扩展脚本
+ * - 落盘后须跑 ai-prd3 的 validate-prd；本脚本已生成可通过 v0 门闸的 prd-spec / 各端 prd.md 骨架（仍建议人工补全业务内容）
  */
 
 'use strict';
@@ -54,7 +56,7 @@ function parseArgs(argv) {
   const out = {
     project: '',
     commit: false,
-    templatesRoot: path.join(__dirname, '..'),
+    templatesRoot: path.join(__dirname, '..', '..'),
     db: '',
     nonInteractive: false,
     answersJson: null,
@@ -706,18 +708,47 @@ function copyTemplateFileIfMissing(commit, dryLabel, templatesRoot, relFromTempl
   writeIfCommit(commit, dryLabel, dest, buf, true);
 }
 
-function minimalPrdSpec(clientTargets) {
-  const lines = [
-    '# PRD 总规（迁移占位）',
+/**
+ * 从 skill-v3 的 prd-spec.cn 模板生成初始 prd-spec.md，替换「端」下列表，以满足 ai-prd3
+ * prd-validate-spec（## 7. 各端专属需求 + 每端 ### 小节体长度）与 parseClientTargets。
+ * @param {string} templatesRoot skill-v3 根（含 docs/templates）
+ * @param {string[]} clientTargets 已排序 slug
+ */
+function initialPrdSpecCnFromTemplate(templatesRoot, clientTargets) {
+  const tplPath = path.join(templatesRoot, 'docs', 'templates', 'prd-spec', 'prd-spec.cn.md.template');
+  if (!exists(tplPath)) {
+    throw new Error(`缺少模板: ${tplPath}（请检查 --templates-root）`);
+  }
+  let md = fs.readFileSync(tplPath, 'utf8');
+  const slugs = clientTargets.length ? clientTargets : ['website'];
+  const bullets = slugs.map((s) => `- \`${s}\``).join('\n');
+  const replaced = md.replace(/\n(- `[a-z_]+`\s*\n)+(?=\n*规则：)/m, `\n${bullets}\n`);
+  if (replaced === md) {
+    throw new Error(
+      'prd-spec.cn.md.template 中未找到可替换的 client_targets 列表（预期 website/backend 两行），请对齐模板后再迁移',
+    );
+  }
+  return (
+    `<!-- 由 migrate-v2-to-v3.cjs 从 prd-spec.cn.md.template 生成；请补全业务正文后删除本行注释 -->\n` +
+    replaced
+  );
+}
+
+/** 各端 prd.md：满足 prd-validate-derived 最短长度与非空约束 */
+function minimalPrdMdForTarget(slug) {
+  return [
+    `# ${slug} — PRD 派生稿（迁移占位）`,
     '',
-    '由 `migrate-v2-to-v3.cjs` 生成：请人工补全各章节，或改从 skill 模板重新初始化。',
+    '本文件由 `migrate-v2-to-v3.cjs` 生成，用于通过 ai-prd3 的 `validate-derived` 门闸。',
+    '请根据 `docs/inputs/prd-spec.md` 中该端的「## 7. 各端专属需求」与核心功能表补全后，再执行 `write-prd` 或手工维护。',
     '',
-    '## 端 (Client Targets)',
+    '## 范围摘要（待替换）',
     '',
-  ];
-  for (const t of clientTargets) lines.push(`- ${t}`);
-  lines.push('');
-  return lines.join('\n');
+    `- 端标识：\`${slug}\``,
+    '- 与总规对齐：待从 prd-spec 第 6、7 节同步',
+    '- 与 feature_list：以同目录 feature_list.md 为准直至总规更新',
+    '',
+  ].join('\n');
 }
 
 async function main() {
@@ -867,6 +898,8 @@ async function main() {
       if (s.client_target) clientTargetsSet.add(s.client_target);
     }
   const clientTargets = [...clientTargetsSet].sort();
+  /** 与 prd-spec / 各端骨架一致；无盘点结果时默认 website，避免 declared 为空与文档脱节 */
+  const effectiveClientTargets = clientTargets.length ? clientTargets : ['website'];
 
   const stages = readTemplate(templatesRoot, 'stages.json.template');
   const pid = makeProjectId(projectRoot);
@@ -877,8 +910,8 @@ async function main() {
   stages.project.name = path.basename(projectRoot);
   stages.project.git.remote = remote;
   stages.project.git.default_branch = branch;
-  stages.client_targets.declared = clientTargets;
-  stages.client_targets.generated = clientTargets;
+  stages.client_targets.declared = effectiveClientTargets;
+  stages.client_targets.generated = effectiveClientTargets;
 
   if (exists(dbPath) && sqlite3Available()) {
     const q = (t) => sqliteQueryJson(dbPath, `SELECT * FROM ${t}`);
@@ -912,14 +945,14 @@ async function main() {
   cfgDev.project.project_id = pid;
   cfgDev.project.name = path.basename(projectRoot);
   cfgDev.project.root_path = projectRoot;
-  cfgDev.project.default_client_targets = clientTargets;
+  cfgDev.project.default_client_targets = effectiveClientTargets;
   cfgDev.deploy = { ...cfgDev.deploy, ...mergedDeploy };
 
   const cfgRel = readTemplate(templatesRoot, 'config.release.json.template');
   cfgRel.project.project_id = pid;
   cfgRel.project.name = path.basename(projectRoot);
   cfgRel.project.root_path = projectRoot;
-  cfgRel.project.default_client_targets = clientTargets;
+  cfgRel.project.default_client_targets = effectiveClientTargets;
   cfgRel.deploy = { ...cfgRel.deploy, ...mergedDeploy, environment: 'release' };
 
   if (args.listChoicesOnly) {
@@ -960,9 +993,20 @@ async function main() {
 
   const prdSpec = path.join(projectRoot, 'docs', 'inputs', 'prd-spec.md');
   if (!exists(prdSpec)) {
-    writeIfCommit(args.commit, dryLabel, prdSpec, minimalPrdSpec(clientTargets.length ? clientTargets : ['website']), false);
+    const specBody = initialPrdSpecCnFromTemplate(templatesRoot, effectiveClientTargets);
+    writeIfCommit(args.commit, dryLabel, prdSpec, specBody, false);
   } else console.log(`[skip] 已存在 docs/inputs/prd-spec.md`);
 
+  for (const slug of effectiveClientTargets) {
+    const prdMd = path.join(projectRoot, 'docs', slug, 'prd.md');
+    if (!exists(prdMd)) {
+      ensureDir(path.dirname(prdMd));
+      writeIfCommit(args.commit, dryLabel, prdMd, minimalPrdMdForTarget(slug), false);
+    } else console.log(`[skip] 已存在 ${prdMd}`);
+  }
+
+  /** @type {Set<string>} 本 run 已从 json 生成路径（dry-run 时尚未落盘，避免占位循环重复） */
+  const featureListPathsFromJson = new Set();
   for (const flPath of featureListJsons) {
     const dir = path.dirname(flPath);
     const base = path.basename(dir);
@@ -973,7 +1017,48 @@ async function main() {
       continue;
     }
     const data = readJson(flPath);
-    const md = featureListJsonToMarkdownWithDetails(data, clientTarget, args.featureDetailMode);
+    const items = Array.isArray(data.items) ? data.items : [];
+    const dataForMd =
+      items.length > 0
+        ? data
+        : {
+            ...data,
+            items: [
+              {
+                id: 'MIGRATE-PLACEHOLDER-001',
+                name: '（迁移占位）请用 ai-prd3 从 prd-spec 重新派生 feature 列表',
+                status: 'draft',
+                priority: 'P0',
+                scope: 'MVP',
+                area: 'migration',
+                acceptance_criteria: ['迁移脚本未在 v2 feature_list.json 中发现条目；补全 prd-spec 后删除本占位行'],
+              },
+            ],
+          };
+    const md = featureListJsonToMarkdownWithDetails(dataForMd, clientTarget, args.featureDetailMode);
+    featureListPathsFromJson.add(path.resolve(mdPath));
+    writeIfCommit(args.commit, dryLabel, mdPath, md, false);
+  }
+
+  const placeholderFeatureData = (slug) => ({
+    title: `${slug} features`,
+    items: [
+      {
+        id: 'MIGRATE-PLACEHOLDER-001',
+        name: '（迁移占位）请用 ai-prd3 从 prd-spec 重新派生 feature 列表',
+        status: 'draft',
+        priority: 'P0',
+        scope: 'MVP',
+        area: 'migration',
+        acceptance_criteria: ['未发现对应 v2 feature_list.json；补全 prd-spec 后删除本占位行'],
+      },
+    ],
+  });
+  for (const slug of effectiveClientTargets) {
+    const mdPath = path.join(projectRoot, 'docs', slug, 'feature_list.md');
+    const abs = path.resolve(mdPath);
+    if (exists(mdPath) || featureListPathsFromJson.has(abs)) continue;
+    const md = featureListJsonToMarkdownWithDetails(placeholderFeatureData(slug), slug, args.featureDetailMode);
     writeIfCommit(args.commit, dryLabel, mdPath, md, false);
   }
 
