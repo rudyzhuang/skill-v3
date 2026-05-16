@@ -9,7 +9,7 @@
 | **与 `docs/templates/` 的关系** | **JSON / Markdown 字段形状**以 **`docs/templates/stages.json.template`**、**`docs/templates/config.dev.json.template`**（及 release 对档）为准。本文 **§19** 列出 **`stages.json`** 读写子集；**模板字段速查**见 **附录 C**（与 **prd3.md §18 附录 C** 字母含义一致：实现辅助与验收勾选项）；模板增删字段时，**同一维护周期**内更新本文 §19、附录 C 与相关脚本契约。 |
 | **`inputs.summary_hash`（全局门闸）** | `input-spec.md` §4.4 要求各阶段维护 `stages.<stage>.inputs.summary_hash`。**`docs/templates/stages.json.template` v1 已在各 `stages.*.inputs` 下提供 `summary_hash` 占位**；ai-code3 在完成各阶段成功路径时须按本文 **§13** 写入/更新非空哈希（与 `input-spec.md` §9.1 additive 规则一致）。 |
 | **与上一版 skill 的关系** | **不得**把 v2 仓库路径、SQLite `*_state`、业务仓内旧脚本契约写入 v3 默认实现；经验映射见 **§2**。 |
-| **实现覆盖快照（评审用）** | **§0.1** 为 **`ai-code3/scripts` 行为级**对照；**§7.4 起**为 codegen **扩展目标**正文，细项与 **§7.8–§7.12** 的穷尽验收以 **`docs/plans/ai-code3-implementation-plan.md` §4.3** 为准（可与 §0.1 同能力标 **部分** 而不矛盾）。 |
+| **实现覆盖快照（评审用）** | **§0.1** 为 **`ai-code3/scripts` 行为级**对照；**§7.4 起**为 codegen **扩展目标**正文。**§7.8–§7.12** 编排/Cursor 细项：以 **本文 §7.8–§7.12** 为条文真源；与脚本对齐时在 **§0.1** 可标 **部分**（须与 §7 不矛盾）。全量自动化门禁与两轮评审见 **§16.1**。 |
 
 **维护流程（需求变更时）**：
 
@@ -25,7 +25,7 @@
 | --- | --- | --- | --- |
 | `run.cjs` 串联、`summary_hash` 跳过、`failed_stage=` | §4、附录 A.3、§13 | **是** | |
 | `preflight`：根、`config.dev.json`、**`stages.json`**、schema、**config.* secret-scan** | §4.1、附录 B | **是** | **§7.2** 上游门闸：默认**不**跑；设 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 时与 **`lib/codegen-gates.cjs`** 对齐预检 |
-| `codegen`：§7.2 门闸 + 主仓 **diff-guard** + per-feature **worktree** + worktree 内契约 **二次 diff-guard** + 外部 Agent 钩子 | §7.2–§7.12（**§7.4** 为扩展目标总述；**§7.7–§7.9** 为 worktree/Agent/分相） | **是**（脚本核） / **部分**（§7.8–§7.12 编排细项） | **核**：**`lib/codegen-worktree.cjs`** / **`codegen-scaffold`** / **`invoke-ai-code3-agent`**（**`AI_CODE3_FEATURE_ID`**）、**`outputs.agent`**、**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_ALLOW_NO_AGENT_PASS`**；**细项**：编排/Cursor 全矩阵见 **`docs/plans/ai-code3-implementation-plan.md` §4.3** |
+| `codegen`：§7.2 门闸 + 主仓 **diff-guard** + per-feature **worktree** + worktree 内契约 **二次 diff-guard** + 外部 Agent 钩子 | §7.2–§7.12（**§7.4** 为扩展目标总述；**§7.7–§7.9** 为 worktree/Agent/分相） | **是**（脚本核） / **部分**（§7.8–§7.12 编排细项） | **核**：**`lib/codegen-worktree.cjs`** / **`codegen-scaffold`** / **`invoke-ai-code3-agent`**（**`AI_CODE3_FEATURE_ID`**）、**`outputs.agent`**、**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_ALLOW_NO_AGENT_PASS`**；**细项**：**§7.8–§7.12** 与上表 **§16** 用例；矩阵级对齐以 **§0.1**「部分」列与 **§16.1** 门禁为准 |
 | `typecheck` | §8 | **是** | 含 T1 全 skip→0 |
 | `test` | §9 | **是** | 按 **`codegen.outputs.worktrees[]`**（可 **`--feature`** 过滤）逐 feature **cwd**；**`test_fix`** + **`AI_CODE3_PHASE=test_fix`** 外部 Agent；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_SKIP_TEST_FIX_AGENT`**；**`outputs.per_feature[]`** |
 | `code-review` | §10 | **是** | 优先级：**`AI_CODE3_CODE_REVIEW_JSON`** → 外部 Agent（**`AI_CODE3_PHASE=code_review`**，写 **`AI_CODE3_CODE_REVIEW_OUTPUT`**）+ **Ajv** 校验 **`templates/schemas/code-review-output.v3.schema.json`** → 人工预填 / stub |
@@ -466,6 +466,16 @@ ai-code3/
 | **clean** 移除 **v3-fc-*** worktree（`AI_CODE3_CLEAN_CONFIRM=yes`） | worktree 目录删除；**`self-test-clean.cjs`** |
 | **code_review** LLM 输出 JSON 未通过 **Ajv**（`templates/schemas/code-review-output.v3.schema.json`） | **退出 4** |
 
+### 16.1 自动化门禁与两轮全量评审（推荐）
+
+以下命令在 **`<skill_v3_repo>/`** 执行（路径与 **`ai-code3/SKILL.md`** 示例一致），须 **exit 0**：
+
+1. `node ai-code3/scripts/self-test-secret-scan.cjs`  
+2. `node ai-code3/scripts/self-test-merge-push.cjs`  
+3. `node ai-code3/scripts/smoke.cjs`（内含 **`npm ci`**、clean / preflight 上游等子自测，见脚本与 **§4.1**）
+
+**两轮评审**：首轮执行 **1–3** 并处理阻塞项；修复后**以相同三条命令再执行一遍**；两轮均通过且无新增回归，即视为本轮全量验收通过。**文档核对**：**§0.1** 与 **`ai-code3/scripts/**/*.cjs`** 行为一致；**§4.1** 目录树、脚本职责表与 **`self-test-*.cjs`** / **`smoke.cjs`** 清单齐全；**`SKILL.md` §0** 指向本文 **§0.1**；冒烟命令与 **§16.1** 本条一致；**§7.8–§7.12** 未穷尽项须在 **§0.1** 标 **部分** 且与 **§7** 正文无矛盾。
+
 ---
 
 ## 17. 模板与 skill 发布同步
@@ -640,6 +650,7 @@ ai-code3/
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.8 | 2026-05-16 | 删除 **`docs/plans/ai-code3-implementation-plan.md`**；原门禁与两轮评审并入 **§16.1**；**§0** / **§0.1** 去外链，真源收口为本文 |
 | 0.7 | 2026-05-15 | **§0.1 实现覆盖快照**；**§4.1** 修正 **`preflight`/`codegen`/`code-review`/`build`** 与当前仓库脚本一致（目标 vs 过渡/部分实现分述） |
 | 0.6 | 2026-05-15 | **§11 merge-push**：补充 **§11.4** 与仓库脚本一致的默认实现说明（真 merge / push、干净树门闸、`merge-git.cjs`） |
 | 0.5 | 2026-05-15 | **codegen 扩展方案**：§7.4–§7.12（worktree + Cursor Agent 对齐 v2 **ai-codegen2**）；§4.1 目录与 lib 职责；§14 退出码 **4** 含 codegen 约定；附录 A/C **codegen** 行；附录 C **`outputs.agent`**；§16 增补验收行 |

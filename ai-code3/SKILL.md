@@ -75,7 +75,7 @@ node ai-code3/scripts/smoke.cjs
 
 `smoke.cjs` 会：在 **`ai-code3/`** 目录执行 **`npm ci`**（安装 **ajv** 等依赖）；依次跑 secret-scan、**merge-push（真实 git）** 自测、**`self-test-clean.cjs`**、**`self-test-preflight-upstream.cjs`**；再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
 
-分阶段实施与两轮评审门禁见 **`docs/plans/ai-code3-implementation-plan.md`**。
+自动化门禁与两轮全量评审见 **`docs/spec/code3.md` §16.1**（须与上表三条自测命令一致）。
 
 ## 退出码（与 `docs/input-spec.md` §5 一致）
 

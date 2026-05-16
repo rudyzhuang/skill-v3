@@ -83,7 +83,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | 项 | 说明 |
 | --- | --- |
 | **编排层「已完成」捷径** | 对 **design / contract / design_review** 仅用 **`status===completed` + `validation.passed`** 跳过整段宏；**未**在编排层重算 **`inputs.summary_hash`**（子 skill 子命令内部仍会按自身规则跳过）。 |
-| **并行多路 ai-code3** | **规格**：**§5.7** 下按 **group** 并行（受 **`feature_group_max_parallel`** 约束）。**当前仓库实现**若仍为**单进程** **`--feature=<本期全集>`** 串行 **`codegen`→`build`**，属实现滞后于规格时须在迭代中收敛至 **§5.7**（或与 **§5.6.2** 无竞态策略一致）。 |
+| **并行多路 ai-code3** | **`autorun.cjs`** 在 **`codegen`～`code-review`** 按 **auto3.md §5.7** 读 **`stages.contract` + `design_snapshot`** 分组，层内受 **`pipeline.autorun.feature_group_max_parallel`** 限制并行 spawn；**`merge-push` / `build`** 仍为**本轮 id 全集**单次调用。多进程写 **`stages.json`** 须遵守 **§5.6.2**（建议 **`feature_group_max_parallel: 1`** 直至 **ai-code3** 分片写回）。 |
 | **编排心跳 tee** | **§8.2** 30s 心跳未在编排 `spawn` 层实现；依赖各子 skill 自身日志。 |
 
 ## 参考

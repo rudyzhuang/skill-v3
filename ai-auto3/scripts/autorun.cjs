@@ -22,6 +22,11 @@ const {
   recordStageEvent,
 } = require('./lib/registry-db.cjs');
 const { shouldSkipCodeStage } = require('./lib/code-skip.cjs');
+const {
+  getFeatureGroupMaxParallel,
+  planFeatureGroupWaves,
+  groupSortKey,
+} = require('./lib/feature-groups.cjs');
 
 const DESIGN_CHAIN = [
   'scan-design-style',
@@ -211,6 +216,106 @@ async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun) {
   return { code: 0 };
 }
 
+/**
+ * 同一阶段层内：最多 maxParallel 路 ai-code3 并行（auto3.md §5.7）。
+ * @param {string[][]} layerGroups 本层每个元素为一组 feature_id[]
+ */
+async function runLayerGroupsParallel(
+  projectRoot,
+  cmd,
+  stageKey,
+  layerGroups,
+  cfg,
+  logSessionId,
+  sessionPrefixForCode3,
+  forceRerun,
+  maxParallel
+) {
+  const items = layerGroups.map((members) => ({
+    members,
+    key: groupSortKey(members),
+    csv: featureCsv(members),
+  }));
+  let cursor = 0;
+  let failCode = 0;
+  let failKey = '';
+
+  async function worker() {
+    for (;;) {
+      if (failCode !== 0) return;
+      const i = cursor++;
+      if (i >= items.length) return;
+      const { members, key, csv } = items[i];
+      const short = crypto.createHash('sha1').update(key).digest('hex').slice(0, 10);
+      const sid = `${sessionPrefixForCode3}-${short}`;
+      appendLog(
+        projectRoot,
+        logSessionId,
+        `spawn ai-code3 ${cmd} stage=${stageKey} group=${key} --feature=${csv} session=${sid}`
+      );
+      const code = await spawnCode3(projectRoot, cmd, csv, cfg, sid, forceRerun);
+      if (code !== 0) {
+        if (failCode === 0) {
+          failCode = code;
+          failKey = key;
+        }
+        return;
+      }
+    }
+  }
+
+  const n = Math.min(Math.max(1, maxParallel), items.length);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  if (failCode !== 0) {
+    appendLog(projectRoot, logSessionId, `ai-code3 ${cmd} failed code=${failCode} group=${failKey}`);
+  }
+  return failCode;
+}
+
+async function runCodeStageWithFeatureGroups(
+  projectRoot,
+  cmd,
+  stageKey,
+  featureIds,
+  cfg,
+  sessionId,
+  forceRerun
+) {
+  const doc = readStages(projectRoot);
+  const plan = planFeatureGroupWaves(featureIds, doc, projectRoot);
+  for (const w of plan.warnings) {
+    appendLog(projectRoot, sessionId, `[feature-plan] ${w}`);
+    console.error(`[ai-auto3][feature-plan] ${w}`);
+  }
+  const maxP = getFeatureGroupMaxParallel(cfg);
+  appendLog(
+    projectRoot,
+    sessionId,
+    `feature groups: layers=${plan.layers.length} maxParallel=${maxP} (pipeline.autorun.feature_group_max_parallel)`
+  );
+  for (let li = 0; li < plan.layers.length; li++) {
+    const layer = plan.layers[li];
+    appendLog(
+      projectRoot,
+      sessionId,
+      `layer ${li + 1}/${plan.layers.length}: ${layer.length} group(s) — ${layer.map((g) => groupSortKey(g)).join(' | ')}`
+    );
+    const code = await runLayerGroupsParallel(
+      projectRoot,
+      cmd,
+      stageKey,
+      layer,
+      cfg,
+      sessionId,
+      `${sessionId}-${stageKey}`,
+      forceRerun,
+      maxP
+    );
+    if (code !== 0) return code;
+  }
+  return 0;
+}
+
 async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun) {
   const script = scriptPath('ai-code3', 'scripts/run.cjs');
   const args = [sub, `--project=${projectRoot}`, `--feature=${featureCsvStr}`, `--session-id=${sessionId}`];
@@ -343,6 +448,20 @@ async function main() {
 
   if (opts.dryRun) {
     console.error(`[dry-run] would run stages: ${slice.join(' -> ')} features=${featStr}`);
+    if (slice.some((s) => ['codegen', 'typecheck', 'test', 'code_review', 'merge_push', 'build'].includes(s))) {
+      try {
+        const plan = planFeatureGroupWaves(featureIds, readStages(projectRoot), projectRoot);
+        console.error(`[dry-run] feature_group_max_parallel=${getFeatureGroupMaxParallel(cfg)}`);
+        plan.warnings.forEach((w) => console.error(`[dry-run][feature-plan] ${w}`));
+        plan.layers.forEach((layer, i) => {
+          console.error(
+            `[dry-run] layer ${i + 1}: ${layer.length} group(s) -> ${layer.map((g) => groupSortKey(g)).join(' | ')}`
+          );
+        });
+      } catch (e) {
+        console.error(`[dry-run] feature plan preview failed: ${e.message || e}`);
+      }
+    }
     process.exit(0);
   }
 
@@ -476,14 +595,27 @@ async function main() {
             break;
           }
           const cmd = row[1];
-          const code = await spawnCode3(
-            projectRoot,
-            cmd,
-            featStr,
-            cfg,
-            `${sessionId}-${sk}`,
-            opts.forceRerun
-          );
+          let code = 0;
+          if (sk === 'merge_push' || sk === 'build') {
+            code = await spawnCode3(
+              projectRoot,
+              cmd,
+              featStr,
+              cfg,
+              `${sessionId}-${sk}`,
+              opts.forceRerun
+            );
+          } else {
+            code = await runCodeStageWithFeatureGroups(
+              projectRoot,
+              cmd,
+              sk,
+              featureIds,
+              cfg,
+              sessionId,
+              opts.forceRerun
+            );
+          }
           if (code !== 0) {
             exitCode = code;
             failureReason = `ai-code3 ${cmd} exit=${code}`;

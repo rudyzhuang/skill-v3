@@ -165,6 +165,17 @@ function runAutorunChecklist(projectRoot, opts = {}) {
   const d2 = assertSchema(relCfg, 'config.release.json');
   if (d2) return { ok: false, message: d2 };
 
+  const fgp = devCfg.pipeline?.autorun?.feature_group_max_parallel;
+  if (
+    fgp != null &&
+    (typeof fgp !== 'number' || !Number.isFinite(fgp) || fgp < 1 || Math.floor(fgp) !== fgp)
+  ) {
+    return {
+      ok: false,
+      message: 'checklist: pipeline.autorun.feature_group_max_parallel 须为 >=1 的整数（见 auto3.md §5.7.4）',
+    };
+  }
+
   const patterns = (devCfg.security && devCfg.security.forbidden_json_key_patterns) || [];
   const badDev = scanJsonForForbidden(devCfg, patterns);
   const badRel = scanJsonForForbidden(relCfg, patterns);
