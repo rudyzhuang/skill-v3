@@ -15,6 +15,7 @@ const { requireAbsoluteProject } = require('./lib/summary.cjs');
 const { buildDashboard, buildRegistryPayload } = require('./lib/dashboard.cjs');
 const { fetchRegistryExport } = require('./lib/registry-bridge.cjs');
 const { invokeStopPipeline } = require('./lib/stop-bridge.cjs');
+const { buildStopServeResponse, scheduleStopServe } = require('./lib/stop-serve.cjs');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
 const MIME = {
@@ -117,8 +118,9 @@ function getRegistryCached() {
 
 function createServer(opts) {
   const defaultProject = opts.project ? safeProjectRoot(opts.project) : null;
+  const serveMeta = { host: opts.host, port: opts.port, pid: process.pid };
 
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
     if (req.method === 'GET' && url.pathname === '/api/registry') {
@@ -126,10 +128,25 @@ function createServer(opts) {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/config') {
+      const addr = server.address();
+      const listenPort =
+        addr && typeof addr === 'object' && addr.port != null ? addr.port : serveMeta.port;
       return sendJson(res, 200, {
         schema: 'ai-dash3.config.v1',
         default_project_root: defaultProject,
+        serve: {
+          pid: process.pid,
+          host: serveMeta.host,
+          port: listenPort,
+        },
       });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/stop-serve') {
+      const payload = buildStopServeResponse(server, serveMeta);
+      sendJson(res, 200, payload);
+      scheduleStopServe(server);
+      return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/stop') {
@@ -192,6 +209,8 @@ function createServer(opts) {
     res.writeHead(404);
     res.end('not found');
   });
+
+  return server;
 }
 
 function main(argv) {

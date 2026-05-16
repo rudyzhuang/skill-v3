@@ -90,6 +90,17 @@ button {
   cursor: pointer;
 }
 
+button.btn-outline {
+  background: transparent;
+  border: 1px solid rgba(255, 120, 120, 0.55);
+  color: #f0a0a0;
+}
+
+button.btn-outline:hover:not(:disabled) {
+  background: rgba(255, 80, 80, 0.12);
+  border-color: rgba(255, 120, 120, 0.85);
+}
+
 button.btn-danger {
   background: #5c2329;
   border-color: var(--bad);

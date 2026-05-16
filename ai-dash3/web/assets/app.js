@@ -60,14 +60,24 @@ function formatLocalTime(iso) {
   return d.toLocaleString('zh-CN', { hour12: false });
 }
 
-function updateStopButton(dash) {
-  const btn = $('stopBtn');
-  if (!btn) return;
-  const stoppable = !!(dash && dash.pipeline_stoppable);
-  btn.disabled = !currentProjectRoot || !stoppable;
-  btn.title = stoppable
-    ? '停止该项目的 autorun、ai-code3、cursor-agent 等后台进程'
-    : '当前未检测到该项目的 pipeline 后台进程';
+let serveMeta = { pid: null, host: '127.0.0.1', port: null };
+
+function updateStopButtons(dash) {
+  const serveBtn = $('stopServeBtn');
+  const pipeBtn = $('stopPipelineBtn');
+  if (serveBtn) {
+    serveBtn.disabled = false;
+    const port = serveMeta.port || window.location.port || '9473';
+    const pid = serveMeta.pid != null ? serveMeta.pid : '—';
+    serveBtn.title = `停止当前 ai-dash3 serve（${serveMeta.host || '127.0.0.1'}:${port}，PID ${pid}）`;
+  }
+  if (pipeBtn) {
+    pipeBtn.disabled = !currentProjectRoot;
+    const stoppable = !!(dash && dash.pipeline_stoppable);
+    pipeBtn.title = stoppable
+      ? '停止该项目的 autorun、ai-code3、cursor-agent 等（经 ai-auto3 stop-pipeline）'
+      : '未检测到运行中进程；仍可尝试清理 pipeline 锁与 registry';
+  }
 }
 
 function setBanner(overall, dash) {
@@ -80,7 +90,7 @@ function setBanner(overall, dash) {
     extra = ' · 锁文件残留（进程已退出）';
   }
   if (dash.registry_stale_run) {
-    extra += ' · registry 有未结束 run（进程可能已退出，可点「停止运行」清理）';
+    extra += ' · registry 有未结束 run（进程可能已退出，可点「停止所有后台任务」清理）';
   } else if (dash.autorun_active) {
     extra += ' · autorun 运行中';
   }
@@ -111,7 +121,7 @@ function renderRuntime(dash) {
   fillKv($('runtimeDl'), [
     ['autorun 活跃', dash.autorun_active ? '是' : '否'],
     ['PID 锁存活', dash.pid_lock_alive ? '是' : '否'],
-    ['registry 僵尸 run', dash.registry_stale_run ? '是（建议停止运行）' : '否'],
+    ['registry 僵尸 run', dash.registry_stale_run ? '是（建议停止所有后台任务）' : '否'],
     ['registry 未结束 run', dash.registry_run_active ? '是' : '否'],
     ['当前 codegen feature', dash.active_codegen_feature_id || '—'],
     ['当前 phase', rt.current_phase],
@@ -285,7 +295,7 @@ async function loadDashboard() {
   try {
     const dash = await fetchJson(`/api/dashboard?project=${encodeURIComponent(root)}`);
     lastDashboard = dash;
-    updateStopButton(dash);
+    updateStopButtons(dash);
     setBanner(dash.overall, dash);
     renderRuntime(dash);
     renderSummary(dash);
@@ -295,9 +305,38 @@ async function loadDashboard() {
     renderRuns(dash);
   } catch (e) {
     lastDashboard = null;
-    updateStopButton(null);
+    updateStopButtons(null);
     $('statusBanner').className = 'status-banner overall-failed';
     $('statusBanner').innerHTML = `<span class="error-text">${escapeHtml(e.message)}</span>`;
+  }
+}
+
+async function stopServe() {
+  const port = serveMeta.port || window.location.port || '9473';
+  const host = serveMeta.host || window.location.hostname || '127.0.0.1';
+  const pid = serveMeta.pid != null ? serveMeta.pid : '（见终端）';
+  if (
+    !window.confirm(
+      `确定停止当前看板后台？\n\n将关闭本页面对应的 ai-dash3 serve：\n${host}:${port}（PID ${pid}）\n\n关闭后页面将无法继续刷新；若端口仍被占用可执行：lsof -ti :${port} | xargs kill`
+    )
+  ) {
+    return;
+  }
+  const btn = $('stopServeBtn');
+  btn.disabled = true;
+  btn.textContent = '停止中…';
+  try {
+    await fetchJson('/api/stop-serve', { method: 'POST' });
+    window.alert('看板后台已停止。本页将无法继续自动刷新。');
+  } catch (e) {
+    if (String(e.message || e).includes('fetch') || String(e.message || e).includes('Failed')) {
+      window.alert('看板后台已停止（连接已断开）。');
+    } else {
+      window.alert(`停止本后台失败：${e.message}`);
+    }
+  } finally {
+    btn.textContent = '停止本后台';
+    btn.disabled = false;
   }
 }
 
@@ -309,12 +348,12 @@ async function stopPipeline() {
   }
   if (
     !window.confirm(
-      `确定停止该项目所有流水线后台进程？\n\n${root}\n\n将发送 SIGTERM/SIGKILL 给 autorun、ai-code3、cursor-agent 等，并清除 registry 运行态。`
+      `确定停止该项目由 ai-auto3 拉起的所有后台任务？\n\n${root}\n\n将发送 SIGTERM/SIGKILL 给 autorun、ai-code3、cursor-agent 等，并清除 registry 运行态（不关闭本看板 serve）。`
     )
   ) {
     return;
   }
-  const btn = $('stopBtn');
+  const btn = $('stopPipelineBtn');
   btn.disabled = true;
   btn.textContent = '停止中…';
   try {
@@ -334,8 +373,8 @@ async function stopPipeline() {
     window.alert(`停止失败：${e.message}`);
     await loadDashboard();
   } finally {
-    btn.textContent = '停止运行';
-    updateStopButton(lastDashboard);
+    btn.textContent = '停止所有后台任务';
+    updateStopButtons(lastDashboard);
   }
 }
 
@@ -354,6 +393,13 @@ async function init() {
     const cfg = await fetchJson('/api/config');
     if (cfg.default_project_root) {
       $('projectPath').value = cfg.default_project_root;
+    }
+    if (cfg.serve) {
+      serveMeta = {
+        pid: cfg.serve.pid ?? null,
+        host: cfg.serve.host || '127.0.0.1',
+        port: cfg.serve.port ?? null,
+      };
     }
   } catch (_) {
     /* ignore */
@@ -381,7 +427,10 @@ async function init() {
       btn.textContent = '刷新';
     }
   });
-  $('stopBtn').addEventListener('click', () => {
+  $('stopServeBtn').addEventListener('click', () => {
+    stopServe().catch((e) => window.alert(String(e.message || e)));
+  });
+  $('stopPipelineBtn').addEventListener('click', () => {
     stopPipeline().catch((e) => window.alert(String(e.message || e)));
   });
   $('autoRefresh').addEventListener('change', scheduleAutoRefresh);

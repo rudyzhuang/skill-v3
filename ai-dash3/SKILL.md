@@ -62,7 +62,12 @@ node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=$(pwd)
 node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=$(pwd)
 ```
 
-**`--open`** 在 macOS / Linux / Windows 上调用系统命令打开 URL；设 **`AI_DASH3_NO_OPEN=1`** 可禁用。多项目列表来自 **ai-auto3** `registry-export.cjs`（须已在 **ai-auto3/** 执行过 **`npm install`** 且跑过 **`sync-registry`**）。页面每 3 秒自动刷新；**「停止运行」** 调用 **`POST /api/stop`**，终止当前项目的 autorun / ai-code3 / cursor-agent 等后台进程（见 **`docs/spec/dash3.md` §7.1**）。CLI 等价：`node ~/.cursor/skills/ai-auto3/scripts/stop-pipeline.cjs --project=<abs>`。
+**`--open`** 在 macOS / Linux / Windows 上调用系统命令打开 URL；设 **`AI_DASH3_NO_OPEN=1`** 可禁用。多项目列表来自 **ai-auto3** `registry-export.cjs`（须已在 **ai-auto3/** 执行过 **`npm install`** 且跑过 **`sync-registry`**）。页面每 3 秒自动刷新；顶栏两个停止按钮（见 **`docs/spec/dash3.md` §7.1**）：
+
+| 按钮 | API | 作用 |
+| --- | --- | --- |
+| **停止本后台** | **`POST /api/stop-serve`** | 关闭**当前** ai-dash3 **serve** 进程（本页面实例） |
+| **停止所有后台任务** | **`POST /api/stop?project=<abs>`** | 经 **ai-auto3** **`stop-pipeline.cjs`** 终止该项目的 autorun / ai-code3 / cursor-agent 等；CLI 等价：`node ~/.cursor/skills/ai-auto3/scripts/stop-pipeline.cjs --project=<abs>` |
 
 ## 退出码（`dash3.md` §8）
 
