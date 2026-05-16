@@ -240,6 +240,37 @@ function allowNoAgentPass(cfg) {
   return v !== false;
 }
 
+function shouldForceStubRemaining(cfg) {
+  return cfg?.pipeline?.autorun?.force_stub_remaining === true;
+}
+
+function resolveCode3AgentBin(cfg) {
+  const configured = String(cfg?.pipeline?.autorun?.code3_agent_bin || '').trim();
+  if (configured) return configured;
+  const envPrimary = String(process.env.AI_CODE3_AGENT_BIN || '').trim();
+  if (envPrimary) return envPrimary;
+  const envLegacy = String(process.env.AI_CODEGEN_AGENT_BIN || '').trim();
+  if (envLegacy) return envLegacy;
+  const home = String(process.env.HOME || '').trim();
+  if (home) {
+    const localBin = path.join(home, '.local', 'bin', 'cursor-agent');
+    try {
+      if (fs.existsSync(localBin)) return localBin;
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const sh of ['zsh', 'bash']) {
+    const probe = spawnSync(sh, ['-lc', 'command -v cursor-agent'], {
+      encoding: 'utf8',
+    });
+    if (probe.status !== 0) continue;
+    const resolved = String(probe.stdout || '').trim();
+    if (resolved) return resolved;
+  }
+  return '';
+}
+
 function parseFeatureTargets(projectRoot) {
   const docsDir = path.join(projectRoot, 'docs');
   const map = new Map();
@@ -252,8 +283,17 @@ function parseFeatureTargets(projectRoot) {
     const flPath = path.join(docsDir, target, 'feature_list.md');
     if (!fs.existsSync(flPath)) continue;
     const text = fs.readFileSync(flPath, 'utf8');
+    let inFeaturesSection = false;
     for (const raw of text.split('\n')) {
       const line = raw.trim();
+      if (/^##\s+Features\s*$/i.test(line)) {
+        inFeaturesSection = true;
+        continue;
+      }
+      if (inFeaturesSection && /^##\s+/.test(line)) {
+        inFeaturesSection = false;
+      }
+      if (!inFeaturesSection) continue;
       if (!line.startsWith('|')) continue;
       if (/^\|\s*Feature ID\s*\|/i.test(line)) continue;
       if (/^\|\s*[-: ]+\|/.test(line)) continue;
@@ -539,16 +579,16 @@ async function runCodeStageWithFeatureGroups(
 
 async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun) {
   const script = scriptPath('ai-code3', 'scripts/run.cjs');
-  const args = [
-    sub,
-    `--project=${projectRoot}`,
-    `--feature=${featureCsvStr}`,
-    `--session-id=${sessionId}`,
-    '--stub-remaining',
-  ];
+  const args = [sub, `--project=${projectRoot}`, `--feature=${featureCsvStr}`, `--session-id=${sessionId}`];
   const sk = normalizeStage(sub.replace(/-/g, '_'));
   if (forceRerun && normalizeStage(forceRerun) === sk) {
     args.push(`--force-rerun=${sk}`);
+  }
+  const agentBin = resolveCode3AgentBin(cfg);
+  const forceStub = shouldForceStubRemaining(cfg);
+  const useStub = forceStub || !agentBin;
+  if (useStub) {
+    args.push('--stub-remaining');
   }
   const t = stageTimeoutMs(cfg, sk === 'merge_push' ? 'merge_push' : sk);
   return runNodeScript({
@@ -558,7 +598,8 @@ async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, force
     cwd: projectRoot,
     env: {
       AI_CODE3_ALLOW_NO_AGENT_PASS: allowNoAgentPass(cfg) ? 'yes' : '',
-      AI_CODE3_SKIP_AGENT: '1',
+      AI_CODE3_SKIP_AGENT: useStub ? '1' : '',
+      AI_CODE3_AGENT_BIN: agentBin,
       AI_CODE3_CODEGEN_CONFIRM: 'yes',
     },
     timeoutMs: t,
@@ -625,6 +666,9 @@ async function main() {
       console.error(ck.message);
       process.exit(1);
     }
+    for (const w of ck.checklistWarnings || []) {
+      console.error(w);
+    }
     try {
       upsertProjectFromStages(projectRoot, readStages(projectRoot));
     } catch (e) {
@@ -658,6 +702,9 @@ async function main() {
     console.error(ck.message);
     await runGenReport(projectRoot, sessionId, ck.message);
     process.exit(1);
+  }
+  for (const w of ck.checklistWarnings || []) {
+    console.error(w);
   }
 
   let doc = ck.stages;
