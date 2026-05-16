@@ -43,6 +43,33 @@ function resolveFeatureIds(doc, options) {
   return ['default'];
 }
 
+function mapWorktreeRows(rows) {
+  return rows.map((r) => ({
+    ...r,
+    commit: '',
+    files_expected: [],
+    files_changed: [],
+    test_files_expected: [],
+    test_files_changed: [],
+  }));
+}
+
+/** Merge per-feature codegen runs so autorun coverage checks see the full phase set. */
+function mergeCodegenWorktrees(existing, rows) {
+  const byId = new Map();
+  for (const r of existing || []) {
+    const id = String(r?.feature_id || '').trim();
+    if (id) byId.set(id, r);
+  }
+  for (const r of mapWorktreeRows(rows)) {
+    const id = String(r?.feature_id || '').trim();
+    if (id) byId.set(id, { ...(byId.get(id) || {}), ...r });
+  }
+  return [...byId.values()].sort((a, b) =>
+    String(a.feature_id || '').localeCompare(String(b.feature_id || ''))
+  );
+}
+
 const CONTRACT_KEYS = ['types', 'api', 'schema', 'test_spec', 'design_snapshot'];
 
 function collectContractRelPaths(projectRoot, doc) {
@@ -340,14 +367,10 @@ async function run(ctx) {
           },
           outputs: {
             ...doc.stages?.codegen?.outputs,
-            worktrees: wtResult.rows.map((r) => ({
-              ...r,
-              commit: '',
-              files_expected: [],
-              files_changed: [],
-              test_files_expected: [],
-              test_files_changed: [],
-            })),
+            worktrees: mergeCodegenWorktrees(
+              doc.stages?.codegen?.outputs?.worktrees,
+              wtResult.rows
+            ),
             impl_codegen_status: implStatus,
             test_codegen_status: testStatus,
             agent: agentMeta,
@@ -402,14 +425,10 @@ async function run(ctx) {
               inputs: { ...doc.stages?.codegen?.inputs, summary_hash: hash, requires_stage: 'design_review' },
               outputs: {
                 ...doc.stages?.codegen?.outputs,
-                worktrees: wtResult.rows.map((r) => ({
-                  ...r,
-                  commit: '',
-                  files_expected: [],
-                  files_changed: [],
-                  test_files_expected: [],
-                  test_files_changed: [],
-                })),
+                worktrees: mergeCodegenWorktrees(
+                  doc.stages?.codegen?.outputs?.worktrees,
+                  wtResult.rows
+                ),
                 impl_codegen_status: implStatus,
                 test_codegen_status: testStatus,
                 agent: agentMeta,
@@ -442,14 +461,10 @@ async function run(ctx) {
             inputs: { ...doc.stages?.codegen?.inputs, summary_hash: hash, requires_stage: 'design_review' },
             outputs: {
               ...doc.stages?.codegen?.outputs,
-              worktrees: wtResult.rows.map((r) => ({
-                ...r,
-                commit: '',
-                files_expected: [],
-                files_changed: [],
-                test_files_expected: [],
-                test_files_changed: [],
-              })),
+              worktrees: mergeCodegenWorktrees(
+                doc.stages?.codegen?.outputs?.worktrees,
+                wtResult.rows
+              ),
               impl_codegen_status: implStatus,
               test_codegen_status: testStatus,
               agent: { ...agentMeta, skipped: false, skip_reason: ir.reason || 'impl_failed' },
@@ -496,14 +511,10 @@ async function run(ctx) {
               inputs: { ...doc.stages?.codegen?.inputs, summary_hash: hash, requires_stage: 'design_review' },
               outputs: {
                 ...doc.stages?.codegen?.outputs,
-                worktrees: wtResult.rows.map((r) => ({
-                  ...r,
-                  commit: '',
-                  files_expected: [],
-                  files_changed: [],
-                  test_files_expected: [],
-                  test_files_changed: [],
-                })),
+                worktrees: mergeCodegenWorktrees(
+                  doc.stages?.codegen?.outputs?.worktrees,
+                  wtResult.rows
+                ),
                 impl_codegen_status: implStatus,
                 test_codegen_status: testStatus,
                 agent: { ...agentMeta, skipped: false, skip_reason: tr.reason || 'test_agent_failed' },
@@ -564,14 +575,10 @@ async function run(ctx) {
     },
     outputs: {
       ...doc.stages?.codegen?.outputs,
-      worktrees: wtResult.rows.map((r) => ({
-        ...r,
-        commit: '',
-        files_expected: [],
-        files_changed: [],
-        test_files_expected: [],
-        test_files_changed: [],
-      })),
+      worktrees: mergeCodegenWorktrees(
+        doc.stages?.codegen?.outputs?.worktrees,
+        wtResult.rows
+      ),
       impl_codegen_status: implStatus,
       test_codegen_status: testStatus,
       agent: agentMeta,
