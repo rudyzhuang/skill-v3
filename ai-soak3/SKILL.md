@@ -135,8 +135,8 @@ export http_proxy=http://127.0.0.1:1087; export https_proxy=http://127.0.0.1:108
 1. 运行 `ensure-req.cjs`（见 §2），退出码 0 才继续。
 2. 读 `~/.cursor/skills/ai-prd3/SKILL.md`；规范 SSOT：`ai-prd3/docs/spec/prd3.md`。
 3. 维护 `docs/prd-spec.md`，满足：
-   - **≥ 20 个** `feature`（在 prd-spec 与各端 `feature_list.md` 中一致）
-   - 若 req.md 声明了 `mobile`：声明 mobile 端，与 website 对齐（同 `feature_id`、同导航）
+   - feature 数量由 AI 根据 `inputs/req.md` 原始需求自动推理，无最低数量约束
+   - 若 req.md 声明了 `mobile`：声明 mobile 端；功能范围与导航结构由 AI 根据 req.md 推理，不强制与 website 对齐
    - **`client_targets`** 覆盖 `inputs/req.md` 要求的所有端
 4. 顺序执行（`--project=PROJECT_ROOT`）：
 
@@ -218,7 +218,9 @@ bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh PROJECT_ROOT
 # stages.deploy.status 须为 completed 或有合理跳过记录
 
 # 2. 确认部署 URL 可达（外网须设代理 §4.1）
-curl -i --max-time 10 <deploy_url>/health
+# 探活端点从 stages.json / config.dev.json / config.release.json 中读取；
+# 若无明确配置则依次尝试 /health、/ping、/ 直到收到 2xx/3xx 响应
+curl -i --max-time 10 <deploy_url>/<health_or_ping_path>
 ```
 
 - deploy 成功：HTTP 2xx / 3xx，记录 URL + 状态码。
@@ -226,13 +228,20 @@ curl -i --max-time 10 <deploy_url>/health
 - deploy 失败且错误非鉴权：进入 §3.1，评估 skill 可否改进。
 - deploy 失败且为明确鉴权错误：见 §3.4。
 
-### 6.2 Website（若 req.md 含 website 端）
+### 6.2 Admin / 其他 Web 端（若 req.md 含 admin 或其他 web 类端）
+
+- build 产物存在（stages.build 对应该端 `completed`）。
+- 若有 deploy：URL 可达（同 §6.1）。
+- 若仅本地 dev server：`curl -I http://localhost:<port>` 返回 2xx。
+- 验证逻辑与 website 相同；端口/路径从 stages.json 或 config 中读取，不硬编码。
+
+### 6.3 Website（若 req.md 含 website 端）
 
 - build 产物存在（stages.build 对应 website `completed`）。
 - 若有 deploy：URL 可达（同 §6.1）。
 - 若仅本地 dev server：`curl -I http://localhost:<port>` 返回 2xx。
 
-### 6.3 Mobile（若 req.md 含 mobile 端）
+### 6.4 Mobile（若 req.md 含 mobile 端）
 
 **步骤一：确认 build 成功**
 
@@ -263,7 +272,7 @@ flutter emulators --launch <emulator_id>
 sleep 10  # 等待启动
 
 # 运行 app（后台，冒烟确认启动不崩溃）
-flutter run -d <emulator_id> --no-pub 2>&1 &
+flutter run -d <emulator_id> 2>&1 &
 RUN_PID=$!
 sleep 30
 kill $RUN_PID 2>/dev/null || true
@@ -280,11 +289,11 @@ echo "mobile smoke: done"
 
 ## 7. 最终成功判定（全部满足才可结束）
 
-1. **A**：prd + prd_review `passed`，≥20 feature，`client_targets` 与 `inputs/req.md` 一致。
+1. **A**：prd + prd_review `passed`，`client_targets` 与 `inputs/req.md` 一致。
 2. **B**：autorun 全链路成功，report 无阻塞，stages 与 report 一致。
 3. **§6**：
    - Backend（若声明）：deploy URL 可访问，或有合理跳过记录（配置禁用）。
-   - Website（若声明）：build 成功，URL/端口可访问。
+   - Website / Admin / 其他 web 端（若声明）：build 成功，URL/端口可访问。
    - Mobile（若声明）：编译成功 + 模拟器安装冒烟通过。
 4. 以上**连续 2 轮**（A→B→§6，非只重跑 B）结果一致全绿。
 5. 输出 **§9 最终证据包**。
@@ -305,7 +314,7 @@ echo "mobile smoke: done"
 - 结果：pass / blocked（原因）
 ### A ai-prd3
 - 结果：pass / fail
-- feature 数 / client_targets：…
+- client_targets：…
 - 关键命令与退出码：…
 ### B ai-auto3
 - 结果：pass / fail
@@ -318,6 +327,7 @@ echo "mobile smoke: done"
 ### §6 部署与端完整验证
 - backend deploy：pass / fail / skipped（URL、状态码）
 - website：pass / fail（URL、状态码）
+- admin / 其他 web 端：pass / fail / N/A（URL、状态码）
 - mobile 编译：pass / fail
 - mobile 模拟器安装+冒烟：pass / fail / blocked（§3.4 类型）
 ### 本轮结论
@@ -330,7 +340,7 @@ echo "mobile smoke: done"
 ## 9. 最终证据包（仅 §7 全满足时输出）
 
 - 两轮 Round 编号与结果一致说明
-- `inputs/req.md` 对齐说明（feature 数、client_targets）
+- `inputs/req.md` 对齐说明（client_targets）
 - ai-prd3 / ai-auto3 关键命令与退出码
 - 最新 report 路径与 overall 结论
 - `.pipeline/stages.json` 关键阶段快照（prd、prd_review、build、deploy、report）
