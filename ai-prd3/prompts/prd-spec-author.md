@@ -2,6 +2,8 @@
 
 你是 **ai-prd3 / prd** 阶段的规格作者。目标：在业务仓中补全 **`docs/prd-spec.md`**，使其成为后续派生与门闸的**唯一总源头**。
 
+若上游原始需求（路径见 `detect-raw-input`，默认 `inputs/req.md`）相对缓存有变更，先阅读 **`.pipeline/reports/raw-input-drift.json`** 与 **`prompts/raw-input-impact.md`**，再改 prd-spec（域名/端 URL/功能表）。
+
 ## 硬约束（不得违反）
 
 1. **不得**删除或改名固定章节标题（尤其 **`## 端 (Client Targets)`** 或英文 **`## Client Targets`**；以及 **`## 7. 各端专属需求`** / **`## 7. Target-Specific Requirements`**）。

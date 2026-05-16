@@ -46,11 +46,20 @@ const templatePath = path.join(skillDir, 'docs', 'templates', 'req-template.md')
  *   key      - 字段标识（用于错误输出）
  *   todoText - 模板中的占位文本，若内容仅为此则视为未填写
  */
+/** 单 H2 必填项 */
 const REQUIRED_FIELDS = [
   { heading: '功能需求', key: 'functional_requirements', todoText: 'TODO: 请填写功能需求' },
-  { heading: '云平台',   key: 'cloud_platform',          todoText: 'TODO: 请填写云平台，如 Cloudflare' },
-  { heading: '主域名',   key: 'domain',                  todoText: 'TODO: 请填写主域名，如 example.yunapp.com' },
-  { heading: '鉴权信息', key: 'credentials',             todoText: 'TODO: 请描述凭证位置，如"所需凭证已在同级目录 config.env"' },
+  { heading: '云平台', key: 'cloud_platform', todoText: 'TODO: 请填写云平台，如 Cloudflare' },
+  { heading: '鉴权信息', key: 'credentials', todoText: 'TODO: 请描述凭证位置，如"所需凭证已在同级目录 config.env"' },
+];
+
+/** 多标题择一（如「主域名」/「主域名 domain」） */
+const REQUIRED_FIELD_GROUPS = [
+  {
+    key: 'domain',
+    headings: ['主域名 domain', '主域名'],
+    todoText: 'TODO: 请填写主域名，如 example.yunapp.com',
+  },
 ];
 
 // ──────────────────────── 工具函数 ───────────────────────────
@@ -130,6 +139,27 @@ for (const field of REQUIRED_FIELDS) {
   }
 }
 
+for (const group of REQUIRED_FIELD_GROUPS) {
+  let ok = false;
+  let lastText = '';
+  for (const heading of group.headings) {
+    const text = extractSection(content, heading);
+    lastText = text || lastText;
+    if (hasSubstantialContent(text, group.todoText)) {
+      ok = true;
+      break;
+    }
+  }
+  if (!ok) {
+    missing.push({
+      heading: group.headings.join(' | '),
+      key: group.key,
+      todoText: group.todoText,
+      found: lastText || '（空）',
+    });
+  }
+}
+
 if (missing.length > 0) {
   console.error(`[ensure-req] ❌ inputs/req.md 存在，但以下必填字段缺失或仍为占位符：`);
   for (const f of missing) {
@@ -141,6 +171,7 @@ if (missing.length > 0) {
 }
 
 // 3. 全部通过
-console.log(`[ensure-req] ✅ inputs/req.md 校验通过（${REQUIRED_FIELDS.length} 个必填字段均已填写）`);
+const requiredCount = REQUIRED_FIELDS.length + REQUIRED_FIELD_GROUPS.length;
+console.log(`[ensure-req] ✅ inputs/req.md 校验通过（${requiredCount} 个必填字段均已填写）`);
 console.log(`[ensure-req] 项目: ${projectRoot}`);
 process.exit(0);

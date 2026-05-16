@@ -91,10 +91,17 @@ function main() {
     console.log(`用法: node scripts/run.cjs <子命令> --project=<绝对路径> [选项]
 
 子命令:
-  bootstrap | parse-targets | validate-prd | write-prd |
+  bootstrap | parse-targets | detect-raw-input | apply-raw-input-config |
+  validate-prd | write-prd |
   validate-prd-review | write-prd-review | finalize-prd-review | report
 
+原始需求（由 ai-soak3 等上游提供，路径勿写死）:
+  detect-raw-input     比对缓存哈希，输出 .pipeline/reports/raw-input-drift.json 与 impact_hints
+  apply-raw-input-config  从原始需求同步 domain/deploy.services/smoke 到 config.*.json
+
 选项:
+  --raw-input=<rel|abs>  覆盖 stages.pipeline.raw_input.path / AI_PRD3_RAW_INPUT
+  --fail-on-change       detect-raw-input：有变更时退出码 2（供编排门闸）
   --force  覆盖已完成阶段（prd / prd-review）；bootstrap 在 prd 已完成时须加此选项
   --no-timeout  禁用 config 中的阶段超时（冒烟/调试可用；亦支持环境变量 AI_PRD3_NO_TIMEOUT=1）
   --lang=cn|en  bootstrap 选用 prd-spec 模板语言
@@ -156,7 +163,29 @@ report:
     done(0);
   }
 
+  if (sub === 'detect-raw-input') {
+    const extra = [];
+    if (args.rawInput) extra.push(`--raw-input=${args.rawInput}`);
+    if (args.failOnChange) extra.push('--fail-on-change');
+    const r = runNodeScript(scriptDir, 'prd-detect-raw-input.cjs', project, args, extra, null);
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
+    done(r.status === 0 ? 0 : r.status || 1);
+  }
+
+  if (sub === 'apply-raw-input-config') {
+    const extra = args.rawInput ? [`--raw-input=${args.rawInput}`] : [];
+    const r = runNodeScript(scriptDir, 'prd-apply-raw-input-config.cjs', project, args, extra, 'prd');
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
+    if (r.timedOut) done(3);
+    done(r.status === 0 ? 0 : r.status || 1);
+  }
+
   if (sub === 'validate-prd') {
+    let r = runNodeScript(scriptDir, 'prd-detect-raw-input.cjs', project, args, [], null);
+    if (r.timedOut) done(3);
+    if (r.stdout) process.stdout.write(r.stdout);
     const steps = ['prd-validate-spec.cjs', 'prd-validate-derived.cjs', 'prd-validate-config.cjs'];
     for (const s of steps) {
       const r = runNodeScript(scriptDir, s, project, args, [], 'prd');

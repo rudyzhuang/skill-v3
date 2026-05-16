@@ -17,7 +17,13 @@
     "current_stage": "prd",
     "last_completed_stage": null,
     "updated_at": null,
-    "updated_by": "ai-prd3"
+    "updated_by": "ai-prd3",
+    "raw_input": {
+      "_doc": "Upstream requirements file path (relative to project root). Default from ai-soak3: inputs/req.md. Override via AI_PRD3_RAW_INPUT or --raw-input=.",
+      "path": "inputs/req.md",
+      "content_hash": null,
+      "synced_at": null
+    }
   },
   "client_targets": {
     "declared": [],
@@ -42,7 +48,10 @@
       "inputs": {
         "summary_hash": "",
         "source_prd_spec": "docs/prd-spec.md",
-        "raw_input_refs": []
+        "raw_input_refs": [],
+        "raw_input_path": "inputs/req.md",
+        "raw_input_hash": "",
+        "raw_input_functional_hash": ""
       },
       "outputs": {
         "config_dev": "docs/config.dev.json",

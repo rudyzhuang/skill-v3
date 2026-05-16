@@ -14,6 +14,7 @@ const assert = require('assert');
 const ROOT = path.resolve(__dirname, '..');
 const RUN = path.join(ROOT, 'scripts', 'run.cjs');
 const SELF_TEST = path.join(ROOT, 'scripts', 'self-test-secret-scan.cjs');
+const SELF_TEST_RAW = path.join(ROOT, 'scripts', 'self-test-raw-input.cjs');
 
 function run(args, cwd) {
   const r = spawnSync(process.execPath, [RUN, ...args], {
@@ -258,11 +259,49 @@ function runOneSmokeRound(roundLabel) {
   assert.strictEqual(r.status, 1, 'prd-spec 漂移后 validate-prd 须失败（prd_spec_drift）');
   fs.rmSync(TMP4, { recursive: true, force: true });
 
+  const TMP5 = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ai-prd3-smoke-'));
+  fs.mkdirSync(path.join(TMP5, 'inputs'), { recursive: true });
+  fs.writeFileSync(
+    path.join(TMP5, 'inputs', 'req.md'),
+    `# req
+## 功能需求
+Smoke notes
+
+## 云平台
+Cloudflare
+
+## 主域名 domain
+smoke.example.com
+
+## 鉴权信息
+in config.env
+
+## 端（Client Targets）
+- website（URL: https://<domain>/website/）
+- admin（URL: https://<domain>/admin/）
+- backend（URL: https://<domain>/api/）
+`,
+    'utf8',
+  );
+  r = run(['bootstrap', `--project=${TMP5}`], ROOT);
+  assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['detect-raw-input', `--project=${TMP5}`], ROOT);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  assert.ok(r.stdout.includes('smoke.example.com'), 'detect 应解析域名');
+  r = run(['apply-raw-input-config', `--project=${TMP5}`], ROOT);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  const dev5 = JSON.parse(fs.readFileSync(path.join(TMP5, 'docs', 'config.dev.json'), 'utf8'));
+  const targets5 = new Set(dev5.deploy.services.map((s) => s.client_target));
+  assert.ok(targets5.has('website') && targets5.has('admin') && targets5.has('backend'));
+  assert.strictEqual(dev5.smoke.base_url, 'https://smoke.example.com');
+  fs.rmSync(TMP5, { recursive: true, force: true });
+
   console.log(`smoke: all passed (${roundLabel})`);
 }
 
 function main() {
   require(SELF_TEST);
+  require(SELF_TEST_RAW);
   runOneSmokeRound('round-1');
   runOneSmokeRound('round-2');
 }

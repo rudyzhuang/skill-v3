@@ -2,8 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parseArgs, requireProject } = require('./lib/paths.cjs');
+const { parseArgs, requireProject, prdSpecPath } = require('./lib/paths.cjs');
 const { scanJsonSecrets } = require('./lib/secret-scan.cjs');
+const { validateDeployServicesCoverage } = require('./lib/sync-config-from-req.cjs');
+const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
 
 const SUPPORTED_SCHEMA_MAX = 1;
 
@@ -45,6 +47,33 @@ function main() {
     console.error(JSON.stringify({ ok: false, errors: errs }, null, 2));
     process.exit(1);
   }
+
+  const specPath = prdSpecPath(root);
+  if (fs.existsSync(specPath)) {
+    let p = parseClientTargets(fs.readFileSync(specPath, 'utf8'));
+    if (!p.ok) {
+      const leg = tryLegacyYaml(fs.readFileSync(specPath, 'utf8'));
+      if (leg?.length) p = { ok: true, slugs: leg };
+    }
+    if (p.ok) {
+      const cov = validateDeployServicesCoverage(dev, p.slugs);
+      if (!cov.ok) {
+        console.error(
+          JSON.stringify(
+            {
+              ok: false,
+              errors: [`config.dev.json:deploy.services_missing:${cov.missing.join(',')}`],
+              hint: '运行 node scripts/run.cjs apply-raw-input-config --project=<root>',
+            },
+            null,
+            2,
+          ),
+        );
+        process.exit(1);
+      }
+    }
+  }
+
   console.log(JSON.stringify({ ok: true }, null, 2));
 }
 

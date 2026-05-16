@@ -17,11 +17,16 @@ function parseArgs(argv) {
     timeoutSec: null,
     noTimeout: false,
     sessionId: '',
+    rawInput: null,
+    failOnChange: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--project=')) args.project = a.slice('--project='.length);
     else if (a === '--project') args.project = argv[++i];
+    else if (a.startsWith('--raw-input=')) args.rawInput = a.slice('--raw-input='.length);
+    else if (a === '--raw-input') args.rawInput = argv[++i];
+    else if (a === '--fail-on-change') args.failOnChange = true;
     else if (a === '--force') args.force = true;
     else if (a === '--no-timeout') args.noTimeout = true;
     else if (a.startsWith('--lang=')) args.lang = a.slice('--lang='.length);

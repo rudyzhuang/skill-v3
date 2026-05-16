@@ -72,11 +72,33 @@
       {
         "client_target": "website",
         "service_name": "",
-        "resource_type": "",
-        "runtime": "",
+        "resource_type": "pages_project",
+        "runtime": "static",
         "region": "",
         "domain": "",
-        "healthcheck_path": "/",
+        "healthcheck_path": "/website/",
+        "create_if_missing": false,
+        "resource_config": {}
+      },
+      {
+        "client_target": "admin",
+        "service_name": "",
+        "resource_type": "pages_project",
+        "runtime": "static",
+        "region": "",
+        "domain": "",
+        "healthcheck_path": "/admin/",
+        "create_if_missing": false,
+        "resource_config": {}
+      },
+      {
+        "client_target": "backend",
+        "service_name": "",
+        "resource_type": "worker_script",
+        "runtime": "nodejs",
+        "region": "",
+        "domain": "",
+        "healthcheck_path": "/api/health",
         "create_if_missing": false,
         "resource_config": {}
       }
