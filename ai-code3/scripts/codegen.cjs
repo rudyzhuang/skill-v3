@@ -115,7 +115,10 @@ function ensureGitRepoForCodegen(projectRoot, baseBranch) {
   });
   if (inside.status === 0 && String(inside.stdout || '').trim() === 'true') return { ok: true };
 
-  const init = spawnSync('git', ['-C', projectRoot, 'init'], { encoding: 'utf8' });
+  // Empty template dir avoids parallel init racing on .git/info/exclude (Xcode git templates).
+  const init = spawnSync('git', ['-C', projectRoot, '-c', 'init.templateDir=', 'init'], {
+    encoding: 'utf8',
+  });
   if (init.status !== 0) {
     const recheck = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree'], {
       encoding: 'utf8',
@@ -158,6 +161,41 @@ function ensureGitRepoForCodegen(projectRoot, baseBranch) {
     }
   }
   return { ok: true };
+}
+
+/**
+ * Commit agent changes on the feature branch so merge-push can merge real diffs.
+ * @returns {{ ok: boolean, commit?: string, skipped?: boolean, reason?: string }}
+ */
+function commitFeatureWorktreeChanges(worktreePath, featureId) {
+  const st = spawnSync('git', ['-C', worktreePath, 'status', '--porcelain'], { encoding: 'utf8' });
+  if (st.status !== 0) {
+    return { ok: false, reason: st.stderr || 'git_status_failed' };
+  }
+  if (!String(st.stdout || '').trim()) {
+    return { ok: true, skipped: true };
+  }
+  const add = spawnSync('git', ['-C', worktreePath, 'add', '-A'], { encoding: 'utf8' });
+  if (add.status !== 0) {
+    return { ok: false, reason: add.stderr || 'git_add_failed' };
+  }
+  const msg = `feat(${featureId}): codegen agent implementation`;
+  const commit = spawnSync('git', ['-C', worktreePath, 'commit', '-m', msg], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || 'ai-code3',
+      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || 'ai-code3@local',
+      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || 'ai-code3',
+      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || 'ai-code3@local',
+    },
+  });
+  if (commit.status !== 0) {
+    return { ok: false, reason: commit.stderr || commit.stdout || 'git_commit_failed' };
+  }
+  const rev = spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+  const hash = rev.status === 0 ? String(rev.stdout || '').trim() : '';
+  return { ok: true, commit: hash };
 }
 
 function baseBranchFromDoc(doc, config) {
@@ -393,9 +431,14 @@ async function run(ctx) {
       testStatus = 'skipped';
       const scaffoldTargets = healthFull.resolveScaffoldClientTargets(doc, config);
       for (const row of wtResult.rows) {
-        const t = healthFull.applyHealthFullScaffold(row.worktree_path, { clientTargets: scaffoldTargets });
+        const t = healthFull.applyHealthFullScaffold(row.worktree_path, {
+          clientTargets: scaffoldTargets,
+          projectRoot,
+        });
         if (t > 0) {
-          console.error(`codegen full health scaffold: ${t} files in ${row.worktree_path}`);
+          console.error(
+            `codegen full health scaffold: ${t} files (worktree src + .pipeline/ai-code3 tooling) feature=${row.feature_id}`
+          );
         }
       }
     } else {
@@ -486,9 +529,45 @@ async function run(ctx) {
           console.error('failed_stage=codegen impl agent failed');
           return ir.code === 3 ? 3 : 4;
         }
+        const commitResult = commitFeatureWorktreeChanges(row.worktree_path, row.feature_id);
+        if (!commitResult.ok) {
+          implStatus = 'failed';
+          testStatus = 'skipped';
+          const now = new Date().toISOString();
+          doc = stagesIo.updateStage(doc, 'codegen', {
+            status: 'failed',
+            completed_at: now,
+            inputs: { ...doc.stages?.codegen?.inputs, summary_hash: hash, requires_stage: 'design_review' },
+            outputs: {
+              ...doc.stages?.codegen?.outputs,
+              worktrees: mergeCodegenWorktrees(doc.stages?.codegen?.outputs?.worktrees, wtResult.rows),
+              impl_codegen_status: implStatus,
+              test_codegen_status: testStatus,
+              agent: { ...agentMeta, skipped: false, skip_reason: commitResult.reason || 'commit_failed' },
+              duration_ms: 0,
+              timed_out: false,
+              timeout_reason: null,
+            },
+            validation: {
+              ...doc.stages?.codegen?.validation,
+              passed: false,
+              contract_diff_guard_passed: true,
+              summary: commitResult.reason || 'post-impl commit failed',
+            },
+          });
+          stagesIo.writeStagesSync(projectRoot, doc);
+          console.error(
+            `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} commit failed reason=${commitResult.reason || 'commit_failed'}`
+          );
+          console.error('failed_stage=codegen post-impl commit failed');
+          return 4;
+        }
+        if (commitResult.commit) {
+          row.commit = commitResult.commit;
+        }
         implStatus = 'completed';
         console.error(
-          `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl ok`
+          `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl ok commit=${commitResult.commit || 'unchanged'}`
         );
 
         if (!shouldSkipTestAgentPhase(testSpecAbs)) {

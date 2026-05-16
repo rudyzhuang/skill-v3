@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { pipelineAiCode3Dir } = require('./pipeline-ai-code3.cjs');
 
 function writeIfMissing(absPath, content) {
   if (fs.existsSync(absPath)) {
@@ -351,13 +352,32 @@ function resolveScaffoldClientTargets(doc, config) {
   return ['website', 'backend', 'mobile'];
 }
 
+function buildScriptSource() {
+  return `'use strict';
+const fs = require('fs');
+const path = require('path');
+const root = process.env.AI_CODE3_WORKTREE_ROOT || process.cwd();
+const dist = path.join(root, 'dist');
+const copyIf = (from, toDir, name) => {
+  const fromAbs = path.join(root, from);
+  if (!fs.existsSync(fromAbs)) return;
+  fs.mkdirSync(toDir, { recursive: true });
+  fs.copyFileSync(fromAbs, path.join(toDir, name));
+};
+copyIf('src/website/index.html', path.join(dist, 'website', 'default'), 'index.html');
+copyIf('src/website/app.js', path.join(dist, 'website', 'default'), 'app.js');
+copyIf('src/backend/server.cjs', path.join(dist, 'backend', 'default'), 'server.cjs');
+console.log('build done');
+`;
+}
+
 /**
- * Full Health demo scaffold under src/<client_target>/ (filtered by client_targets).
- * @param {string} root - worktree or project root
+ * 非 feature 工具链：`.pipeline/ai-code3/package.json` + `scripts/build.cjs`（每项目至多写一次）
+ * @param {string} projectRoot
  * @param {{ clientTargets?: string[] }} [opts]
- * @returns {number} files touched
+ * @returns {number}
  */
-function applyHealthFullScaffold(root, opts = {}) {
+function applyHealthFullTooling(projectRoot, opts = {}) {
   const targets =
     Array.isArray(opts.clientTargets) && opts.clientTargets.length
       ? opts.clientTargets
@@ -368,6 +388,49 @@ function applyHealthFullScaffold(root, opts = {}) {
   const touch = (p, c) => {
     if (writeIfMissing(p, c)) touched += 1;
   };
+
+  const toolingRoot = pipelineAiCode3Dir(projectRoot);
+  const pkg = {
+    name: 'ai-code3-health-tooling',
+    version: '1.0.0',
+    private: true,
+    description: 'ai-code3 health scaffold tooling (not feature code)',
+    scripts: {
+      build: 'node scripts/build.cjs',
+    },
+  };
+  touch(path.join(toolingRoot, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
+
+  if (want('website') || want('backend')) {
+    touch(path.join(toolingRoot, 'scripts', 'build.cjs'), buildScriptSource());
+  }
+
+  return touched;
+}
+
+/**
+ * Feature 演示源码：仅写入 worktree 的 `src/<client_target>/`（及测试），不写 worktree 根 `package.json`。
+ * @param {string} worktreeRoot
+ * @param {{ clientTargets?: string[], projectRoot?: string }} [opts]
+ * @returns {number} files touched
+ */
+function applyHealthFullScaffold(worktreeRoot, opts = {}) {
+  const projectRoot = opts.projectRoot;
+  if (!projectRoot) {
+    throw new Error('applyHealthFullScaffold requires opts.projectRoot (business project root)');
+  }
+
+  const targets =
+    Array.isArray(opts.clientTargets) && opts.clientTargets.length
+      ? opts.clientTargets
+      : ['website', 'backend', 'mobile'];
+  const want = (t) => targets.includes(t);
+
+  let touched = applyHealthFullTooling(projectRoot, opts);
+  const touch = (p, c) => {
+    if (writeIfMissing(p, c)) touched += 1;
+  };
+  const root = worktreeRoot;
 
   if (want('backend')) {
     touch(srcJoin(root, 'backend', 'server.cjs'), backendServerSource());
@@ -460,22 +523,6 @@ flutter:
   }
   }
 
-  const pkgScripts = { build: 'node scripts/build.cjs' };
-  if (want('backend')) {
-    pkgScripts['start:backend'] = 'node src/backend/server.cjs';
-    pkgScripts.test = 'node src/backend/tests/health.test.cjs';
-  }
-  if (want('website')) {
-    pkgScripts['start:website'] = 'node src/website/server.cjs';
-  }
-  const pkg = {
-    name: 'health-minimal-app',
-    version: '1.0.0',
-    private: true,
-    scripts: pkgScripts,
-  };
-  touch(path.join(root, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
-
   if (want('backend')) {
   touch(
     srcJoin(root, 'backend', 'tests', 'health.test.cjs'),
@@ -513,28 +560,13 @@ function req(port, pathname) {
   );
   }
 
-  if (want('website') || want('backend')) {
-  touch(
-    path.join(root, 'scripts', 'build.cjs'),
-    `'use strict';
-const fs = require('fs');
-const path = require('path');
-const dist = path.join(process.cwd(), 'dist');
-const copyIf = (from, toDir, name) => {
-  const fromAbs = path.join(process.cwd(), from);
-  if (!fs.existsSync(fromAbs)) return;
-  fs.mkdirSync(toDir, { recursive: true });
-  fs.copyFileSync(fromAbs, path.join(toDir, name));
-};
-copyIf('src/website/index.html', path.join(dist, 'website', 'default'), 'index.html');
-copyIf('src/website/app.js', path.join(dist, 'website', 'default'), 'app.js');
-copyIf('src/backend/server.cjs', path.join(dist, 'backend', 'default'), 'server.cjs');
-console.log('build done');
-`
-  );
-  }
-
   return touched;
 }
 
-module.exports = { applyHealthFullScaffold, resolveScaffoldClientTargets, writeIfMissing };
+module.exports = {
+  applyHealthFullScaffold,
+  applyHealthFullTooling,
+  resolveScaffoldClientTargets,
+  writeIfMissing,
+  buildScriptSource,
+};

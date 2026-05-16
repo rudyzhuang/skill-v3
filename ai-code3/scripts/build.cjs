@@ -6,6 +6,7 @@ const stagesIo = require('./lib/stages-io.cjs');
 const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
+const pipelineTooling = require('./lib/pipeline-ai-code3.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -52,8 +53,7 @@ async function run(ctx) {
   const timeoutMs = stageTimeoutS(config, 'build_s', 1800) * 1000;
   const cwd = projectRoot;
   const buildCmd =
-    config?.build?.commands?.build ||
-    (fs.existsSync(path.join(projectRoot, 'package.json')) ? 'npm run build --if-present' : '');
+    config?.build?.commands?.build || pipelineTooling.defaultNpmBuildCommand(projectRoot);
 
   const clientTargets = config?.build?.client_targets;
   const declared = config?.project?.default_client_targets || Object.keys(clientTargets || {});
@@ -147,7 +147,11 @@ async function run(ctx) {
           if (target !== 'backend') anyFailed = true;
           continue;
         }
-        const r = await runWithTimeout('sh', ['-c', cmd], { cwd, timeoutMs });
+        const r = await runWithTimeout('sh', ['-c', cmd], {
+          cwd,
+          timeoutMs,
+          env: pipelineTooling.buildCommandEnv(doc, projectRoot),
+        });
         if (r.timedOut) anyTimedOut = true;
         if (r.code !== 0 || r.timedOut) anyFailed = true;
         const artDir = path.join(projectRoot, config?.build?.artifacts_dir || 'dist', target, subId);

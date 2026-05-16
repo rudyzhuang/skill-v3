@@ -7,6 +7,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
+const pipelineTooling = require('./lib/pipeline-ai-code3.cjs');
 const { evaluateWorktreeTestCoverage } = require('./lib/test-level-gate.cjs');
 
 function loadDevConfig(projectRoot) {
@@ -109,14 +110,11 @@ async function run(ctx) {
   const targets = resolveTestTargets(doc, projectRoot, options.featureIds || []);
   let testCmd = config?.build?.commands?.test || '';
   if (!testCmd) {
-    const hasPkgInTargets =
-      fs.existsSync(path.join(projectRoot, 'package.json')) ||
-      targets.some((t) => fs.existsSync(path.join(t.worktree_path, 'package.json')));
-    if (hasPkgInTargets) testCmd = 'npm test --if-present';
+    testCmd = pipelineTooling.resolveDefaultTestCommand(projectRoot, targets);
   }
   if (!testCmd) {
     const msg =
-      'test blocked: set docs/config.dev.json build.commands.test or add package.json with npm test';
+      'test blocked: set docs/config.dev.json build.commands.test, or run codegen health scaffold (src + .pipeline/ai-code3)';
     console.error(msg);
     if (!options.dryRun) writeTerminal(projectRoot, doc, 'test', 'blocked', { summary: msg });
     return 1;

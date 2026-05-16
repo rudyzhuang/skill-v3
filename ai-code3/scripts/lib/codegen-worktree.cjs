@@ -59,33 +59,51 @@ function branchExists(projectRoot, branch) {
 /**
  * @returns {{ ok: true, worktree_path: string, branch: string, reused: boolean } | { ok: false, error: string }}
  */
+function removeWorktreeRegistration(projectRoot, wtPath) {
+  if (fs.existsSync(wtPath)) {
+    const rm = git(projectRoot, ['worktree', 'remove', '--force', wtPath]);
+    if (rm.status !== 0) {
+      return { ok: false, error: rm.stderr || `git worktree remove failed for ${wtPath}` };
+    }
+    return { ok: true };
+  }
+  git(projectRoot, ['worktree', 'prune']);
+  return { ok: true };
+}
+
 function ensureFeatureWorktree(projectRoot, featureId, baseBranch) {
   const wtPath = path.resolve(worktreePathForFeature(projectRoot, featureId));
   const branch = branchForFeature(featureId);
   fs.mkdirSync(path.dirname(wtPath), { recursive: true });
 
+  git(projectRoot, ['worktree', 'prune']);
+
   const list = parseWorktreeList(projectRoot);
   const reg = list.find((e) => e.path === wtPath);
-  if (reg && reg.branch === branch) {
+  const wtValid =
+    fs.existsSync(wtPath) && isInsideGitWorkTree(wtPath) && currentBranchAt(wtPath) === branch;
+
+  if (reg && reg.branch === branch && wtValid) {
     return { ok: true, worktree_path: wtPath, branch, reused: true };
   }
 
+  // Stale registration (e.g. prunable after git clean): drop and recreate.
+  if (reg && !wtValid) {
+    const dropped = removeWorktreeRegistration(projectRoot, wtPath);
+    if (!dropped.ok) return dropped;
+  }
+
   if (fs.existsSync(wtPath)) {
-    if (isInsideGitWorkTree(wtPath) && currentBranchAt(wtPath) === branch) {
+    if (wtValid) {
       return { ok: true, worktree_path: wtPath, branch, reused: true };
     }
     if (process.env.AI_CODE3_CODEGEN_RESET_WORKTREE === 'yes') {
-      if (reg) {
-        const rm = git(projectRoot, ['worktree', 'remove', '--force', wtPath]);
-        if (rm.status !== 0) {
-          return { ok: false, error: rm.stderr || `git worktree remove failed for ${wtPath}` };
-        }
-      } else {
-        try {
-          fs.rmSync(wtPath, { recursive: true, force: true });
-        } catch (e) {
-          return { ok: false, error: `cannot remove ${wtPath}: ${e.message}` };
-        }
+      const dropped = removeWorktreeRegistration(projectRoot, wtPath);
+      if (!dropped.ok) return dropped;
+      try {
+        if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true });
+      } catch (e) {
+        return { ok: false, error: `cannot remove ${wtPath}: ${e.message}` };
       }
     } else {
       return {

@@ -100,9 +100,21 @@ function codegenWorktreeRecord(doc, featureId) {
 /**
  * health-full 脚手架：仅初始化提交 + 未提交工件（非 Agent 完成态）
  */
+function worktreeHasFeatureSrc(projectRoot, featureId) {
+  const wt = worktreePath(projectRoot, featureId);
+  if (!fs.existsSync(wt)) return false;
+  const src = path.join(wt, 'src');
+  if (!fs.existsSync(src)) return false;
+  try {
+    return fs.readdirSync(src).some((name) => !name.startsWith('.'));
+  } catch {
+    return false;
+  }
+}
+
 function isScaffoldOnlyWorktree(projectRoot, featureId) {
   const wt = worktreePath(projectRoot, featureId);
-  if (!fs.existsSync(wt) || !fs.existsSync(path.join(wt, 'package.json'))) return false;
+  if (!fs.existsSync(wt) || !worktreeHasFeatureSrc(projectRoot, featureId)) return false;
   try {
     const count = Number(
       execFileSync('git', ['-C', wt, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()
@@ -170,15 +182,15 @@ function isFeatureCodegenDone(projectRoot, featureId, doc) {
   if (!fs.existsSync(wt)) return false;
   if (isScaffoldOnlyWorktree(projectRoot, fid)) return false;
 
-  try {
-    const count = Number(
-      execFileSync('git', ['-C', wt, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()
-    );
-    if (Number.isFinite(count) && count > 1) return true;
-    const porcelain = execFileSync('git', ['-C', wt, 'status', '--porcelain'], { encoding: 'utf8' });
-    if (porcelain.trim().length === 0 && fs.existsSync(path.join(wt, 'package.json'))) return true;
-  } catch {
-    /* 非 git worktree */
+  if (worktreeHasFeatureSrc(projectRoot, fid)) {
+    try {
+      const count = Number(
+        execFileSync('git', ['-C', wt, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()
+      );
+      if (Number.isFinite(count) && count > 1) return true;
+    } catch {
+      /* 非 git worktree */
+    }
   }
 
   return false;
