@@ -11,7 +11,7 @@
     "git": { "remote": "", "default_branch": "main" }
   },
   "pipeline": { "current_stage": "codegen", "last_completed_stage": null, "updated_at": null, "updated_by": "ai-code3-smoke" },
-  "client_targets": { "declared": ["website"], "generated": [], "allowed_values": ["website"] },
+  "client_targets": { "declared": ["website", "backend"], "generated": [], "allowed_values": ["website", "backend"] },
   "stages": {
     "contract": {
       "status": "completed",

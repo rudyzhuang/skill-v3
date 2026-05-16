@@ -71,6 +71,8 @@
 - **主代码目录固定为** `src/`（相对于 `<project_root>`）。
 - **按端分子目录**：`src/website/`、`src/admin/`、`src/backend/`、`src/mobile/`、`src/desktop/`、`src/miniapp/`、`src/agent/`。
 - **merge-push 完成后的主线代码**应落在上述对应端目录（或其子目录）中；禁止把「最终并入主线的端代码」散落到端外临时目录。
+- **禁止 V2 根目录落盘**：不得将端实现放在仓库根的 `backend/`、`website/`、`apps/<端>/` 等目录；**ai-code3** 的 **merge-push** 落位门闸会拒绝（见 **§阶段 10** / **`docs/spec/code3.md` §11.4**）。
+- **项目级 `scripts/`**：业务仓根下 `scripts/` 仅用于构建/编排（如 `scripts/build.cjs`），与 skill 安装目录内的 `*.cjs` 无关。
 - **共享层允许存在**：如 `src/shared/`、`src/common/`、`src/sdk/`；但凡某 feature 修改共享层，必须在对应端的 design/code-review 记录中显式标注影响范围。
 - **初始化与补齐策略**：若仓库尚未存在 `src/` 或某端子目录，相关阶段可在首次落盘时创建；已存在目录结构不得被静默重排。
 

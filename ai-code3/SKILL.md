@@ -1,6 +1,6 @@
 ---
 name: ai-code3
-version: "0.3.0"
+version: "0.3.1"
 description: >-
   Skill V3 代码流水线：在业务项目中驱动 codegen、typecheck、test、code-review、merge-push、build；
   状态真源为 .pipeline/stages.json；脚本为 Node CommonJS（.cjs）。
@@ -31,7 +31,7 @@ disable-model-invocation: true
 
 - **worktree + 分相 Agent、环境变量、CI 跳过策略、状态字段** 以 **`docs/spec/code3.md` §7.4–§7.12** 为准（对齐上一代 **ai-codegen2**，状态落在 **`stages.codegen.outputs.worktrees[]`** 与 **`outputs.agent`**）。  
 - **`codegen.cjs`** 已拆分 **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`**、**`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**；若业务目录尚未初始化 git，codegen 会先自动 `git init` + 初始提交，再进入 worktree 与 diff-guard；**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
-- 当 `AI_CODE3_SKIP_AGENT=1` 且 `AI_CODE3_ALLOW_NO_AGENT_PASS=yes` 时，codegen 会在 worktree 自动 seed 最小本地可运行健康示例（`backend/website/tests/scripts` + `package.json`），以保证后续 `test/build` 可继续。
+- 当 `AI_CODE3_SKIP_AGENT=1` 且 `AI_CODE3_ALLOW_NO_AGENT_PASS=yes` 时，codegen 经 **`lib/codegen-health-full-scaffold.cjs`** 按 **`client_targets`** 在 worktree 落盘健康示例（**`src/<client_target>/`**；根级 **`package.json`** 与可选 **`scripts/build.cjs`**），以保证后续 `test/build` 可继续；**禁止**在仓库根落盘 `backend/`、`website/`、`apps/mobile/` 等 V2 端目录。
 
 ## 业务项目路径（相对 `<project_root>/`）
 
@@ -42,8 +42,9 @@ disable-model-invocation: true
 | `docs/config.release.json` | 与 dev 结构对齐；可选扫描 |
 | `docs/config.env` | 可选；存在时不得在日志中打印完整密钥值 |
 | `.agent-sessions/` | 会话日志、锁（应 `.gitignore`） |
-| `src/<client_target>/` | 端代码主目录（`website/admin/backend/mobile/desktop/miniapp/agent`） |
+| `src/<client_target>/` | 端代码主目录（`website/admin/backend/mobile/desktop/miniapp/agent`）；含各端 `tests/` 子目录 |
 | `src/shared/` `src/common/` `src/sdk/` | 允许的共享代码目录（可选） |
+| `scripts/` | 项目级构建/编排脚本（如 `build.cjs`）；**非** skill 脚本目录 |
 
 **`client_targets` 允许值**：`website` / `admin` / `backend` / `miniapp` / `mobile` / `desktop` / `agent`。
 

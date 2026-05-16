@@ -154,7 +154,39 @@ function testSourceLayoutGuardExit1() {
   );
 }
 
+function testLegacyRootPathRejected(relDir, relFile, needle, label) {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `ai-code3-mp-legacy-${label}-`));
+  if (git(cwd, ['init']) !== 0) throw new Error('init');
+  if (git(cwd, ['branch', '-M', 'main']) !== 0) throw new Error('branch');
+  fs.mkdirSync(path.join(cwd, 'src', 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'src', 'backend', 'ok.ts'), 'export const ok = 1;\n', 'utf8');
+  commitAll(cwd, 'base');
+  if (git(cwd, ['checkout', '-b', 'feat']) !== 0) throw new Error('checkout feat');
+  const badPath = path.join(cwd, relDir);
+  fs.mkdirSync(badPath, { recursive: true });
+  fs.writeFileSync(path.join(badPath, relFile), "'use strict';\n", 'utf8');
+  commitAll(cwd, `legacy ${label}`);
+  if (git(cwd, ['checkout', 'main']) !== 0) throw new Error('checkout main');
+
+  writeConfig(cwd);
+  const wt = [{ feature_id: 'f1', branch: 'feat', worktree_path: cwd, commit: '', files_expected: [], files_changed: [], test_files_expected: [], test_files_changed: [] }];
+  writeStages(cwd, wt);
+  commitAll(cwd, 'pipeline files');
+
+  const r = runMergePush(cwd);
+  assert.strictEqual(r.status, 1, `legacy ${label} exit 1, stderr=${r.stderr}`);
+  const doc = JSON.parse(fs.readFileSync(path.join(cwd, '.pipeline', 'stages.json'), 'utf8'));
+  assert.strictEqual(doc.stages.merge_push.validation.passed, false);
+  assert.ok(
+    doc.stages.merge_push.outputs.source_layout_violations.some((v) => v.includes(needle)),
+    `must record ${needle} violation`
+  );
+}
+
 testHappyMerge();
 testMergeConflictExit6();
 testSourceLayoutGuardExit1();
+testLegacyRootPathRejected('backend', 'server.cjs', 'backend/', 'backend');
+testLegacyRootPathRejected('website', 'index.html', 'website/', 'website');
+testLegacyRootPathRejected(path.join('apps', 'mobile'), 'main.dart', 'apps/mobile/', 'apps-mobile');
 console.log('ai-code3 self-test-merge-push: ok');

@@ -329,21 +329,55 @@ void main() => runApp(const HealthApp());
 `;
 }
 
+function srcJoin(root, clientTarget, ...rest) {
+  return path.join(root, 'src', clientTarget, ...rest);
+}
+
+/** @param {object} doc - stages.json */
+/** @param {object} config - docs/config.dev.json */
+function resolveScaffoldClientTargets(doc, config) {
+  const out = [];
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (s && !out.includes(s)) out.push(s);
+  };
+  const declared = doc?.client_targets?.declared;
+  if (Array.isArray(declared)) declared.forEach(push);
+  const generated = doc?.client_targets?.generated;
+  if (Array.isArray(generated)) generated.forEach(push);
+  const defaults = config?.project?.default_client_targets;
+  if (Array.isArray(defaults)) defaults.forEach(push);
+  if (out.length) return out;
+  return ['website', 'backend', 'mobile'];
+}
+
 /**
- * Full Health demo scaffold: backend + website + Flutter mobile (apps/mobile).
+ * Full Health demo scaffold under src/<client_target>/ (filtered by client_targets).
  * @param {string} root - worktree or project root
+ * @param {{ clientTargets?: string[] }} [opts]
  * @returns {number} files touched
  */
-function applyHealthFullScaffold(root) {
+function applyHealthFullScaffold(root, opts = {}) {
+  const targets =
+    Array.isArray(opts.clientTargets) && opts.clientTargets.length
+      ? opts.clientTargets
+      : ['website', 'backend', 'mobile'];
+  const want = (t) => targets.includes(t);
+
   let touched = 0;
   const touch = (p, c) => {
     if (writeIfMissing(p, c)) touched += 1;
   };
 
-  touch(path.join(root, 'backend', 'server.cjs'), backendServerSource());
-  touch(path.join(root, 'website', 'index.html'), websiteIndexHtml());
-  touch(path.join(root, 'website', 'app.js'), websiteAppJs());
-  touch(path.join(root, 'website', 'server.cjs'), websiteServerSource());
+  if (want('backend')) {
+    touch(srcJoin(root, 'backend', 'server.cjs'), backendServerSource());
+  }
+
+  if (want('website')) {
+    touch(srcJoin(root, 'website', 'index.html'), websiteIndexHtml());
+    touch(srcJoin(root, 'website', 'app.js'), websiteAppJs());
+    touch(srcJoin(root, 'website', 'server.cjs'), websiteServerSource());
+  }
 
   const pages = [
     ['page-health.html', 'Health Page', '/api/health'],
@@ -366,11 +400,14 @@ function applyHealthFullScaffold(root) {
     ['page-uuid.html', 'UUID Page', '/api/uuid'],
     ['page-about.html', 'About Page', '/api/about']
   ];
-  for (const [file, title, ep] of pages) {
-    touch(path.join(root, 'website', file), pageHtml(title, ep));
+  if (want('website')) {
+    for (const [file, title, ep] of pages) {
+      touch(srcJoin(root, 'website', file), pageHtml(title, ep));
+    }
   }
 
-  const mobileRoot = path.join(root, 'apps', 'mobile');
+  if (want('mobile')) {
+  const mobileRoot = srcJoin(root, 'mobile');
   touch(
     path.join(mobileRoot, 'pubspec.yaml'),
     `name: health_mobile
@@ -421,26 +458,31 @@ flutter:
       console.error(`codegen-health-full-scaffold: flutter create error: ${e.message}`);
     }
   }
+  }
 
+  const pkgScripts = { build: 'node scripts/build.cjs' };
+  if (want('backend')) {
+    pkgScripts['start:backend'] = 'node src/backend/server.cjs';
+    pkgScripts.test = 'node src/backend/tests/health.test.cjs';
+  }
+  if (want('website')) {
+    pkgScripts['start:website'] = 'node src/website/server.cjs';
+  }
   const pkg = {
     name: 'health-minimal-app',
     version: '1.0.0',
     private: true,
-    scripts: {
-      'start:backend': 'node backend/server.cjs',
-      'start:website': 'node website/server.cjs',
-      test: 'node tests/health.test.cjs',
-      build: 'node scripts/build.cjs',
-    },
+    scripts: pkgScripts,
   };
   touch(path.join(root, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
 
+  if (want('backend')) {
   touch(
-    path.join(root, 'tests', 'health.test.cjs'),
+    srcJoin(root, 'backend', 'tests', 'health.test.cjs'),
     `'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
-const child = spawn(process.execPath, ['backend/server.cjs'], { stdio: 'ignore', env: { ...process.env, BACKEND_PORT: '3099' } });
+const child = spawn(process.execPath, ['src/backend/server.cjs'], { stdio: 'ignore', env: { ...process.env, BACKEND_PORT: '3099' } });
 function req(port, pathname) {
   return new Promise((resolve, reject) => {
     const r = http.request({ host: '127.0.0.1', port, path: pathname, method: 'GET' }, (res) => {
@@ -469,8 +511,30 @@ function req(port, pathname) {
 })();
 `
   );
+  }
+
+  if (want('website') || want('backend')) {
+  touch(
+    path.join(root, 'scripts', 'build.cjs'),
+    `'use strict';
+const fs = require('fs');
+const path = require('path');
+const dist = path.join(process.cwd(), 'dist');
+const copyIf = (from, toDir, name) => {
+  const fromAbs = path.join(process.cwd(), from);
+  if (!fs.existsSync(fromAbs)) return;
+  fs.mkdirSync(toDir, { recursive: true });
+  fs.copyFileSync(fromAbs, path.join(toDir, name));
+};
+copyIf('src/website/index.html', path.join(dist, 'website', 'default'), 'index.html');
+copyIf('src/website/app.js', path.join(dist, 'website', 'default'), 'app.js');
+copyIf('src/backend/server.cjs', path.join(dist, 'backend', 'default'), 'server.cjs');
+console.log('build done');
+`
+  );
+  }
 
   return touched;
 }
 
-module.exports = { applyHealthFullScaffold, writeIfMissing };
+module.exports = { applyHealthFullScaffold, resolveScaffoldClientTargets, writeIfMissing };

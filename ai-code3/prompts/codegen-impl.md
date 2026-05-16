@@ -12,8 +12,9 @@
 
 1. 阅读 **`stages.contract.outputs`** 与 **`stages.design.outputs.design_snapshot`**（或等价字段）中与当前 **`feature_id`** 相关的契约与 **`file_plan`**。  
 2. 仅在 worktree 内修改/新增文件；**不要**改动主仓未通过 merge 的路径（除非脚本已明确允许）。  
-3. 满足契约中的接口与行为约束；保持与仓库既有风格一致。  
-4. 完成后确保 **`npm test` / `pnpm test`** 等（若项目约定）在 worktree 视角可执行的路径一致。
+3. **端实现代码**须落在 **`src/<client_target>/`**（`website` / `admin` / `backend` / `mobile` / `desktop` / `miniapp` / `agent`）或其子目录；跨端共享代码仅允许 **`src/shared/`**、**`src/common/`**、**`src/sdk/`**。**禁止**在仓库根创建 V2 式目录（如 **`backend/`**、**`website/`**、**`apps/mobile/`**）。  
+4. 满足契约中的接口与行为约束；保持与仓库既有风格一致。  
+5. 完成后确保 **`npm test` / `pnpm test`** 等（若项目约定）在 worktree 视角可执行的路径一致。
 
 ## 禁止
 

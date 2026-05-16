@@ -29,7 +29,7 @@
 | `typecheck` | §8 | **是** | 含 T1 全 skip→0 |
 | `test` | §9 | **是** | 按 **`codegen.outputs.worktrees[]`**（可 **`--feature`** 过滤）逐 feature **cwd**；**`test_fix`** + **`AI_CODE3_PHASE=test_fix`** 外部 Agent；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_SKIP_TEST_FIX_AGENT`**；**`outputs.per_feature[]`** |
 | `code-review` | §10 | **是** | 优先级：**`AI_CODE3_CODE_REVIEW_JSON`** → 外部 Agent（**`AI_CODE3_PHASE=code_review`**，写 **`AI_CODE3_CODE_REVIEW_OUTPUT`**）+ **Ajv** 校验 **`templates/schemas/code-review-output.v3.schema.json`** → 人工预填 / stub |
-| `merge-push` | §11、§11.4 | **是** | stub 路径除外；**`--session-id`** 心跳 |
+| `merge-push` | §11、§11.4 | **是** | stub 路径除外；**`--session-id`** 心跳；**拒绝**根级 `backend/`、`website/`、`apps/` 等 V2 端目录落盘 |
 | `build` | §12 | **是** | **`client_targets`×`sub_platforms`** 矩阵；逐条超时；**`artifacts[]`** 仍偏 CLI 路径汇总（与 §12.3 字段级对齐可继续收紧） |
 | **`clean` / `clean-worktrees`** | §4.3 | **是** | **`clean.cjs`**；**`git worktree remove`**；须 **`AI_CODE3_CLEAN_CONFIRM=yes`**；**绕过** preflight |
 | 附录 B 单测 / merge 自测 / smoke（含 **clean**、**preflight 上游门闸**、`npm ci`） | 附录 B、§16 | **是** | 见 **`self-test-*.cjs`**、**`smoke.cjs`** |
@@ -113,6 +113,7 @@ ai-code3/
         ├── codegen-gates.cjs         # §7.2 门闸（preflight / codegen 复用）
         ├── codegen-worktree.cjs      # worktree 列表、创建/复用 v3-fc-*
         ├── codegen-scaffold.cjs      # §7.5（v2 骨架映射）/ §7.9 步骤 4：确定性骨架（file_plan）
+        ├── codegen-health-full-scaffold.cjs  # CI 无 Agent：Health 演示落盘至 **src/<client_target>/**
         ├── invoke-ai-code3-agent.cjs  # 统一外部 Agent：**AI_CODE3_PHASE** / **FEATURE_ID** / **WORKTREE** / **PROJECT**
         ├── invoke-codegen-agent.cjs   # 薄封装 → **invoke-ai-code3-agent**（codegen 历史名）
         ├── validate-code-review-output.cjs  # Ajv 编译 **code-review-output.v3.schema.json**
@@ -140,6 +141,7 @@ ai-code3/
 | `lib/codegen-gates.cjs` | **§7.2**：上游门闸断言（返回错误消息或 **`null`**）；**preflight**（可选）与 **codegen** 复用 |
 | `lib/codegen-worktree.cjs` | **§7.7**：`git worktree` 列表、**`v3-fc-*`** 创建/复用、绝对路径锚定 |
 | `lib/codegen-scaffold.cjs` | **§7.5 / §7.9**：确定性占位与目录（**不得**含 Agent 调用） |
+| `lib/codegen-health-full-scaffold.cjs` | **§11.4**：CI 无 Agent 时 Health 演示；落盘 **`src/<client_target>/`** |
 | `lib/invoke-codegen-agent.cjs` | **§7.8–§7.9**：在 worktree 根目录上下文调用外部 Agent；超时/退出码映射 **§7.12** |
 | `lib/session-log.cjs` | **§15**：**`.agent-sessions/<session>.log`** 心跳追加 |
 
@@ -175,8 +177,9 @@ ai-code3/
 | `docs/config.env` | **可选依赖**：默认 typecheck/test/build **不要求**文件存在；仅当脚本显式需要凭证时读取 |
 | `.agent-sessions/` | 会话日志、锁、长日志子目录（**应**被 `.gitignore`） |
 | **worktree** | 由 **codegen** 创建；路径写入 **`stages.codegen.outputs.worktrees[].worktree_path`** |
-| `src/<client_target>/` | merge 后端代码主目录（`website/admin/backend/mobile/desktop/miniapp/agent`） |
+| `src/<client_target>/` | merge 后端代码主目录（`website/admin/backend/mobile/desktop/miniapp/agent`）；各端测试可置于 `src/<client_target>/tests/` |
 | `src/shared/` / `src/common/` / `src/sdk/` | 允许的共享代码目录（可选） |
+| `scripts/` | 业务项目根下构建/编排脚本（如 `scripts/build.cjs`）；**非** skill 安装目录内的 `*.cjs` |
 
 **`client_target` 允许值**（与 `stages.json.template` → `client_targets.allowed_values` 一致）：  
 `website` / `admin` / `backend` / `miniapp` / `mobile` / `desktop` / `agent`。
@@ -376,7 +379,8 @@ ai-code3/
 - **干净树门闸**：进入真实 merge 前，业务仓 **`git status --porcelain` 须为空**（须先提交或暂存含 `.pipeline/stages.json` 的变更）。**PID 锁**在干净检查**通过之后**再创建，避免 **`.agent-sessions/`** 未纳入 `.gitignore` 时误伤门闸。  
 - **待合并分支**：优先读取 **`stages.codegen.outputs.worktrees[]`**；若为空则 **`stages.code_review.inputs.worktrees[]`**。对每个元素解析 **`branch`**；若缺省则在对应 **`worktree_path`** 上执行 **`git rev-parse --abbrev-ref HEAD`**。与 **`target_branch`**（`docs/config.dev.json` 的 **`git.default_branch`** 或 `merge_push.inputs.target_branch`，默认 **`main`**）相同的分支跳过合并。其余分支在 **`projectRoot`** 上按序执行 **`git merge --no-ff`**；冲突则 **`git merge --abort`**，写 **`merge_status=conflict`**，**退出 6**。  
 - **推送**：**`git.allow_push=true`** 时执行 **`git push <remote> <target_branch>`**（**`git.remote`**，默认 **`origin`**）；未配置 remote → **退出 7**；push 非零退出 → **7**；子进程超时下限由 **`timeouts.stages.merge_push_s`** 推导为单次 git 调用的超时毫秒数（见 **`scripts/lib/merge-git.cjs`**）。**`--stub-remaining`** 仍为占位合并，不执行真实 git。  
-- **源码目录落位门闸**：合并成功后，脚本会检查本次合并引入的源码文件路径。源码文件必须位于 **`src/<client_target>/`**（`website/admin/backend/mobile/desktop/miniapp/agent`）或共享目录 **`src/shared/`**、**`src/common/`**、**`src/sdk/`**。若命中如 `legacy/*.ts`、`backend/*.py`（仓库根下非 `src/`）或 `src/<unknown>/` 等不合规路径，则 `merge_push` 标记 **failed**、记录 `outputs.source_layout_violations[]`，并以 **退出码 1** 阻断进入 build。  
+- **源码目录落位门闸**：合并成功后，脚本会检查本次合并引入的源码文件路径。源码文件必须位于 **`src/<client_target>/`**（`website/admin/backend/mobile/desktop/miniapp/agent`）或共享目录 **`src/shared/`**、**`src/common/`**、**`src/sdk/`**。若命中如 `legacy/*.ts`、根级 **`backend/server.cjs`**、**`website/*.html`**、**`apps/mobile/**`**（V2 端目录）或 `src/<unknown>/` 等不合规路径，则 `merge_push` 标记 **failed**、记录 `outputs.source_layout_violations[]`，并以 **退出码 1** 阻断进入 build。**豁免**（非端实现源码）：`docs/`、`.pipeline/`、`.agent-sessions/`、**`scripts/`**（项目级构建脚本）。
+- **无 Agent 健康脚手架**：**`AI_CODE3_SKIP_AGENT=1`** 且 **`AI_CODE3_ALLOW_NO_AGENT_PASS=yes`** 时，**`lib/codegen-health-full-scaffold.cjs`** 按 **`stages.json` / `config.dev.json` 声明的 `client_targets`** 向对应 **`src/<client_target>/`** 落盘（未声明时默认 `website`+`backend`+`mobile`）；根级仅 **`package.json`** 与可选 **`scripts/build.cjs`**。  
 - **实现文件**：**`merge-push.cjs`** + **`lib/merge-git.cjs`**；合并自测 **`scripts/self-test-merge-push.cjs`**。
 
 ---
@@ -657,6 +661,7 @@ ai-code3/
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.9 | 2026-05-16 | **源码落位**：无 Agent 健康脚手架（按 **`client_targets`**）与 **merge-push** 门闸对齐 **`src/<client_target>/`**；移除 V2 根目录白名单；落位检测含 **`.html`/`.css`** 等前端源文件；**§5** 增补 **`scripts/`** |
 | 0.8 | 2026-05-16 | 删除 **`docs/plans/ai-code3-implementation-plan.md`**；原门禁与两轮评审并入 **§16.1**；**§0** / **§0.1** 去外链，真源收口为本文 |
 | 0.7 | 2026-05-15 | **§0.1 实现覆盖快照**；**§4.1** 修正 **`preflight`/`codegen`/`code-review`/`build`** 与当前仓库脚本一致（目标 vs 过渡/部分实现分述） |
 | 0.6 | 2026-05-15 | **§11 merge-push**：补充 **§11.4** 与仓库脚本一致的默认实现说明（真 merge / push、干净树门闸、`merge-git.cjs`） |

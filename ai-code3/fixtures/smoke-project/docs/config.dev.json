@@ -1,6 +1,6 @@
 {
   "_schema": { "name": "skill-v3-project-config", "version": 1, "environment": "dev" },
-  "project": { "name": "smoke", "project_id": "smoke", "root_path": ".", "default_client_targets": ["website"] },
+  "project": { "name": "smoke", "project_id": "smoke", "root_path": ".", "default_client_targets": ["website", "backend"] },
   "git": { "remote": "origin", "default_branch": "main", "working_branch_prefix": "ai", "allow_push": false },
   "build": {
     "commands": {
