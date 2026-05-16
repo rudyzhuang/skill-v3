@@ -180,6 +180,15 @@ function featureCsv(ids) {
   return ids.join(',');
 }
 
+function toSingleFeatureArg(featureCsvStr) {
+  if (!featureCsvStr) return '';
+  const ids = String(featureCsvStr)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return ids.length === 1 ? ids[0] : '';
+}
+
 function getSkillRootFromScript(scriptAbsPath) {
   return path.dirname(path.dirname(scriptAbsPath));
 }
@@ -342,7 +351,8 @@ function ensureSeedDesignSpecs(projectRoot, featureIds, sessionId) {
 async function spawnDesign3(projectRoot, cmd, cfg, sessionId, forceRerunStage, featureCsvStr) {
   const script = scriptPath('ai-design3', 'scripts/run.cjs');
   const args = [cmd, `--project=${projectRoot}`];
-  if (featureCsvStr) args.push(`--feature=${featureCsvStr}`);
+  const singleFeature = toSingleFeatureArg(featureCsvStr);
+  if (singleFeature) args.push(`--feature=${singleFeature}`);
   if (forceRerunStage === 'design') args.push('--force-rerun=design');
   const t = stageTimeoutMs(cfg, 'design');
   return runNodeScript({
@@ -368,7 +378,8 @@ async function runContractChain(projectRoot, cfg, sessionId, forceRerun, feature
   for (const cmd of CONTRACT_CHAIN) {
     const script = scriptPath('ai-design3', 'scripts/run.cjs');
     const args = [cmd, `--project=${projectRoot}`];
-    if (featureCsvStr) args.push(`--feature=${featureCsvStr}`);
+    const singleFeature = toSingleFeatureArg(featureCsvStr);
+    if (singleFeature) args.push(`--feature=${singleFeature}`);
     if (forceRerun === 'contract') args.push('--force-rerun=contract');
     const code = await runNodeScript({
       node: process.execPath,
@@ -407,7 +418,8 @@ async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun, fea
   for (const cmd of DESIGN_REVIEW_CHAIN) {
     const script = scriptPath('ai-design3', 'scripts/run.cjs');
     const args = [cmd, `--project=${projectRoot}`];
-    if (featureCsvStr) args.push(`--feature=${featureCsvStr}`);
+    const singleFeature = toSingleFeatureArg(featureCsvStr);
+    if (singleFeature) args.push(`--feature=${singleFeature}`);
     if (forceRerun === 'design_review') args.push('--force-rerun=design_review');
     const code = await runNodeScript({
       node: process.execPath,

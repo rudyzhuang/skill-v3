@@ -61,8 +61,18 @@ function collectFeatureUniverseFromLists(projectRoot, declaredTargets) {
     const fl = path.join(docs, slug, 'feature_list.md');
     if (!fs.existsSync(fl)) continue;
     const raw = fs.readFileSync(fl, 'utf8');
+    let inFeaturesSection = false;
     for (const line of raw.split('\n')) {
       const t = line.trim();
+      if (/^##\s+Features\s*$/i.test(t)) {
+        inFeaturesSection = true;
+        continue;
+      }
+      // Stop once we leave "## Features" and enter the next section.
+      if (inFeaturesSection && /^##\s+/.test(t)) {
+        inFeaturesSection = false;
+      }
+      if (!inFeaturesSection) continue;
       if (!t.startsWith('|')) continue;
       if (/^\|\s*Feature ID\s*\|/i.test(t)) continue;
       if (/^\|\s*[-: ]+\|/.test(t)) continue;

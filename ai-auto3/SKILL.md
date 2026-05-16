@@ -49,11 +49,13 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | `node .../gen-report.cjs --project=... --session-id=... [--failure-reason=]` | 单独生成报告（通常由 autorun 末尾调用） |
 
 **`--features`**：限定本期 **`ai-code3`** 段使用的 **`feature_id`** 子集（须 ⊆ **`prd_review.phase_plan`**）。
+对 **ai-design3**（design/contract/design-review）仅在 `--features` 解析后恰好 **1 个 feature_id** 时传 `--feature=<id>`；多 feature 时不下发该参数，避免把逗号串误传给 design3（design3 仅支持单 feature 过滤）。
 
 ## 子 skill 与 **ai-code3 `--feature`（§5.6、§5.7）**
 
 - 每次 spawn **`ai-code3`** 均带 **`--feature=<非空>`**；**规格**上 **`autorun.cjs`** 按 **auto3.md §5.7** 将本期 id 分为 **feature group**，**每 group 一次** spawn、**`--feature=<组内 id 逗号列表>`**；**`merge-push` / `build`** 传**本轮 id 全集**。
 - 启动前先加载全部 `feature_list.md` 做完整性校验：每个 feature 必须进入 `phase_plan` 或显式 `deferred`，否则 preflight 失败。
+- `feature_list.md` 解析仅以 `## Features` 段落中的 `Feature ID` 表为准，忽略 `## Metadata` 等其他表，避免把 `Field/schema_name` 这类元数据误判为 feature。
 - **组间并行**上限：**`pipeline.autorun.feature_group_max_parallel`**（默认 **3**）。**`merge-push` 前**须等 **`codegen`～`code-review` 全组**成功（**§5.6**）。
 - **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。
 - 在 `design` 宏链路开跑前，`autorun.cjs` 会对 `prd_review.phase_plan` 中缺失的 `docs/designs/<feature_id>.design.json` 做最小 seed（`status=draft`，并补 `client_targets` / `cross_client`），避免 `scan-design-style` 因缺文件直接失败且减少 feature-plan 端型误判噪音。
