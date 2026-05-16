@@ -335,14 +335,21 @@ function runAutorunChecklist(projectRoot, opts = {}) {
   }
 
   const lock = pipelineLockHeld(projectRoot);
+  const checklistWarnings = [];
   if (lock.held) {
-    return {
-      ok: false,
-      message: `checklist#7: pipeline 锁被占用 ${lock.path} pid=${lock.meta?.pid} session=${lock.meta?.session_id}`,
-    };
+    checklistWarnings.push(
+      `checklist#7(warn): pipeline 锁存在 ${lock.path} pid=${lock.meta?.pid} session=${lock.meta?.session_id}；运行阶段将以 acquirePipelineLock 原子判定为准`
+    );
   }
 
-  return { ok: true, stages: doc, configDev: devCfg, featureIds, gitWarnings: lg.warnings || [] };
+  return {
+    ok: true,
+    stages: doc,
+    configDev: devCfg,
+    featureIds,
+    gitWarnings: lg.warnings || [],
+    checklistWarnings,
+  };
 }
 
 module.exports = {

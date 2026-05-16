@@ -180,6 +180,18 @@ function featureCsv(ids) {
   return ids.join(',');
 }
 
+function validateCodegenCoverage(projectRoot, requiredFeatureIds) {
+  const doc = readStages(projectRoot);
+  const rows = doc.stages?.codegen?.outputs?.worktrees || [];
+  const produced = new Set(
+    rows
+      .map((r) => String(r?.feature_id || '').trim())
+      .filter(Boolean)
+  );
+  const missing = requiredFeatureIds.filter((id) => !produced.has(id));
+  return { missing, producedCount: produced.size };
+}
+
 function toSingleFeatureArg(featureCsvStr) {
   if (!featureCsvStr) return '';
   const ids = String(featureCsvStr)
@@ -537,7 +549,8 @@ async function runCodeStageWithFeatureGroups(
   cfg,
   sessionId,
   forceRerun,
-  warningCache
+  warningCache,
+  realAgentDetected
 ) {
   const doc = readStages(projectRoot);
   const plan = planFeatureGroupWaves(featureIds, doc, projectRoot);
@@ -548,7 +561,16 @@ async function runCodeStageWithFeatureGroups(
     appendLog(projectRoot, sessionId, `[feature-plan] ${w}`);
     console.error(`[ai-auto3][feature-plan] ${w}`);
   }
-  const maxP = getFeatureGroupMaxParallel(cfg);
+  const configuredMaxParallel = cfg?.pipeline?.autorun?.feature_group_max_parallel;
+  const hasConfiguredParallel =
+    typeof configuredMaxParallel === 'number' &&
+    Number.isFinite(configuredMaxParallel) &&
+    configuredMaxParallel >= 1;
+  let maxP = getFeatureGroupMaxParallel(cfg);
+  if (realAgentDetected && !hasConfiguredParallel) {
+    // Real agent mode 默认串行，避免多并发 codegen 导致长时间阻塞。
+    maxP = 1;
+  }
   appendLog(
     projectRoot,
     sessionId,
@@ -712,6 +734,7 @@ async function main() {
   const featureIds = ck.featureIds;
   const featStr = featureCsv(featureIds);
   const selectedFeatureSet = new Set(featureIds);
+  const realAgentDetected = !!resolveCode3AgentBin(cfg) && !shouldForceStubRemaining(cfg);
   let phasePlans = collectPhasePlans(doc)
     .map((p) => ({
       phase: p.phase,
@@ -923,7 +946,8 @@ async function main() {
                 cfg,
                 sessionId,
                 opts.forceRerun,
-                featurePlanWarningCache
+                featurePlanWarningCache,
+                realAgentDetected
               );
             }
             if (code !== 0) {
@@ -931,6 +955,15 @@ async function main() {
               failureReason = `ai-code3 ${cmd} exit=${code}`;
               stoppedAt = sk;
               break;
+            }
+            if (sk === 'codegen') {
+              const cov = validateCodegenCoverage(projectRoot, phaseFeatureIds);
+              if (cov.missing.length) {
+                exitCode = 1;
+                failureReason = `ai-code3 codegen 覆盖不足，缺少 feature: ${cov.missing.join(', ')}`;
+                stoppedAt = sk;
+                break;
+              }
             }
             recordStageEvent(runId, sk, code, 0, false, `phase=${phase}`);
           } else if (stage === 'deploy_smoke') {
