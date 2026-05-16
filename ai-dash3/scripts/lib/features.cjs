@@ -114,14 +114,35 @@ function isScaffoldOnlyWorktree(projectRoot, featureId) {
   }
 }
 
-function testPerFeaturePassed(doc, featureId) {
+function testPerFeatureRow(doc, featureId) {
   const fid = String(featureId || '').trim();
   const rows = doc?.stages?.test?.outputs?.per_feature || [];
-  const row = rows.find((r) => String(r?.feature_id || '').trim() === fid);
+  return rows.find((r) => String(r?.feature_id || '').trim() === fid);
+}
+
+function testPerFeaturePassed(doc, featureId) {
+  const row = testPerFeatureRow(doc, featureId);
   if (!row) return false;
   const result = String(row.result || row.status || '').toLowerCase();
   if (row.passed === true || result === 'passed' || result === 'success') return true;
   return false;
+}
+
+function testPerFeatureFailed(doc, featureId) {
+  const row = testPerFeatureRow(doc, featureId);
+  if (!row) return false;
+  const result = String(row.result || row.status || '').toLowerCase();
+  if (row.passed === false || result === 'failed' || result === 'failure') return true;
+  return false;
+}
+
+/** 看板「已完成」：该 feature 在 test 阶段已通过（与 codegen 落盘分离） */
+function isFeaturePipelineCompleted(doc, featureId) {
+  return testPerFeaturePassed(doc, featureId);
+}
+
+function isTestStageRunning(doc) {
+  return String(doc?.stages?.test?.status || '') === 'running';
 }
 
 /**
@@ -337,6 +358,9 @@ function deriveFeatureStageFields(p) {
     fid,
     pipeline_status,
     codegenDone,
+    testPassed,
+    testFailed,
+    testRunning,
     hasWorktree,
     currentStage,
     codegenRunning,
@@ -353,21 +377,30 @@ function deriveFeatureStageFields(p) {
     pipeline_stage = 'deferred';
     pipeline_stage_label = '延期';
   } else if (pipeline_status === 'failed') {
-    pipeline_stage = currentStage || 'failed';
-    pipeline_stage_label = '失败';
-  } else if (codegenDone) {
-    const gs = currentStage && currentStage !== 'codegen' ? currentStage : 'codegen';
-    pipeline_stage = gs;
-    if (gs === 'codegen' || String(doc?.stages?.codegen?.status || '') === 'completed') {
-      pipeline_stage_label = 'codegen（本 feature 已完成）';
-      stage_started_at = globalStageStartedAt(doc, 'codegen') || null;
-      if (wtTimes.mtimeMs) {
-        stage_started_at = new Date(wtTimes.mtimeMs).toISOString();
-      }
-    } else {
-      pipeline_stage_label = `${displayStageKey(gs)}（等待项目级阶段）`;
-      stage_started_at = globalStageStartedAt(doc, gs);
+    pipeline_stage = testFailed ? 'test' : currentStage || 'failed';
+    pipeline_stage_label = testFailed ? 'test（未通过）' : '失败';
+    const tRow = testPerFeatureRow(doc, fid);
+    if (tRow?.finished_at) stage_started_at = String(tRow.finished_at);
+    else stage_started_at = globalStageStartedAt(doc, 'test');
+  } else if (pipeline_status === 'completed' && testPassed) {
+    pipeline_stage = 'test';
+    pipeline_stage_label = 'test（本 feature 已通过）';
+    const tRow = testPerFeatureRow(doc, fid);
+    stage_started_at =
+      (tRow?.finished_at && String(tRow.finished_at)) ||
+      globalStageStartedAt(doc, 'test') ||
+      null;
+    if (!stage_started_at && wtTimes.mtimeMs) {
+      stage_started_at = new Date(wtTimes.mtimeMs).toISOString();
     }
+  } else if (codegenDone && !testPassed) {
+    pipeline_stage = testRunning ? 'test' : 'codegen';
+    pipeline_stage_label = testRunning ? 'test（进行中）' : 'codegen（已完成，待 test）';
+    stage_started_at = testRunning
+      ? globalStageStartedAt(doc, 'test')
+      : wtTimes.mtimeMs
+        ? new Date(wtTimes.mtimeMs).toISOString()
+        : globalStageStartedAt(doc, 'codegen');
   } else if (pipeline_status === 'in_progress' && isActiveCodegen) {
     pipeline_stage = 'codegen';
     pipeline_stage_label = 'codegen（进行中）';
@@ -460,6 +493,9 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
       let pipeline_status = 'pending';
       const hints = [];
       const codegenDone = isFeatureCodegenDone(projectRoot, fid, doc);
+      const testPassed = testPerFeaturePassed(doc, fid);
+      const testFailed = testPerFeatureFailed(doc, fid);
+      const testRunning = isTestStageRunning(doc);
       const hasWorktree = worktrees.has(fid);
       const wtTimes = worktreeTimestamps(projectRoot, fid);
       const isActiveCodegen = fid === activeCodegenFid;
@@ -470,12 +506,22 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
       } else if (listMeta[fid]?.status === 'blocked') {
         pipeline_status = 'failed';
         hints.push('blocked_in_feature_list');
+      } else if (testFailed) {
+        pipeline_status = 'failed';
+        hints.push('test_per_feature_failed');
       } else if (projectFailed && (pendingQueue.has(fid) || phase === currentPhase)) {
         pipeline_status = 'failed';
         hints.push('project_stage_failed');
-      } else if (codegenDone) {
+      } else if (testPassed) {
         pipeline_status = 'completed';
-        hints.push('worktree_codegen_artifacts');
+        hints.push('test_per_feature_passed');
+        if (codegenDone) hints.push('codegen_done');
+      } else if (codegenDone && testRunning) {
+        pipeline_status = 'in_progress';
+        hints.push('codegen_done_test_running');
+      } else if (codegenDone) {
+        pipeline_status = 'pending';
+        hints.push('codegen_done_awaiting_test');
         if (hasWorktree) hints.push('has_worktree');
       } else if (isActiveCodegen) {
         pipeline_status = 'in_progress';
@@ -495,6 +541,9 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
         fid,
         pipeline_status,
         codegenDone,
+        testPassed,
+        testFailed,
+        testRunning,
         hasWorktree,
         currentStage: pipelineCurrentStage || currentStage,
         codegenRunning,
@@ -549,6 +598,7 @@ module.exports = {
   parseFeatureLists,
   worktreesOnDisk,
   isFeatureCodegenDone,
+  isFeaturePipelineCompleted,
   isScaffoldOnlyWorktree,
   collectFeatureWorktreeIds,
   filterRemainingCodegenQueue,

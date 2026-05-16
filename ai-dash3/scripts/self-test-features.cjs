@@ -57,7 +57,14 @@ const runtime = {
 const board = buildFeatureBoard(doc, root, runtime, { alive: true });
 const byId = Object.fromEntries(board.features.map((f) => [f.feature_id, f]));
 
-assert(byId['F-A'].pipeline_status === 'completed', `F-A expected completed, got ${byId['F-A'].pipeline_status}`);
+assert(
+  byId['F-A'].pipeline_status === 'pending',
+  `F-A expected pending (codegen done, test not run), got ${byId['F-A'].pipeline_status}`
+);
+assert(
+  byId['F-A'].pipeline_stage_label.includes('待 test'),
+  `F-A label expected 待 test, got ${byId['F-A'].pipeline_stage_label}`
+);
 assert(byId['F-B'].pipeline_status === 'in_progress', `F-B expected in_progress (active codegen), got ${byId['F-B'].pipeline_status}`);
 assert(byId['F-B'].hints.includes('active_codegen_feature'), 'F-B should be active_codegen_feature');
 assert(byId['F-B'].pipeline_stage_label, 'F-B should have pipeline_stage_label');
@@ -113,5 +120,18 @@ const sorted = sortFeaturesByPriority(
   orderIndex
 );
 assert(sorted[0].feature_id === 'P0-Y', `P0 should sort first, got ${sorted[0].feature_id}`);
+
+const docTestPass = JSON.parse(JSON.stringify(doc));
+docTestPass.stages.codegen.status = 'completed';
+docTestPass.stages.test = {
+  status: 'completed',
+  outputs: {
+    per_feature: [{ feature_id: 'F-A', result: 'passed', passed: true, finished_at: '2026-01-01T00:00:00.000Z' }],
+  },
+};
+const boardDone = buildFeatureBoard(docTestPass, root, runtime, { alive: false });
+const fA = boardDone.features.find((f) => f.feature_id === 'F-A');
+assert(fA.pipeline_status === 'completed', `F-A with test pass expected completed, got ${fA.pipeline_status}`);
+assert(fA.pipeline_stage_label.includes('test'), `F-A completed label should mention test: ${fA.pipeline_stage_label}`);
 
 console.log('ai-dash3 self-test-features: ok');

@@ -197,9 +197,10 @@
 | --- | --- |
 | **`deferred`** | 在 **`prd_review.review.deferred_features`** 中 |
 | **`failed`** | **`feature_list`** 为 **`blocked`**；或项目存在 **`failed`** 阶段且该 feature 属于当前失败 phase / **`pending_features_json`** 队列 |
-| **`completed`** | 满足其一：**`stages.codegen.outputs.worktrees[]`** 对应行含非空 **`commit`** 或 **`files_changed`/`test_files_changed`**；**`stages.test.outputs.per_feature[]`** 对该 feature 为 **passed/success**；worktree **git** 已有 **>1** 次提交或 **clean** 工作区且非脚手架。**禁止**将 health-full **脚手架**（仅 **1** 次 init 提交 + 未提交 **`package.json`/`src/`**）判为已完成 |
-| **`in_progress`** | **registry 存活**且为 **`pickActiveCodegenFeature`** 选中的当前 codegen feature；或已有 worktree 且非脚手架、未完成 impl |
-| **`pending`** | 其余；含 **autorun 排队尚未建 worktree** 的 feature（**`pending_features_json` 在列但无 worktree** 仍为 **`pending`**，**不**因 design.json 存在而升为处理中） |
+| **`completed`** | **仅当** **`stages.test.outputs.per_feature[]`** 中该 **`feature_id`** 为 **passed/success**（或 **`passed: true`**）。**codegen 落盘不算「已完成」**；阶段文案为 **`test（本 feature 已通过）`** |
+| **`in_progress`** | **registry 存活**且为 **`pickActiveCodegenFeature`** 选中的当前 codegen feature；或 **codegen 已完成**且项目 **`stages.test.status=running`**（文案 **`test（进行中）`**） |
+| **`pending`** | 其余：含 **codegen 已完成、待 test**（文案 **`codegen（已完成，待 test）`**）；**autorun 排队**；**脚手架 worktree**。**禁止**将 health-full 脚手架或仅 codegen 工件标为 **`completed`** |
+| **（实现分离）** | **`isFeatureCodegenDone`**（**`lib/features.cjs`**）仅用于 **autorun** **`filterRemainingCodegenQueue`**，与看板 **`completed`** 判定**不同** |
 
 **`pending_features_json`**（**`auto3.md`** registry）：表示**尚未完成 codegen 的排队列表**；**autorun** 在 codegen 波次中应随进度收缩为 **`filterRemainingCodegenQueue()`**，**不得**长期等于整期 **`phase_plan`** 全集否则看板会把全员标为处理中（旧行为）。
 
