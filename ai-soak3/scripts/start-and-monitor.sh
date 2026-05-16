@@ -33,10 +33,11 @@ AUTORUN_SCRIPT="$HOME/.cursor/skills/ai-auto3/scripts/autorun.cjs"
 HEALTH_SCRIPT="$SKILL_DIR/scripts/check-session-health.cjs"
 DIAGNOSE_SCRIPT="$SKILL_DIR/scripts/diagnose-run.cjs"
 
-# ──────────────────── 代理检查 ─────────────────────────────────
+# ──────────────────── 代理（soak3 §4.1）────────────────────────
 if [[ -z "${http_proxy:-}" ]]; then
-  echo "[monitor] ⚠️  http_proxy 未设置，外网命令可能失败。"
-  echo "[monitor]    建议先: export http_proxy=http://127.0.0.1:1087 https_proxy=http://127.0.0.1:1087"
+  export http_proxy="${http_proxy:-http://127.0.0.1:1087}"
+  export https_proxy="${https_proxy:-http://127.0.0.1:1087}"
+  echo "[monitor] 已设置默认代理: $http_proxy"
 fi
 
 # ──────────────────── 脚本存在性检查 ──────────────────────────
@@ -73,12 +74,6 @@ STUCK_DETECTED=0
 
 # ──────────────────── 监控循环 ────────────────────────────────
 while kill -0 "$AUTORUN_PID" 2>/dev/null; do
-  sleep "$CHECK_INTERVAL"
-
-  if ! kill -0 "$AUTORUN_PID" 2>/dev/null; then
-    break
-  fi
-
   echo ""
   echo "[monitor] $(date -u '+%Y-%m-%dT%H:%M:%SZ') 执行健康检查..."
 
@@ -101,16 +96,27 @@ while kill -0 "$AUTORUN_PID" 2>/dev/null; do
     STUCK_DETECTED=1
     break
   fi
+
+  if ! kill -0 "$AUTORUN_PID" 2>/dev/null; then
+    break
+  fi
+
+  sleep "$CHECK_INTERVAL"
 done
 
 # ──────────────────── 获取退出码 ──────────────────────────────
+# set -e 下 wait 非零会中断赋值链；显式关闭 -e 并保证 AUTORUN_EXIT 总有值
 AUTORUN_EXIT=0
-wait "$AUTORUN_PID" 2>/dev/null || AUTORUN_EXIT=$?
+set +e
+wait "$AUTORUN_PID" 2>/dev/null
+AUTORUN_EXIT=$?
+set -e
 
 echo ""
 echo "[monitor] ============================================"
-echo "[monitor] autorun 结束，退出码: $AUTORUN_EXIT"
+echo "[monitor] autorun 结束，退出码: ${AUTORUN_EXIT}"
 echo "[monitor] ============================================"
+echo "autorun exit: ${AUTORUN_EXIT}"
 
 # ──────────────────── 结果处理 ────────────────────────────────
 if [[ "$STUCK_DETECTED" -eq 1 ]]; then
@@ -128,16 +134,15 @@ if [[ "$STUCK_DETECTED" -eq 1 ]]; then
   echo "[monitor] ★    4. 重新从 §4.A 开始 Round N+1            ★"
   echo "[monitor] ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★"
   exit 2
-elif [[ "$AUTORUN_EXIT" -ne 0 ]]; then
+elif [[ "${AUTORUN_EXIT:-1}" -ne 0 ]]; then
   echo ""
-  echo "[monitor] ❌ autorun 失败（退出码 $AUTORUN_EXIT），运行诊断..."
+  echo "[monitor] autorun 失败（退出码 ${AUTORUN_EXIT}），运行诊断..."
   node "$DIAGNOSE_SCRIPT" --project="$PROJECT_ROOT" || true
   echo ""
   echo "[monitor] 请 agent 按 §2.2 流程处理失败：归因 skill → 修复 → Round N+1"
   exit 1
 else
   echo ""
-  echo "[monitor] ✓ autorun 成功完成！"
-  echo "[monitor] echo \"autorun exit: 0\""
+  echo "[monitor] autorun 成功完成"
   exit 0
 fi
