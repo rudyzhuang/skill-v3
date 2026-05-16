@@ -59,6 +59,9 @@ async function invokeAiCode3Agent({
     process.env.AI_CODEGEN_AGENT_BIN ||
     '';
   if (!bin.trim()) {
+    console.error(
+      `[ai-code3] cursor-agent skip phase=${String(phase || 'impl')} reason=no_agent_bin`
+    );
     return { ok: false, skipped: true, code: 0, reason: 'no_agent_bin' };
   }
   const fid = featureId != null && String(featureId) !== '' ? String(featureId) : '';
@@ -85,13 +88,22 @@ async function invokeAiCode3Agent({
     );
   }
 
+  const t0 = Date.now();
+  console.error(
+    `[ai-code3] cursor-agent begin phase=${String(phase || 'impl')}${fid ? ` feature_id=${fid}` : ''} timeout_ms=${timeoutMs} cwd=${worktreePath}`
+  );
+
   const r = await runWithTimeout(bin, args, {
     cwd: worktreePath,
     timeoutMs,
     env,
   });
+  const elapsed = Date.now() - t0;
   const ok = !r.timedOut && r.code === 0;
   const label = stageLabelForLog(phase);
+  console.error(
+    `[ai-code3] cursor-agent end phase=${String(phase || 'impl')}${fid ? ` feature_id=${fid}` : ''} ok=${ok ? 1 : 0} exit=${r.code ?? 'null'} elapsed_ms=${elapsed}${r.timedOut ? ' timed_out=1' : ''}`
+  );
   if (r.timedOut) {
     console.error(`failed_stage=${label}${fid ? ` feature_id=${fid}` : ''} timed_out=1`);
   } else if (!ok) {

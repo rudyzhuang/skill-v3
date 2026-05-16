@@ -308,6 +308,10 @@ async function run(ctx) {
     hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'codegen', 'tick'), 30_000);
   }
 
+  console.error(
+    `[ai-code3] codegen begin features=${featureIds.join(',')} count=${featureIds.length} agent_phase_timeout_ms=${subMs} skip_agent=${skipAgent ? 1 : 0} session=${sessionId || 'none'}`
+  );
+
   let implStatus = 'pending';
   let testStatus = 'pending';
   let agentMeta = {
@@ -372,7 +376,13 @@ async function run(ctx) {
         }
       }
     } else {
-      for (const row of wtResult.rows) {
+      const featureTotal = wtResult.rows.length;
+      for (let fi = 0; fi < wtResult.rows.length; fi++) {
+        const row = wtResult.rows[fi];
+        const featureNo = `${fi + 1}/${featureTotal}`;
+        console.error(
+          `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl begin timeout_ms=${subMs}`
+        );
         const ir = await invokeCodegenAgent({
           worktreePath: row.worktree_path,
           projectRoot,
@@ -455,12 +465,21 @@ async function run(ctx) {
             },
           });
           stagesIo.writeStagesSync(projectRoot, doc);
+          console.error(
+            `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl failed reason=${ir.reason || 'impl_failed'} code=${ir.code}`
+          );
           console.error('failed_stage=codegen impl agent failed');
           return ir.code === 3 ? 3 : 4;
         }
         implStatus = 'completed';
+        console.error(
+          `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl ok`
+        );
 
         if (!shouldSkipTestAgentPhase(testSpecAbs)) {
+          console.error(
+            `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} test begin timeout_ms=${subMs}`
+          );
           const tr = await invokeCodegenAgent({
             worktreePath: row.worktree_path,
             projectRoot,
@@ -500,12 +519,21 @@ async function run(ctx) {
               },
             });
             stagesIo.writeStagesSync(projectRoot, doc);
+            console.error(
+              `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} test failed reason=${tr.reason || 'test_failed'} code=${tr.code}`
+            );
             console.error('failed_stage=codegen test agent failed');
             return tr.code === 3 ? 3 : 4;
           }
           testStatus = tr.skipped ? 'skipped' : 'completed';
+          console.error(
+            `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} test ${testStatus}`
+          );
         } else {
           testStatus = 'skipped_no_spec';
+          console.error(
+            `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} test skipped_no_spec`
+          );
         }
       }
     }
@@ -559,6 +587,9 @@ async function run(ctx) {
     },
   });
   stagesIo.writeStagesSync(projectRoot, doc);
+  console.error(
+    `[ai-code3] codegen end passed=${passed ? 1 : 0} impl_status=${implStatus} test_status=${testStatus} features=${featureIds.join(',')}`
+  );
   return passed ? 0 : 4;
 }
 

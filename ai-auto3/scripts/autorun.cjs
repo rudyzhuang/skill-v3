@@ -530,12 +530,26 @@ async function runLayerGroupsParallel(
       const { members, key, csv } = items[i];
       const short = crypto.createHash('sha1').update(key).digest('hex').slice(0, 10);
       const sid = `${sessionPrefixForCode3}-${short}`;
+      const groupNo = `${i + 1}/${items.length}`;
+      console.error(
+        `[ai-auto3] code3 ${cmd} group ${groupNo} begin feature=${csv} session=${sid}`
+      );
       appendLog(
         projectRoot,
         logSessionId,
-        `spawn ai-code3 ${cmd} stage=${stageKey} group=${key} --feature=${csv} session=${sid}`
+        `spawn ai-code3 ${cmd} stage=${stageKey} group=${groupNo} ${key} --feature=${csv} session=${sid}`
       );
+      const t0 = Date.now();
       const code = await spawnCode3(projectRoot, cmd, csv, cfg, sid, forceRerun, forceStub);
+      const elapsed = Date.now() - t0;
+      console.error(
+        `[ai-auto3] code3 ${cmd} group ${groupNo} end feature=${csv} exit=${code} elapsed_ms=${elapsed}`
+      );
+      appendLog(
+        projectRoot,
+        logSessionId,
+        `ai-code3 ${cmd} group ${groupNo} done feature=${csv} exit=${code} elapsed_ms=${elapsed}`
+      );
       if (code !== 0) {
         if (failCode === 0) {
           failCode = code;
@@ -890,6 +904,7 @@ async function main() {
         const phaseFeatStr = featureCsv(phaseFeatureIds);
         const phaseRunId = startPhaseRun(runId, phase, '');
         appendLog(projectRoot, sessionId, `phase begin: ${phase} features=${phaseFeatStr}`);
+        console.error(`[ai-auto3] phase begin phase=${phase} feature_count=${phaseFeatureIds.length}`);
         updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
           active_run_id: runId,
           current_phase: phase,
@@ -919,6 +934,7 @@ async function main() {
             current_stage: stage,
             pending_features_json: JSON.stringify(phaseFeatureIds),
           });
+          console.error(`[ai-auto3] stage begin phase=${phase} stage=${stage}`);
 
           if (stage === 'design') {
             ensureSeedDesignSpecs(projectRoot, phaseFeatureIds, sessionId);
