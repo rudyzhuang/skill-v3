@@ -37,6 +37,7 @@ cd skill-v3
 - `ai-prd3`
 - `ai-design3`
 - `ai-code3`
+- `ai-dash3`
 - `ai-auto3`
 - `ai-publish-dev3`
 - `ai-publish-release3`
@@ -49,7 +50,7 @@ cd skill-v3
 ```bash
 SKILLS_ROOT="$HOME/.cursor/skills"
 mkdir -p "$SKILLS_ROOT"
-for d in ai-prd3 ai-design3 ai-code3 ai-auto3 ai-publish-dev3 ai-publish-release3 migrate-v2-to-v3; do
+for d in ai-prd3 ai-design3 ai-code3 ai-dash3 ai-auto3 ai-publish-dev3 ai-publish-release3 migrate-v2-to-v3; do
   ln -sfn "<REPO>/$d" "$SKILLS_ROOT/$d"
 done
 ```
@@ -60,7 +61,7 @@ done
 $Repo = "C:\path\to\skill-v3"
 $Skills = Join-Path $env:USERPROFILE ".cursor\skills"
 New-Item -ItemType Directory -Force -Path $Skills | Out-Null
-foreach ($d in "ai-prd3","ai-design3","ai-code3","ai-auto3","ai-publish-dev3","ai-publish-release3","migrate-v2-to-v3") {
+foreach ($d in "ai-prd3","ai-design3","ai-code3","ai-dash3","ai-auto3","ai-publish-dev3","ai-publish-release3","migrate-v2-to-v3") {
   $target = Join-Path $Skills $d
   if (Test-Path $target) { Remove-Item $target -Force }
   New-Item -ItemType SymbolicLink -Path $target -Target (Join-Path $Repo $d) | Out-Null
@@ -71,7 +72,7 @@ foreach ($d in "ai-prd3","ai-design3","ai-code3","ai-auto3","ai-publish-dev3","a
 
 ### 3. 安装各 skill 的 Node 依赖
 
-在**每个带有 `package.json` 的 skill 子目录**内执行一次依赖安装（本仓当前为：`ai-prd3`、`ai-design3`、`ai-code3`、`ai-auto3`、`ai-publish-dev3`）：
+在**每个带有 `package.json` 的 skill 子目录**内执行一次依赖安装（本仓当前为：`ai-prd3`、`ai-design3`、`ai-code3`、`ai-auto3`、`ai-publish-dev3`；**`ai-dash3` 无依赖，可跳过 `npm install`**）：
 
 ```bash
 for d in ai-prd3 ai-design3 ai-code3 ai-auto3 ai-publish-dev3; do
@@ -105,7 +106,7 @@ done
 ### 5. 在 Cursor 里怎么用
 
 - 在 **Cursor Settings → Rules / Skills**（或当前产品中的 Agent Skills 配置）中，确保已启用来自 `~/.cursor/skills/`（Windows 为 `%USERPROFILE%\.cursor\skills\`）的 skill。
-- 在对话里用各 `SKILL.md` 中写的**触发词**（例如「ai-auto3」「第三代自动编排」等）唤起对应 skill；业务侧状态真源为业务仓的 **`.pipeline/stages.json`** 与 **`docs/config.*.json`**，详见 `docs/input-spec.md`。
+- 在对话里用各 `SKILL.md` 中写的**触发词**（例如「ai-auto3」「ai-dash3」「第三代看板」「第三代自动编排」等）唤起对应 skill；业务侧状态真源为业务仓的 **`.pipeline/stages.json`** 与 **`docs/config.*.json`**，详见 `docs/input-spec.md`。
 
 ---
 

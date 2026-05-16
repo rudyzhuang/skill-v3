@@ -1,0 +1,8 @@
+{
+  "name": "ai-dash3-scripts",
+  "private": true,
+  "description": "Skill V3 pipeline dashboard (read-only). No npm dependencies.",
+  "engines": {
+    "node": ">=18"
+  }
+}

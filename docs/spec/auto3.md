@@ -7,7 +7,7 @@
 | **唯一实现参考源** | 编写 **`ai-auto3/SKILL.md`**、**`ai-auto3/scripts/**/*.cjs`**（含 **`autorun.cjs`**、**`gen-report.cjs`**）以及本机 **`~/.cursor/skills/_registry/registry.sqlite`** 的初始化/升级逻辑时，**以本文为规范来源**。编排行为不依赖口头约定。 |
 | **与 `docs/input-spec.md` 的关系** | 全流水线跨界语义（阶段链、退出码表、日志与 PID 锁、三层超时、`stages.json` 真源、**destructive** 与 **opt-in**、`inputs.summary_hash` 跳过规则等）以 **`docs/input-spec.md`** 为总纲。本文把 **仅与 ai-auto3 相关的条款** 收束为可执行规划；若冲突，收束顺序：**先改 `input-spec` + `docs/templates/` → 再改本文 → 再改 skill 实现**。 |
 | **与 `docs/templates/` 的关系** | **`stages.json`** 中 **`report`** 与 **`pipeline.*`**（**项目侧**编排状态）等键、**`config.dev.json.timeouts`**（含 **`autorun_total_s`**、各 **`stages.*_s`**）、**`config.dev.json.pipeline.autorun.allow_destructive_deploy`**（**配置侧** dev autorun deploy 授权，勿与 **`stages.json` 的 `pipeline` 节**混淆）以对应 **`* .template`** 为字段真源。模板演进遵守 **`input-spec.md` §9.1**（additive / breaking）。 |
-| **与上一版（v2）的关系** | 本版 **不**读取业务仓内 v2 **`autorun` / `autorun-pro` 脚本副本**、v2 **`stages.json`** 旧路径或 v2 编排专用 SQLite 作为默认真源。心智映射：**ai-auto3** ≈ **ai-dash2** + **autorun** + **autorun-pro** 的职责收敛；**默认终点**为 **dev deploy + smoke + report**，**release 不默认跟随**（见 **`input-spec.md` §4.3**）。 |
+| **与上一版（v2）的关系** | 本版 **不**读取业务仓内 v2 **`autorun` / `autorun-pro` 脚本副本**、v2 **`stages.json`** 旧路径或 v2 编排专用 SQLite 作为默认真源。心智映射：**ai-auto3** ≈ **autorun** + **autorun-pro**；**ai-dash2** 的看板职能由 **`ai-dash3`** 承担（见 **`docs/spec/dash3.md`**）。**默认终点**为 **dev deploy + smoke + report**，**release 不默认跟随**（见 **`input-spec.md` §4.3**）。 |
 
 **维护流程（需求变更时）**：
 
@@ -32,7 +32,7 @@
 
 ### 2.1 一句话职责
 
-**ai-auto3** 实现 **pipeline 的自动推进**：自 **`design`** 起，按固定阶段链调用各 **ai-*3** 子流程，并提供 **前置校验、PID 锁、子进程退出码解读、停跑策略、末尾 report** 四类托底（对齐 **`input-spec.md` §4.3**）。
+**ai-auto3** 实现 **pipeline 的自动推进**：自 **`design`** 起，按固定阶段链调用各 **ai-*3** 子流程，并提供 **前置校验、PID 锁、子进程退出码解读、停跑策略、末尾 report** 四类托底（对齐 **`input-spec.md` §4.3**）。**只看进度、不自动跑**请使用 **`ai-dash3`**（**`docs/spec/dash3.md`**），避免与本 skill 混淆。
 
 ### 2.2 默认阶段链（自动序列）
 
@@ -417,6 +417,7 @@ ai-auto3/
 | **ai-prd3** 与 **ai-auto3** checklist 对齐 | **`docs/spec/prd3.md` §8.5** |
 | **字段真源** | **`docs/templates/stages.json.template`**、**`config.dev.json.template`** |
 | v2 → v3 迁移 | **`docs/input-spec.md` §9.3** |
+| **只读看板**（**不**自动推进） | **`docs/spec/dash3.md`**（**`ai-dash3`**） |
 
 ---
 
