@@ -33,6 +33,11 @@
       "build": "",
       "test_max_fix_attempts": 3
     },
+    "test_level_gate": {
+      "_doc": "Optional test-level gate consumed by ai-code3 test.cjs. mode: off|warn|enforce. Required levels are resolved from contract test_spec.required_test_levels first, then fallback_required_test_levels.",
+      "mode": "warn",
+      "fallback_required_test_levels": []
+    },
     "artifacts_dir": "dist",
     "client_targets": {}
   },

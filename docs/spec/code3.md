@@ -101,6 +101,7 @@ ai-code3/
     ├── clean.cjs
     ├── self-test-secret-scan.cjs
     ├── self-test-merge-push.cjs
+    ├── self-test-test-level-gate.cjs
     ├── self-test-clean.cjs
     ├── self-test-preflight-upstream.cjs
     └── lib/
@@ -477,9 +478,10 @@ ai-code3/
 
 1. `node ai-code3/scripts/self-test-secret-scan.cjs`  
 2. `node ai-code3/scripts/self-test-merge-push.cjs`  
-3. `node ai-code3/scripts/smoke.cjs`（内含 **`npm ci`**、clean / preflight 上游等子自测，见脚本与 **§4.1**）
+3. `node ai-code3/scripts/self-test-test-level-gate.cjs`  
+4. `node ai-code3/scripts/smoke.cjs`（内含 **`npm ci`**、clean / preflight 上游等子自测，见脚本与 **§4.1**）
 
-**两轮评审**：首轮执行 **1–3** 并处理阻塞项；修复后**以相同三条命令再执行一遍**；两轮均通过且无新增回归，即视为本轮全量验收通过。**文档核对**：**§0.1** 与 **`ai-code3/scripts/**/*.cjs`** 行为一致；**§4.1** 目录树、脚本职责表与 **`self-test-*.cjs`** / **`smoke.cjs`** 清单齐全；**`SKILL.md` §0** 指向本文 **§0.1**；冒烟命令与 **§16.1** 本条一致；**§7.8–§7.12** 未穷尽项须在 **§0.1** 标 **部分** 且与 **§7** 正文无矛盾。
+**两轮评审**：首轮执行 **1–4** 并处理阻塞项；修复后**以相同四条命令再执行一遍**；两轮均通过且无新增回归，即视为本轮全量验收通过。**文档核对**：**§0.1** 与 **`ai-code3/scripts/**/*.cjs`** 行为一致；**§4.1** 目录树、脚本职责表与 **`self-test-*.cjs`** / **`smoke.cjs`** 清单齐全；**`SKILL.md` §0** 指向本文 **§0.1**；冒烟命令与 **§16.1** 本条一致；**§7.8–§7.12** 未穷尽项须在 **§0.1** 标 **部分** 且与 **§7** 正文无矛盾。
 
 ---
 

@@ -80,7 +80,7 @@ node ai-code3/scripts/smoke.cjs
 
 `smoke.cjs` 会：在 **`ai-code3/`** 目录执行 **`npm ci`**（安装 **ajv** 等依赖）；依次跑 secret-scan、**merge-push（真实 git）** 自测、**`self-test-clean.cjs`**、**`self-test-preflight-upstream.cjs`**、**`self-test-test-level-gate.cjs`**；再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
 
-自动化门禁与两轮全量评审见 **`docs/spec/code3.md` §16.1**（须与上表三条自测命令一致）。
+自动化门禁与两轮全量评审见 **`docs/spec/code3.md` §16.1**（须与上表四条自测命令一致）。
 
 `test` 阶段支持可选测试层级门禁：优先读取 contract `test_spec.required_test_levels`（`unit` / `integration`），并由 `docs/config.dev.json` 的 `build.test_level_gate.mode`（`off` / `warn` / `enforce`）控制；`test_spec` 未声明时可回退 `build.test_level_gate.fallback_required_test_levels`。
 

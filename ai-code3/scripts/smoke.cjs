@@ -64,6 +64,13 @@ function main() {
     process.exit(1);
   }
 
+  const tlGate = path.join(skillRoot, 'scripts', 'self-test-test-level-gate.cjs');
+  const tg = spawnSync(process.execPath, [tlGate], { stdio: 'inherit', cwd: skillRoot });
+  if (tg.status !== 0) {
+    console.error('self-test-test-level-gate failed');
+    process.exit(1);
+  }
+
   if (!fs.existsSync(fixtureDir)) {
     console.error('missing fixture', fixtureDir);
     process.exit(1);

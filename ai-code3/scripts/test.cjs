@@ -7,6 +7,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
+const { evaluateWorktreeTestCoverage } = require('./lib/test-level-gate.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -18,6 +19,21 @@ function stageTimeoutS(config, key, fallback) {
   const v = config?.timeouts?.stages?.[key];
   if (typeof v === 'number' && v > 0) return v;
   return fallback;
+}
+
+function resolveTestSpecByFeatureId(doc, projectRoot) {
+  const artifacts = doc.stages?.contract?.outputs?.artifacts || [];
+  const byFeatureId = {};
+  let defaultAbs = '';
+  for (const art of artifacts) {
+    const rel = art?.test_spec ? String(art.test_spec) : '';
+    if (!rel) continue;
+    const abs = path.isAbsolute(rel) ? path.resolve(rel) : path.resolve(projectRoot, rel);
+    const fid = String(art?.feature_id || '').trim();
+    if (fid) byFeatureId[fid] = abs;
+    if (!defaultAbs) defaultAbs = abs;
+  }
+  return { byFeatureId, defaultAbs, artifactCount: artifacts.length };
 }
 
 /**
@@ -83,6 +99,12 @@ async function run(ctx) {
   const maxAttempts = config?.build?.commands?.test_max_fix_attempts ?? 3;
   const timeoutMs = stageTimeoutS(config, 'test_s', 1800) * 1000;
   const agentSubMs = Math.max(60_000, Math.floor(timeoutMs / 4));
+  const gateModeRaw = String(config?.build?.test_level_gate?.mode || 'warn').toLowerCase();
+  const levelGateMode = gateModeRaw === 'off' || gateModeRaw === 'warn' || gateModeRaw === 'enforce' ? gateModeRaw : 'warn';
+  const levelGateFallback = Array.isArray(config?.build?.test_level_gate?.fallback_required_test_levels)
+    ? config.build.test_level_gate.fallback_required_test_levels
+    : [];
+  const testSpecMap = resolveTestSpecByFeatureId(doc, projectRoot);
 
   const targets = resolveTestTargets(doc, projectRoot, options.featureIds || []);
   let testCmd = config?.build?.commands?.test || '';
@@ -138,6 +160,8 @@ async function run(ctx) {
 
       let lastCode = 1;
       let attempts = 0;
+      let levelGateInfo = null;
+      let failReason = '';
 
       for (let i = 0; i < maxAttempts; i++) {
         attempts += 1;
@@ -148,6 +172,29 @@ async function run(ctx) {
           break;
         }
         if (r.code === 0) {
+          const testSpecAbs =
+            testSpecMap.byFeatureId[row.feature_id] ||
+            (testSpecMap.artifactCount === 1 ? testSpecMap.defaultAbs : '');
+          const levelGate = evaluateWorktreeTestCoverage({
+            projectRoot,
+            worktreePath: cwd,
+            testSpecAbs,
+            fallbackRequiredLevels: levelGateFallback,
+          });
+          levelGateInfo = levelGate;
+          if (levelGate.required_levels.length && levelGate.missing_levels.length) {
+            const msg = `missing required test levels=${levelGate.missing_levels.join(',')}`;
+            if (levelGateMode === 'enforce') {
+              lastCode = 4;
+              failReason = 'test_level_gate';
+              break;
+            }
+            if (levelGateMode === 'warn') {
+              console.error(
+                `test_level_gate warning feature_id=${row.feature_id} ${msg} source=${levelGate.source}`
+              );
+            }
+          }
           lastCode = 0;
           break;
         }
@@ -182,8 +229,14 @@ async function run(ctx) {
       perFeature.push({
         feature_id: row.feature_id,
         attempts,
-        result: passed ? 'passed' : overallTimedOut ? 'failed' : lastCode === 3 ? 'failed' : 'failed_max_attempts',
+        result: passed
+          ? 'passed'
+          : overallTimedOut || lastCode === 3 || failReason === 'test_level_gate'
+            ? 'failed'
+            : 'failed_max_attempts',
         last_exit: lastCode,
+        fail_reason: failReason || null,
+        test_level_gate: levelGateInfo || null,
       });
       if (!passed) {
         allPassed = false;
@@ -197,7 +250,11 @@ async function run(ctx) {
   const lastRow = perFeature[perFeature.length - 1];
   const lastCode = lastRow?.last_exit ?? 1;
   const passed = allPassed;
-  const result = passed ? 'passed' : overallTimedOut || lastCode === 3 ? 'failed' : 'failed_max_attempts';
+  const result = passed
+    ? 'passed'
+    : overallTimedOut || lastCode === 3 || lastRow?.fail_reason === 'test_level_gate'
+      ? 'failed'
+      : 'failed_max_attempts';
 
   const hash = summaryHash.computeUpstreamHashForStage(doc, 'test', projectRoot, options.featureIds);
   const wtList = targets.map((t) => ({
@@ -222,6 +279,12 @@ async function run(ctx) {
       command: testCmd,
       attempts: perFeature.reduce((a, p) => a + p.attempts, 0),
       per_feature: perFeature,
+      test_level_gate: {
+        mode: levelGateMode,
+        fallback_required_test_levels: levelGateFallback,
+        test_spec: testSpecMap.defaultAbs || '',
+        test_spec_by_feature: testSpecMap.byFeatureId,
+      },
       result,
       log_path: '',
       failure_summary: passed ? '' : `per_feature=${JSON.stringify(perFeature)}`,
