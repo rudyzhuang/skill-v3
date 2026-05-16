@@ -5,6 +5,43 @@ const path = require('path');
 const { parseArgs, requireProject, stagesPath, skillDirFrom } = require('./lib/paths.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
 
+function parseFeatureIdsFromFeatureList(md) {
+  const m = md.match(/^##\s+Features\s*$/m);
+  if (!m || m.index === undefined) return [];
+  const start = m.index + m[0].length;
+  const tail = md.slice(start);
+  const nextH2 = tail.search(/^##\s+/m);
+  const section = nextH2 >= 0 ? tail.slice(0, nextH2) : tail;
+  const ids = [];
+  const seen = new Set();
+  for (const line of section.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('|')) continue;
+    if (/^\|\s*:?-+:?\s*\|/.test(t)) continue;
+    const cells = t.split('|').map((c) => c.trim());
+    if (cells.length < 3) continue;
+    const id = cells[1];
+    if (!id || /^feature id$/i.test(id)) continue;
+    if (/^[-:]+$/.test(id)) continue;
+    if (/^[A-Za-z0-9_.-]+$/.test(id) && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function collectDeclaredFeatureIds(root, declaredTargets) {
+  const all = new Set();
+  for (const slug of declaredTargets || []) {
+    const fp = path.join(root, 'docs', slug, 'feature_list.md');
+    if (!fs.existsSync(fp)) continue;
+    const content = fs.readFileSync(fp, 'utf8');
+    for (const id of parseFeatureIdsFromFeatureList(content)) all.add(id);
+  }
+  return all;
+}
+
 function main() {
   const args = parseArgs(process.argv);
   const root = requireProject(args);
@@ -37,6 +74,30 @@ function main() {
   const pv = validatePrdReviewMergePayload(payload, skillDir);
   if (!pv.ok) {
     console.error(JSON.stringify({ ok: false, errors: pv.errors }, null, 2));
+    process.exit(1);
+  }
+  const phasePlan = payload?.review?.phase_plan || [];
+  const requestedIds = new Set();
+  for (const ph of phasePlan) {
+    for (const fid of ph?.feature_ids || []) requestedIds.add(String(fid || '').trim());
+  }
+  const declaredTargets = stages.client_targets?.declared || [];
+  const declaredIds = collectDeclaredFeatureIds(root, declaredTargets);
+  const unknownIds = [...requestedIds].filter((fid) => fid && !declaredIds.has(fid));
+  if (unknownIds.length) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          errors: unknownIds.map((fid) => `feature_id_not_in_lists:${fid}`),
+          hint: '请改用 docs/<target>/feature_list.md 中存在的 feature_id（可参考项目根的 prd-review-auto.json）',
+          declared_targets: declaredTargets,
+          sample_feature_ids: [...declaredIds].slice(0, 20),
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(1);
   }
   const now = new Date().toISOString();

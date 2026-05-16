@@ -208,6 +208,8 @@ report:
     const extra = [`--json=${args.json}`, ...(args.force ? ['--force'] : [])];
     const r = runNodeScript(scriptDir, 'prd-review-write-stage.cjs', project, args, extra, 'prd_review');
     if (r.timedOut) done(3);
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
     done(r.status === 0 ? 0 : r.status || 1);
   }
 

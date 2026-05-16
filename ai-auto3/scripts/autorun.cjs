@@ -253,13 +253,45 @@ function ensureSeedDesignSpecs(projectRoot, featureIds, sessionId) {
   fs.mkdirSync(designsDir, { recursive: true });
   const featureTargets = parseFeatureTargets(projectRoot);
   const created = [];
+  const patched = [];
   for (const fid of featureIds) {
     const abs = path.join(designsDir, `${fid}.design.json`);
-    if (fs.existsSync(abs)) continue;
+    const targets = [...(featureTargets.get(fid) || new Set())];
     const clientTarget = pickClientTargetForFeature(fid, featureTargets);
+    const clientTargets = targets.length ? [...new Set(targets)] : [clientTarget];
+    const crossClient = clientTargets.length >= 2;
+    if (fs.existsSync(abs)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(abs, 'utf8'));
+        if (existing && typeof existing === 'object') {
+          let dirty = false;
+          if (!Array.isArray(existing.client_targets) || existing.client_targets.length === 0) {
+            existing.client_targets = clientTargets;
+            dirty = true;
+          }
+          if (typeof existing.cross_client !== 'boolean') {
+            existing.cross_client = crossClient;
+            dirty = true;
+          }
+          if (!existing.client_target || typeof existing.client_target !== 'string') {
+            existing.client_target = clientTarget;
+            dirty = true;
+          }
+          if (dirty) {
+            fs.writeFileSync(abs, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
+            patched.push(path.relative(projectRoot, abs).replace(/\\/g, '/'));
+          }
+        }
+      } catch {
+        // 非法 JSON 交由 ai-design3 validate-design 报错处理
+      }
+      continue;
+    }
     const seed = {
       feature_id: fid,
       client_target: clientTarget,
+      client_targets: clientTargets,
+      cross_client: crossClient,
       status: 'draft',
       file_plan: {
         new_files: [],
@@ -278,6 +310,10 @@ function ensureSeedDesignSpecs(projectRoot, featureIds, sessionId) {
   if (created.length) {
     appendLog(projectRoot, sessionId, `seeded design specs: ${created.join(', ')}`);
     console.error(`[ai-auto3] seeded ${created.length} missing design specs`);
+  }
+  if (patched.length) {
+    appendLog(projectRoot, sessionId, `patched design specs metadata: ${patched.join(', ')}`);
+    console.error(`[ai-auto3] patched ${patched.length} design specs metadata`);
   }
 }
 

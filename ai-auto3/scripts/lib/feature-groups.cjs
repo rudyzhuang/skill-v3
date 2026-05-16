@@ -42,13 +42,41 @@ function buildArtifactIndex(doc, featureSet) {
   return byId;
 }
 
+function collectFeatureTargetsFromDocs(projectRoot, allowedSlugs) {
+  const out = new Map();
+  const docsDir = path.join(projectRoot, 'docs');
+  if (!fs.existsSync(docsDir)) return out;
+  for (const slug of allowedSlugs) {
+    const fp = path.join(docsDir, slug, 'feature_list.md');
+    if (!fs.existsSync(fp)) continue;
+    const raw = fs.readFileSync(fp, 'utf8');
+    for (const line of raw.split('\n')) {
+      const t = line.trim();
+      if (!t.startsWith('|')) continue;
+      if (/^\|\s*Feature ID\s*\|/i.test(t)) continue;
+      if (/^\|\s*[-: ]+\|/.test(t)) continue;
+      const cells = t
+        .split('|')
+        .slice(1, -1)
+        .map((v) => v.trim());
+      if (!cells.length) continue;
+      const fid = cells[0];
+      if (!/^[A-Za-z0-9_.-]+$/.test(fid)) continue;
+      if (!out.has(fid)) out.set(fid, new Set());
+      out.get(fid).add(slug);
+    }
+  }
+  return out;
+}
+
 /**
  * @param {string} featureId
  * @param {object} snap
  * @param {Set<string>} allowedSlugs
+ * @param {Map<string, Set<string>>} fallbackTargets
  * @param {string[]} outWarnings
  */
-function computeTier(featureId, snap, allowedSlugs, outWarnings) {
+function computeTier(featureId, snap, allowedSlugs, fallbackTargets, outWarnings) {
   if (snap && snap.cross_client === true) return 0;
 
   let raw = [];
@@ -64,6 +92,13 @@ function computeTier(featureId, snap, allowedSlugs, outWarnings) {
   }
   const uniq = [...new Set(valid)];
   if (uniq.length === 0) {
+    const fallback = [...(fallbackTargets.get(featureId) || new Set())].filter((s) => allowedSlugs.has(s));
+    if (fallback.length > 0) {
+      if (fallback.length >= 2) return 0;
+      if (fallback[0] === 'backend') return 1;
+      if (fallback[0] === 'admin') return 2;
+      return 3;
+    }
     outWarnings.push(`${featureId}: 无有效 client_targets 且 cross_client 不为 true — 按 P3`);
     return 3;
   }
@@ -93,6 +128,7 @@ function collectFeatureMeta(featureIds, doc, projectRoot) {
     'agent',
   ];
   const allowedSlugs = new Set((Array.isArray(allowedList) ? allowedList : []).map((s) => String(s).trim()));
+  const fallbackTargets = collectFeatureTargetsFromDocs(projectRoot, allowedSlugs);
 
   const byArt = buildArtifactIndex(doc, featureSet);
   /** @type {Map<string, { depends_on: string[], tier: number }>} */
@@ -134,7 +170,7 @@ function collectFeatureMeta(featureIds, doc, projectRoot) {
       warnings.push(`${fid}: cross_client=true 与单元素 client_targets 并存 — 仍定 P0，建议人工核对`);
     }
 
-    const tier = computeTier(fid, snap, allowedSlugs, warnings);
+    const tier = computeTier(fid, snap, allowedSlugs, fallbackTargets, warnings);
     meta.set(fid, { depends_on: deps, tier });
   }
 

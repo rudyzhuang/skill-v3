@@ -51,7 +51,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed**（`prd3.md` §4.2 末段） |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |
 | `validate-prd-review` | 前置门闸 + **终检**；通过写 **§9.2** `prd_review.inputs.summary_hash` 与 **`completed`**；成功后写 **`.pipeline/reports/prd-implementation-summary.md`**（`prd3.md` §8.8） |
-| `write-prd-review` | 仅合并 LLM 产出的结构化 JSON 到 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希） |
+| `write-prd-review` | 合并前先校验 `phase_plan.feature_ids` 必须存在于 `docs/<target>/feature_list.md`；校验通过后再写入 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希） |
 | **`finalize-prd-review`** | **推荐（Agent 默认）**：`write-prd-review` + `validate-prd-review` 一键串联（须 **`--json=`**）；**不设单独人工签审**；通过后同上自动生成 **report** 文件 |
 | `report` | **`prd_review` 已完成**且 **`outputs.decision=passed`** 时：重写 **`.pipeline/reports/prd-implementation-summary.md`** 并 **stdout** 全文 |
 
@@ -64,6 +64,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 - `--lang=cn|en`：`bootstrap` 选用 prd-spec 模板。
 - `--json=<path>`：**`write-prd-review` / `finalize-prd-review`** 的合并输入（绝对路径或相对项目根）。
 - **`report`**：`prd_review` 已完成时单独重打摘要；行为见上表（**不参与**门闸）。
+- 若 `--json` 里出现 `feature_id_not_in_lists:*`，优先改用项目根 `prd-review-auto.json` 或按 `docs/<target>/feature_list.md` 修正 `phase_plan.feature_ids`，避免把门闸写入无效状态。
 
 **附录 B（密钥扫描）**：`prd-validate-config.cjs` 与 `prd-review-validate.cjs` 使用 `lib/secret-scan.cjs`：读取 `config.dev.json` 的 `security.forbidden_json_key_patterns` 对键名做小写**子串**匹配，并对 string 值跑启发式。模板字段 **`security.env_file_path`**（`.env` 文件相对路径，**非**密钥内容）为推荐键名；遗留 **`secret_env_path`** 与模式定义键名见 `secret-scan.cjs` 白名单，以免与 `prd3.md` §17 字面「子串」规则误杀。
 
