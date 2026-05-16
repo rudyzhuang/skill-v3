@@ -8,6 +8,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const { assertCodegenGates } = require('./lib/codegen-gates.cjs');
 const worktreeLib = require('./lib/codegen-worktree.cjs');
 const scaffold = require('./lib/codegen-scaffold.cjs');
+const healthFull = require('./lib/codegen-health-full-scaffold.cjs');
 const { invokeCodegenAgent } = require('./lib/invoke-codegen-agent.cjs');
 const { appendHeartbeat } = require('./lib/session-log.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
@@ -547,9 +548,9 @@ async function run(ctx) {
       implStatus = 'skipped';
       testStatus = 'skipped';
       for (const row of wtResult.rows) {
-        const t = ensureNoAgentHealthScaffold(row.worktree_path);
+        const t = healthFull.applyHealthFullScaffold(row.worktree_path);
         if (t > 0) {
-          console.error(`codegen scaffolded ${t} files for no-agent mode in ${row.worktree_path}`);
+          console.error(`codegen full health scaffold: ${t} files in ${row.worktree_path}`);
         }
       }
     } else {

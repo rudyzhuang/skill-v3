@@ -83,12 +83,13 @@ function isLikelySourceFile(relPath) {
 
 function validateMergedSourceLayout(changedPaths, allowedTargets) {
   const allowedSrcPrefixes = allowedTargets.map((t) => `src/${t}/`);
-  const sharedPrefixes = ['src/shared/', 'src/common/', 'src/sdk/'];
+  const sharedPrefixes = ['src/shared/', 'src/common/', 'src/sdk/', 'apps/mobile/'];
   const violations = [];
   for (const raw of changedPaths || []) {
     const p = normalizeRelPath(raw);
     if (!p) continue;
     if (p.startsWith('docs/') || p.startsWith('.pipeline/') || p.startsWith('.agent-sessions/')) continue;
+    if (p.startsWith('apps/mobile/') || p.startsWith('website/') || p.startsWith('backend/')) continue;
     if (p.startsWith('src/')) {
       const inTarget = allowedSrcPrefixes.some((prefix) => p.startsWith(prefix));
       const inShared = sharedPrefixes.some((prefix) => p.startsWith(prefix));
