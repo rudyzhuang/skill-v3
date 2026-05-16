@@ -44,6 +44,7 @@ function buildDeployService(slug, parsed, existing = {}) {
 
   return {
     client_target: slug,
+    sub_platform: existing.sub_platform || 'default',
     service_name: existing.service_name || defaults.service_name,
     resource_type: existing.resource_type || defaults.resource_type,
     runtime: existing.runtime || defaults.runtime,
