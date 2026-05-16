@@ -1,11 +1,10 @@
 ---
 name: ai-prd3
-version: "0.2.3"
+version: "0.2.4"
 description: >-
-  Skill V3 第三代 PRD 与需求评审（prd-review）：维护 docs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md，
-  更新 .pipeline/stages.json 的 prd 与 prd_review 及 inputs.summary_hash；prd-review 终检通过后可生成人话版实施节奏摘要（report）。
-  在用户提到 ai-prd3、第三代 PRD、Skill V3 prd、prd-review、需求评审或需执行 bootstrap/validate-prd/write-prd/report 时使用。
-disable-model-invocation: true
+  Skill V3 第三代 PRD 与 **AI 自动 prd-review**（不设单独人工签审节点）：维护 docs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md；
+  Agent 按 prompts 产出评审 JSON 后由脚本合并并终检；**门闸结果与分期摘要**汇总在 **.pipeline/reports/prd-implementation-summary.md**（亦可 stdout）。
+  在用户提到 ai-prd3、第三代 PRD、Skill V3 prd、prd-review、finalize-prd-review、report 或需执行 bootstrap/validate-prd/write-prd 时使用。
 ---
 
 # ai-prd3（Skill V3）
@@ -30,7 +29,7 @@ disable-model-invocation: true
 | `docs/config.dev.json` / `docs/config.release.json` | 非敏感配置 |
 | `docs/config.env` | 仅占位，禁止真实密钥入库 |
 | `.pipeline/stages.json` | 门闸真源 |
-| `.pipeline/reports/prd-implementation-summary.md` | **prd-review 终检通过**或 **`report`** 子命令生成的人话版实施节奏摘要（`prd3.md` §8.8）；**非**门闸真源 |
+| `.pipeline/reports/prd-implementation-summary.md` | **prd-review 终检通过**或 **`report`** 生成；含 **「AI 评审门闸结果」** 与分期摘要（`prd3.md` §8.8）；**非**门闸真源 |
 | `.agent-sessions/` | 会话日志（应加入 `.gitignore`）；**全流水线 PID 锁等**若未在本 skill 实现，由 **`ai-auto3`** 按 `input-spec.md` 管理 |
 
 **允许的 `client_target`**：`website`、`admin`、`backend`、`miniapp`、`mobile`、`desktop`、`agent`。
@@ -52,17 +51,18 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed；失败写 `stages.prd` **failed**（`prd3.md` §4.2 末段） |
 | `write-prd` | 校验通过后写 **`completed`**、**`validation.required_files[]`** 存在位、**§9.1** `inputs.summary_hash` |
 | `validate-prd-review` | 前置门闸 + **终检**；通过写 **§9.2** `prd_review.inputs.summary_hash` 与 **`completed`**；成功后写 **`.pipeline/reports/prd-implementation-summary.md`**（`prd3.md` §8.8） |
-| `write-prd-review` | 合并 LLM JSON（经 **AJV + `templates/schemas/prd-review-output.v1.schema.json`** 校验）；**不**置 `completed`、**不**写 **§9.2** 哈希（与 `prd3.md` §8.3 一致；§4.2 表中「哈希」指整条 prd-review 流程的落盘终态由终检完成） |
-| `report` | **`prd_review` 已完成**且 **`outputs.decision=passed`** 时：依据 **`phase_plan`** 与各端 **`feature_list.md`** 生成人话摘要；**stdout** 输出全文并落盘 **`.pipeline/reports/prd-implementation-summary.md`**（见 `prd3.md` §8.8） |
+| `write-prd-review` | 仅合并 LLM 产出的结构化 JSON 到 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希） |
+| **`finalize-prd-review`** | **推荐（Agent 默认）**：`write-prd-review` + `validate-prd-review` 一键串联（须 **`--json=`**）；**不设单独人工签审**；通过后同上自动生成 **report** 文件 |
+| `report` | **`prd_review` 已完成**且 **`outputs.decision=passed`** 时：重写 **`.pipeline/reports/prd-implementation-summary.md`** 并 **stdout** 全文 |
 
 **常用选项**：
 
-- `--force`：`write-prd` / `write-prd-review` 覆盖已完成门闸；**`bootstrap`** 在 **`prd` 已完成**时须加 `--force` 才允许再次执行（`prd3.md` §7.5）。**`bootstrap --force`** 在重置 `prd` 的同时会将 **`prd_review`** 置回未完成态，避免门闸双真源。
+- `--force`：`write-prd` / `write-prd-review` / **`finalize-prd-review`** 覆盖已完成门闸；**`bootstrap`** 在 **`prd` 已完成**时须加 `--force` 才允许再次执行（`prd3.md` §7.5）。**`bootstrap --force`** 在重置 `prd` 的同时会将 **`prd_review`** 置回未完成态，避免门闸双真源。
 - `--allow-fill-missing-keys`：仅 **`bootstrap`**。当 **`docs/config.*.json`** 已存在但相对 skill 模板**缺键**时，做 **additive** 补齐（不覆盖已有键值）；不传则 **退出 1**（`prd3.md` §7.2）。
 - `--session-id=<id>`：写入 **`.agent-sessions/ai-prd3.ndjson`** 与 **`.agent-sessions/<id>.log`**（`prd3.md` §11）；亦可设环境变量 **`AI_SESSION_ID`**。
 - `--no-timeout` 或环境变量 **`AI_PRD3_NO_TIMEOUT=1`**：禁用子进程超时（冒烟/调试）。
 - `--lang=cn|en`：`bootstrap` 选用 prd-spec 模板。
-- `--json=<path>`：`write-prd-review` 的合并输入（绝对路径或相对项目根）。
+- `--json=<path>`：**`write-prd-review` / `finalize-prd-review`** 的合并输入（绝对路径或相对项目根）。
 - **`report`**：`prd_review` 已完成时单独重打摘要；行为见上表（**不参与**门闸）。
 
 **附录 B（密钥扫描）**：`prd-validate-config.cjs` 与 `prd-review-validate.cjs` 使用 `lib/secret-scan.cjs`：读取 `config.dev.json` 的 `security.forbidden_json_key_patterns` 对键名做小写**子串**匹配，并对 string 值跑启发式。模板字段 **`secret_env_path`** 等见 `secret-scan.cjs` 白名单（避免与 `prd3.md` §17 字面「子串」冲突的结构性键名误杀）。
@@ -86,17 +86,17 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 
 - **prd / prd-review 完成后**：下一步设计阶段请使用 **`ai-design3`**。
 - **从 design 起自动跑至 dev deploy + smoke + report**：使用 **`ai-auto3`**（**不**从 prd 起步自动全程）。
-- **给人看的分期摘要**：见 **`.pipeline/reports/prd-implementation-summary.md`**（终检成功自动生成；亦可 `run.cjs report`）。
+- **评审与分期结论（给人看）**：优先打开 **`.pipeline/reports/prd-implementation-summary.md`** 顶部 **「AI 评审门闸结果」**；亦可 `run.cjs report` 重打。
 
 ## 6. prd-review 禁止项（`prd3.md` §8.2）
 
 - **不得**把评审意见、讨论纪要默认追加进 **`docs/prd-spec.md`**。
-- **不得**把各端 **`prd.md`** 当批注白板；对端调整须走 **`suggested_prd_spec_changes` → 用户同意 → 回到 prd 改 prd-spec → 再派生**。
+- **不得**把各端 **`prd.md`** 当批注白板；对端调整须走 **`suggested_prd_spec_changes` → 对话中确认后回到 prd 改 prd-spec → 再派生**（**不设**单独「人工签审」节点，但总规变更仍须在对话中显式确认）。
 - **不得**把密钥写入 **`config.dev.json` / `config.release.json`**。
 
 ## 7. 重跑与 `--force`（§7.5 / §8.6）
 
-手工重跑 **prd** 或覆盖 **`stages.prd_review`** 时须用户确认；脚本侧未带 **`--force`** 且阶段已成功完成时，`write-prd` / `write-prd-review` / **`bootstrap`（当 prd 已完成）** 均 **退出 1**。
+覆盖 **`stages.prd_review`** 或已成功阶段时须 **`--force`**（或对话中显式确认后再跑）；脚本侧未带 **`--force`** 且阶段已成功完成时，`write-prd` / `write-prd-review` / **`finalize-prd-review`** / **`bootstrap`（当 prd 已完成）** 均 **退出 1**。
 
 ## 8. LLM 提示词
 
@@ -104,7 +104,7 @@ node ai-prd3/scripts/run.cjs <子命令> --project=<业务项目根绝对路径>
 | --- | --- |
 | [prompts/prd-spec-author.md](prompts/prd-spec-author.md) | 补全 prd-spec |
 | [prompts/derive-per-target.md](prompts/derive-per-target.md) | 按端写 `prd.md` / `feature_list.md` |
-| [prompts/prd-review.md](prompts/prd-review.md) | 产出可合并的 prd-review JSON |
+| [prompts/prd-review.md](prompts/prd-review.md) | **AI 评审**：产出可合并的 prd-review JSON → **`finalize-prd-review --json=...`** |
 
 ## 9. 冒烟与自检
 
@@ -117,14 +117,14 @@ node scripts/smoke.cjs
 
 ## 10. 附录 C（`prd3.md` §18）核对
 
-- [x] Frontmatter：`name`、`version`、`description`（含 **ai-prd3**、第三代 PRD、需求评审）。
+- [x] Frontmatter：`name`、`version`、`description`（含 **ai-prd3**、第三代 PRD、**AI prd-review**）。
 - [x] §0 指向 **`docs/spec/prd3.md`**。
 - [x] 覆盖 / 非覆盖阶段。
-- [x] I/O 路径表、`run.cjs` 子命令表、退出码与**超时**、附录 B 调用说明。
+- [x] I/O 路径表、`run.cjs` 子命令表（含 **`finalize-prd-review`**）、退出码与**超时**、附录 B 调用说明。
 - [x] **`--allow-fill-missing-keys`**、**`--session-id` / `AI_SESSION_ID`**、**§11** `.agent-sessions/ai-prd3.ndjson` 与 `<session_id>.log`；**SIGINT → 退出 2**；**prd-spec 漂移**（`validate-prd` 首步）。
 - [x] 与 **ai-design3**、**ai-auto3** 衔接话术；禁止项；重跑与 `--force`（含 bootstrap 门闸）。
-- [x] **`report`** 子命令与 **§8.8** 摘要路径、**`validate-prd-review`** 成功后自动生成。
+- [x] **`report`** 与 **§8.8** 摘要路径（含门闸结果小节）、**`validate-prd-review`** / **`finalize-prd-review`** 成功后自动生成。
 
 ---
 
-*连续两轮评审（2026-05-15）：`smoke.cjs` 内建 round-1 / round-2 全量通过；已对齐 `prd3.md` §4.2 / §6.4 / §8.3（AJV）/ §8.8 / §12 与附录 C。规格变更请走 `prd3.md` §0 维护流程。*
+*连续两轮评审（2026-05-16）：`smoke.cjs` round-1/2 全量通过；对齐 `prd3.md` §4.2 / §8（AI 默认 prd-review）/ §8.8。规格变更请走 `prd3.md` §0 维护流程。*

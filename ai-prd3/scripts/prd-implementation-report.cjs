@@ -74,6 +74,25 @@ function buildImplementationReportMarkdown(root, stagesDoc) {
   lines.push('────────────────────────────────────────');
   lines.push('');
 
+  lines.push('## AI 评审门闸结果（看这一节即可）');
+  lines.push('');
+  lines.push(
+    '以下为 **prd-review 终检通过** 时的快照（机器门闸与 `stages.json` 一致）；**最终以 `.pipeline/stages.json` → `stages.prd_review` 为准**。'
+  );
+  lines.push('');
+  lines.push(`- **outputs.decision**：\`${String(pr?.outputs?.decision ?? '（缺失）')}\``);
+  lines.push(`- **stages.prd_review.status**：\`${String(pr?.status ?? '（缺失）')}\``);
+  lines.push(`- **validation.passed**：\`${pr?.validation?.passed === true}\``);
+  lines.push(`- **outputs.can_enter_design**：\`${pr?.outputs?.can_enter_design === true}\``);
+  lines.push(`- **validation.design_inputs_ready**：\`${pr?.validation?.design_inputs_ready === true}\``);
+  const bi = pr?.blocking_issues;
+  lines.push(
+    `- **blocking_issues 条数**：${Array.isArray(bi) ? bi.length : '（缺失）'}`,
+  );
+  const vsum = (pr?.validation?.summary || '').trim();
+  lines.push(`- **validation.summary（机器摘要）**：${vsum || '（空）'}`);
+  lines.push('');
+
   lines.push('## 分几期做');
   const n = plan.length;
   if (n === 0) {

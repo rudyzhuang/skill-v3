@@ -108,6 +108,7 @@ ai-prd3/
 | `write-prd` | 在校验已通过的前提下写 `stages.prd` 完成态 + §9 hash |
 | `validate-prd-review` | 前置门闸 + 门闸终检（可读模式） |
 | `write-prd-review` | 合并 LLM 产出的结构化 JSON 到 `stages.prd_review`（**不写** `completed` 与 **§9.2** 哈希；终检见 **§8.3**） |
+| **`finalize-prd-review`** | **Agent 默认路径**：串联 **`write-prd-review`** + **`validate-prd-review`**（须 **`--json=`**）；不设单独人工签审节点；终检成功后同 **§8.8** 生成 report |
 | `report` | 在 **`prd_review` 已完成**且 **`outputs.decision=passed`** 时，读取磁盘 **`stages.json`** 与各端 **`feature_list.md`**，生成 **§8.8** 人话版实施节奏摘要（stdout 全文 + 落盘 **`.pipeline/reports/prd-implementation-summary.md`**）；**不**改写门闸 |
 
 **约定**：`validate-*` 失败时退出码 **1**，且须更新**当前阶段**在 `stages.json` 中的块：例如 `validate-prd` 失败须写 **`stages.prd`**；`validate-prd-review` 失败须写 **`stages.prd_review`**——`status=failed`，`validation.passed=false`，不得保持 `running`（详见 §7.4 / §8.4 语义）。**`validate-prd-review` 前置门闸失败**（如 **`prd` 未完成**、**`stages.json` 无法解析**等）亦须将 **`stages.prd_review`** 置 **`failed`** 并写 **`validation.summary`**（若磁盘上尚无合法 `stages.json` 则无法落盘，仅退出 **1**）。
@@ -268,21 +269,21 @@ ai-prd3/
 
 ### 8.1 意图
 
-在**不污染 `prd-spec.md` 正文**的前提下完成评审；将结论写入 **`stages.prd_review`**，使 **ai-design3** / **ai-auto3** 能判定可否进入 **design**。
+在**不污染 `prd-spec.md` 正文**的前提下完成 **prd-review**；**默认由 AI（Cursor Agent / LLM）执行评审与分期**，**不设**单独「人工签审」节点——评审结论以结构化 JSON 经脚本合并，并由 **`validate-prd-review`** 做机器终检；**给人看的结论入口**为 **§8.8** 的 **`.pipeline/reports/prd-implementation-summary.md`**（顶部 **「AI 评审门闸结果」**）。将机器门闸字段写入 **`stages.prd_review`**，使 **ai-design3** / **ai-auto3** 能判定可否进入 **design**。
 
 ### 8.2 禁止项（须出现在 `SKILL.md`）
 
 - **不得**把评审意见、讨论纪要默认追加进 **`docs/prd-spec.md`**。  
-- **不得**把各端 **`prd.md`** 当批注白板。对端调整须：**评审记录 `suggested_prd_spec_changes` → 用户同意 → 回到 prd 流程改 prd-spec → 再派生**。  
+- **不得**把各端 **`prd.md`** 当批注白板。对端调整须：**评审记录 `suggested_prd_spec_changes` → 在对话中显式确认后回到 prd 流程改 prd-spec → 再派生**（**不设**单独人工签审节点，但总规变更仍须在对话中确认）。  
 - **不得**把密钥写入 `config.dev.json` / `config.release.json`。
 
 ### 8.3 建议执行顺序
 
 1. **前置门闸**：`stages.prd.status=completed` 且 `stages.prd.validation.passed=true`；否则 **1**。  
-2. **LLM**（`prompts/prd-review.md`）：产出 **结构化 JSON**（由 **§4.1** 所列 **`templates/schemas/prd-review-output.v1.schema.json`** 经 **AJV** 在 **`prd-review-write-stage.cjs` 合并前**机器校验；依赖见 **`ai-prd3/package.json`**（在 **`ai-prd3/`** 目录执行 **`npm install`**）），**禁止** LLM 直接整文件改写 `stages.json`。  
-3. **`prd-review-write-stage.cjs`**：合并 JSON 到 `stages.prd_review`；维护 `review.*`、`outputs.decision`、`conditions`、`blocking_issues`、`validation.*`。**此步不得**将 `status` 置为 **`completed`**，**不得**将 `validation.passed` 置为 **`true`**（避免未终检即「假完成」）。  
-4. **`prd-review-validate.cjs`（终检）**：满足 **§8.4** 全部条件后：将 **`stages.prd_review.status`** 置为 **`completed`**、**`validation.passed=true`**，并写入 **§9.2** `inputs.summary_hash` 及 **`outputs.can_enter_design`** 等终态字段。若本步失败，**必须**保持或回写 **`failed`**、`validation.passed=false`，且 **§9.2** 哈希须为**空或表示无效**（与未完成语义一致，由实现二选一并写入 `SKILL.md`）。  
-5. **实施节奏摘要（§8.8）**：终检**成功**落盘 `stages.json` 后，生成 **`.pipeline/reports/prd-implementation-summary.md`**（依据 **`review.phase_plan`** 与各端 **`feature_list.md`** Features 表）；生成失败须 **stderr 警告**但**不改变**终检成功与退出码 **0**（避免摘要 I/O 误伤主门闸）。
+2. **AI / LLM**（`prompts/prd-review.md`）：产出 **结构化 JSON**（由 **§4.1** 所列 **`templates/schemas/prd-review-output.v1.schema.json`** 经 **AJV** 在 **`prd-review-write-stage.cjs` 合并前**机器校验；依赖见 **`ai-prd3/package.json`**（在 **`ai-prd3/`** 目录执行 **`npm install`**）），**禁止** LLM 直接整文件改写 `stages.json`。  
+3. **`prd-review-write-stage.cjs`**（或由 **`run.cjs finalize-prd-review`** 自动调用）：合并 JSON 到 `stages.prd_review`；维护 `review.*`、`outputs.decision`、`conditions`、`blocking_issues`、`validation.*`。**此步不得**将 `status` 置为 **`completed`**，**不得**将 `validation.passed` 置为 **`true`**（避免未终检即「假完成」）。  
+4. **`prd-review-validate.cjs`（终检）`**（**`finalize-prd-review`** 会自动调用）：满足 **§8.4** 全部条件后：将 **`stages.prd_review.status`** 置为 **`completed`**、**`validation.passed=true`**，并写入 **§9.2** `inputs.summary_hash` 及 **`outputs.can_enter_design`** 等终态字段。若本步失败，**必须**保持或回写 **`failed`**、`validation.passed=false`，且 **§9.2** 哈希须为**空或表示无效**（与未完成语义一致，由实现二选一并写入 `SKILL.md`）。  
+5. **实施节奏摘要（§8.8）**：终检**成功**落盘 `stages.json` 后，生成 **`.pipeline/reports/prd-implementation-summary.md`**（**须**含 **「AI 评审门闸结果」** 小节，依据 **`stages.prd_review`** 与 **`review.phase_plan`**、各端 **`feature_list.md`**）；生成失败须 **stderr 警告**但**不改变**终检成功与退出码 **0**（避免摘要 I/O 误伤主门闸）。
 
 ### 8.4 可进入 **design** 的判定（与 `input-spec.md` §8 阶段 2 对齐）
 
@@ -299,26 +300,27 @@ ai-prd3/
 
 `input-spec.md` §4.3.1 要求自动序列启动前：**`prd` 与 `prd-review` 已完成**，且 **`phase_plan[*].feature_ids` 非空**。ai-prd3 在 **`outputs.decision=passed`** 时必须保证 **§8.4.3**，否则即使用户误标 `passed`，终检脚本也应 **失败退出 1**。
 
-### 8.6 手工重跑
+### 8.6 覆盖重跑（`--force` / 对话确认）
 
-覆盖 `stages.prd_review` 时：须 **显式用户同意** 或 **`--force`**（`input-spec.md` §7.2 / §8.1）。
+覆盖 `stages.prd_review` 时：须 **对话中显式确认** 或 **`--force`**（`input-spec.md` §7.2 / §8.1）。**不设**单独人工签审表单；Agent 在获得用户一句「允许覆盖」后即可带 **`--force`** 重跑 **`finalize-prd-review`** / **`write-prd-review`**。
 
 ### 8.7 完成后的用户提示（大意，须写入 `SKILL.md`）
 
 - 下一步进入设计：使用 **`ai-design3`**。  
 - 若从 **design** 起自动跑至 dev deploy + smoke + report：使用 **`ai-auto3`**（**不**从 prd 起步）。
-- 人话版实施节奏摘要见 **§8.8**（终检成功自动生成；亦可单独执行 **`run.cjs report`**）。
+- 人话版实施节奏摘要见 **§8.8**（终检成功自动生成；亦可单独执行 **`run.cjs report`**）；**优先阅读**报告顶部 **「AI 评审门闸结果」**。
 
 ### 8.8 实施节奏摘要（`report` / 终检附带）
 
-**意图**：把 **`stages.prd_review.review.phase_plan`**（分期与 `feature_ids`）和各端 **`docs/<client_target>/feature_list.md`** 里 Features 表的 **Name** 列对齐，输出一份**给人读**的 Markdown，回答两件事：**一共拆成几期交付**、**第一期做完用户能摸到什么**。
+**意图**：把 **`stages.prd_review`** 的门闸结果（**`outputs.decision`**、**`can_enter_design`**、阻塞项计数、**`validation.summary`** 等）与 **`stages.prd_review.review.phase_plan`**（分期与 `feature_ids`）、各端 **`docs/<client_target>/feature_list.md`** 里 Features 表的 **Name** 列对齐，输出一份**给人读**的 Markdown：先回答 **「评审是否放行 design」**，再回答 **「一共拆成几期交付」**、**「第一期做完用户能摸到什么」**。
 
 **落盘路径**（相对项目根）：**`.pipeline/reports/prd-implementation-summary.md`**（与 **ai-auto3** 的 **`.pipeline/reports/`** 目录习惯一致，便于统一归档）。
 
 **触发方式**：
 
 1. **`validate-prd-review` 终检通过**：在写回 **`stages.json`** 之后**自动**生成（失败仅警告，见 **§8.3** 第 5 步）。  
-2. **显式子命令**：`node <skill_dir>/scripts/run.cjs report --project=<root>` —— 要求 **`stages.prd_review.status=completed`**、**`validation.passed=true`** 且 **`outputs.decision=passed`**（与终检语义一致）；**stdout** 输出摘要全文（便于管道保存），**stderr** 一行提示写入路径。
+2. **显式子命令**：`node <skill_dir>/scripts/run.cjs report --project=<root>` —— 要求 **`stages.prd_review.status=completed`**、**`validation.passed=true`** 且 **`outputs.decision=passed`**（与终检语义一致）；**stdout** 输出摘要全文（便于管道保存），**stderr** 一行提示写入路径。  
+3. **推荐编排**：Agent 在 **`prompts/prd-review.md`** 产出 JSON 后，优先一次执行 **`run.cjs finalize-prd-review --project=<root> --json=<path>`**，无需再拆 **`write-prd-review`** / **`validate-prd-review`** 两步（等价）。
 
 **非目标**：摘要**不参与**任何下游门闸校验；**不**写入 **`stages.json`** 新键（保持 `stages` 契约稳定）。
 

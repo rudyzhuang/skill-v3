@@ -162,15 +162,13 @@ function runOneSmokeRound(roundLabel) {
     'utf8',
   );
 
-  r = run(['write-prd-review', `--project=${TMP}`, `--json=${reviewPath}`], ROOT);
-  assert.strictEqual(r.status, 0, r.stderr);
-
-  r = run(['validate-prd-review', `--project=${TMP}`], ROOT);
+  r = run(['finalize-prd-review', `--project=${TMP}`, `--json=${reviewPath}`], ROOT);
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
 
   const implReport = path.join(TMP, '.pipeline', 'reports', 'prd-implementation-summary.md');
   assert.ok(fs.existsSync(implReport), '终检通过应生成实施节奏摘要');
   const implBody = fs.readFileSync(implReport, 'utf8');
+  assert.ok(implBody.includes('AI 评审门闸结果'), implBody);
   assert.ok(implBody.includes('分几期做'), implBody);
   assert.ok(implBody.includes('第一期做完'), implBody);
 

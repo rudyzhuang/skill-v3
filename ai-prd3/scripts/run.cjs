@@ -92,7 +92,7 @@ function main() {
 
 子命令:
   bootstrap | parse-targets | validate-prd | write-prd |
-  validate-prd-review | write-prd-review | report
+  validate-prd-review | write-prd-review | finalize-prd-review | report
 
 选项:
   --force  覆盖已完成阶段（prd / prd-review）；bootstrap 在 prd 已完成时须加此选项
@@ -100,7 +100,11 @@ function main() {
   --lang=cn|en  bootstrap 选用 prd-spec 模板语言
   --allow-fill-missing-keys  bootstrap：config 相对模板缺键时做 additive 补齐（prd3.md §7.2）
   --session-id=<id>  写入 .agent-sessions/ai-prd3.ndjson 与 <id>.log（prd3.md §11）
-  --json=<path>  write-prd-review 合并用 JSON（绝对路径或相对项目根）
+  --json=<path>  write-prd-review / finalize-prd-review 合并用 JSON（绝对路径或相对项目根）
+
+finalize-prd-review:
+  一键串联 write-prd-review + validate-prd-review（须 --json=）。供 Agent 在按 prompts/prd-review.md 产出 JSON 后自动关门闸，
+  无需单独人工签审；终检通过后仍会自动写入 .pipeline/reports/prd-implementation-summary.md（prd3.md §8.8）。
 
 report:
   在 prd_review 已完成且 outputs.decision=passed 时，依据 phase_plan 与各端 feature_list 生成「人话版」实施节奏摘要；
@@ -204,6 +208,26 @@ report:
     const extra = [`--json=${args.json}`, ...(args.force ? ['--force'] : [])];
     const r = runNodeScript(scriptDir, 'prd-review-write-stage.cjs', project, args, extra, 'prd_review');
     if (r.timedOut) done(3);
+    done(r.status === 0 ? 0 : r.status || 1);
+  }
+
+  if (sub === 'finalize-prd-review') {
+    if (!args.json) {
+      console.error('finalize-prd-review 需要 --json=（LLM 产出的 prd-review JSON 路径）');
+      done(1);
+    }
+    const extra = [`--json=${args.json}`, ...(args.force ? ['--force'] : [])];
+    let r = runNodeScript(scriptDir, 'prd-review-write-stage.cjs', project, args, extra, 'prd_review');
+    if (r.timedOut) done(3);
+    if (r.status !== 0) {
+      if (r.stderr) process.stderr.write(r.stderr);
+      if (r.stdout) process.stdout.write(r.stdout);
+      done(r.status || 1);
+    }
+    r = runNodeScript(scriptDir, 'prd-review-validate.cjs', project, args, [], 'prd_review');
+    if (r.timedOut) done(3);
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
     done(r.status === 0 ? 0 : r.status || 1);
   }
 
