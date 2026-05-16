@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const { runWithTimeout } = require('./run-with-timeout.cjs');
 
 function stageLabelForLog(phase) {
@@ -40,8 +41,10 @@ async function invokeAiCode3Agent({
     AI_CODE3_PROJECT: projectRoot,
   };
   if (fid) env.AI_CODE3_FEATURE_ID = fid;
+  const cmdBase = path.basename(bin).toLowerCase();
+  const args = cmdBase === 'cursor-agent' ? ['--trust'] : [];
 
-  const r = await runWithTimeout(bin, [], {
+  const r = await runWithTimeout(bin, args, {
     cwd: worktreePath,
     timeoutMs,
     env,

@@ -63,6 +63,7 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 **常用选项**：`--from-stage=`、`--to-stage=`、`--feature=`（**逗号分隔多 id** 合法）、`--force-rerun=<stage>`、`--dry-run`、`--session-id=`。
 
 **由 ai-auto3 自动编排调用时**：每一次 spawn（含 **`merge-push` / `build`**）**必须**带**非空** **`--feature=`**（`merge-push`/`build` 建议为**本轮 feature id 全集**逗号拼接）；不得以「省略参数走 `phase_plan` 默认全集」作为编排隐式行为。多 feature 并行与 **`merge-push`** 汇合规则见 **`docs/spec/auto3.md` §5.6**、**`docs/input-spec.md` §4.3**。
+外部 Agent 为 `cursor-agent` 时，`invoke-ai-code3-agent` 会自动附带 `--trust`，避免 worktree 首次执行触发 Workspace Trust 交互阻塞无人值守链路。
 
 **`--stub-remaining`**：在完成 **test** 之后，将 **code-review / merge-push / build** 以占位字段写回 `stages.json`（供本仓结构冒烟）；**不得**用于真实合码与发版。
 

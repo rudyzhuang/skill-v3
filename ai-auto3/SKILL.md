@@ -59,6 +59,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 - `feature_list.md` 解析仅以 `## Features` 段落中的 `Feature ID` 表为准，忽略 `## Metadata` 等其他表，避免把 `Field/schema_name` 这类元数据误判为 feature。
 - **组间并行**上限：**`pipeline.autorun.feature_group_max_parallel`**（默认 **3**）。**`merge-push` 前**须等 **`codegen`～`code-review` 全组**成功（**§5.6**）。
 - 在**真实 Agent 模式**且未显式配置 `feature_group_max_parallel` 时，`autorun.cjs` 默认按 **1** 串行执行 codegen/typecheck/test/code-review，降低多并发子进程导致的卡住风险；若需并发请在配置中显式给出该值。
+- `codegen` 在真实 Agent 模式增加双保险：单组超时默认上限 **300s**（可用 `AI_AUTO3_CODEGEN_AGENT_MAX_S` 覆盖）；若首轮 codegen 失败（含超时/agent 退出），同组会自动以 `--stub-remaining` 重试一次，避免无人值守流程因单点卡住而整体中断。
 - **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。
 - 在 `design` 宏链路开跑前，`autorun.cjs` 会对 `prd_review.phase_plan` 中缺失的 `docs/designs/<feature_id>.design.json` 做最小 seed（`status=draft`，并补 `client_targets` / `cross_client`），避免 `scan-design-style` 因缺文件直接失败且减少 feature-plan 端型误判噪音。
 - `autorun.cjs` 调用 `ai-code3` 时优先探测真实 Agent（优先级：`pipeline.autorun.code3_agent_bin` > `AI_CODE3_AGENT_BIN` > `AI_CODEGEN_AGENT_BIN` > `~/.local/bin/cursor-agent` > `zsh/bash -lc "command -v cursor-agent"`）；探测到后启用真实 codegen，未探测到才降级 stub。
@@ -98,6 +99,8 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | **并行多路 ai-code3** | **`autorun.cjs`** 在 **`codegen`～`code-review`** 按 **auto3.md §5.7** 读 **`stages.contract` + `design_snapshot`** 分组，层内受 **`pipeline.autorun.feature_group_max_parallel`** 限制并行 spawn；**`merge-push` / `build`** 仍为**本轮 id 全集**单次调用。多进程写 **`stages.json`** 须遵守 **§5.6.2**（建议 **`feature_group_max_parallel: 1`** 直至 **ai-code3** 分片写回）。 |
 | **编排心跳 tee** | **§8.2** 30s 心跳未在编排 `spawn` 层实现；依赖各子 skill 自身日志。 |
 | **pipeline 锁预检提示** | `preflight-only` 与 run 前 checklist 对 `pipeline.pid` 仅提示；真正拦截由 `acquirePipelineLock` 原子执行，避免历史锁/竞态导致误阻断。 |
+
+`pipeline` 锁容错：`acquirePipelineLock` 会在发现占锁进程仍存活时，额外判定该锁是否为超时的旧 `ai-auto3 autorun`（默认阈值 **300s**，可用 `AI_AUTO3_LOCK_MAX_AGE_S` 覆盖）；命中后自动回收并继续，降低无人值守死锁概率。
 
 ## 参考
 

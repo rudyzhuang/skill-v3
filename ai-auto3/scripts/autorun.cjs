@@ -498,7 +498,8 @@ async function runLayerGroupsParallel(
   logSessionId,
   sessionPrefixForCode3,
   forceRerun,
-  maxParallel
+  maxParallel,
+  forceStub
 ) {
   const items = layerGroups.map((members) => ({
     members,
@@ -522,7 +523,7 @@ async function runLayerGroupsParallel(
         logSessionId,
         `spawn ai-code3 ${cmd} stage=${stageKey} group=${key} --feature=${csv} session=${sid}`
       );
-      const code = await spawnCode3(projectRoot, cmd, csv, cfg, sid, forceRerun);
+      const code = await spawnCode3(projectRoot, cmd, csv, cfg, sid, forceRerun, forceStub);
       if (code !== 0) {
         if (failCode === 0) {
           failCode = code;
@@ -550,7 +551,8 @@ async function runCodeStageWithFeatureGroups(
   sessionId,
   forceRerun,
   warningCache,
-  realAgentDetected
+  realAgentDetected,
+  forceStub
 ) {
   const doc = readStages(projectRoot);
   const plan = planFeatureGroupWaves(featureIds, doc, projectRoot);
@@ -592,14 +594,15 @@ async function runCodeStageWithFeatureGroups(
       sessionId,
       `${sessionId}-${stageKey}`,
       forceRerun,
-      maxP
+      maxP,
+      forceStub
     );
     if (code !== 0) return code;
   }
   return 0;
 }
 
-async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun) {
+async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun, forceStubOverride) {
   const script = scriptPath('ai-code3', 'scripts/run.cjs');
   const args = [sub, `--project=${projectRoot}`, `--feature=${featureCsvStr}`, `--session-id=${sessionId}`];
   const sk = normalizeStage(sub.replace(/-/g, '_'));
@@ -607,12 +610,17 @@ async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, force
     args.push(`--force-rerun=${sk}`);
   }
   const agentBin = resolveCode3AgentBin(cfg);
-  const forceStub = shouldForceStubRemaining(cfg);
+  const forceStub = !!forceStubOverride || shouldForceStubRemaining(cfg);
   const useStub = forceStub || !agentBin;
   if (useStub) {
     args.push('--stub-remaining');
   }
-  const t = stageTimeoutMs(cfg, sk === 'merge_push' ? 'merge_push' : sk);
+  let t = stageTimeoutMs(cfg, sk === 'merge_push' ? 'merge_push' : sk);
+  if (!useStub && sk === 'codegen') {
+    const capSRaw = process.env.AI_AUTO3_CODEGEN_AGENT_MAX_S;
+    const capS = Number.isFinite(Number(capSRaw)) && Number(capSRaw) > 0 ? Number(capSRaw) : 300;
+    t = Math.min(t, capS * 1000);
+  }
   return runNodeScript({
     node: process.execPath,
     script,
@@ -947,8 +955,30 @@ async function main() {
                 sessionId,
                 opts.forceRerun,
                 featurePlanWarningCache,
-                realAgentDetected
+                realAgentDetected,
+                false
               );
+            }
+            if (code !== 0) {
+              if (sk === 'codegen') {
+                appendLog(
+                  projectRoot,
+                  sessionId,
+                  `codegen failed code=${code}; retry once with --stub-remaining for robustness`
+                );
+                code = await runCodeStageWithFeatureGroups(
+                  projectRoot,
+                  cmd,
+                  sk,
+                  phaseFeatureIds,
+                  cfg,
+                  `${sessionId}-retry-stub`,
+                  opts.forceRerun,
+                  featurePlanWarningCache,
+                  false,
+                  true
+                );
+              }
             }
             if (code !== 0) {
               exitCode = code;
