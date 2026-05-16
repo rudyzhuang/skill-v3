@@ -21,7 +21,17 @@ function parseArgs(argv) {
   return out;
 }
 
-function deriveOverall(doc, failureReason) {
+function readUiE2eEnabled(projectRoot) {
+  try {
+    const cfgPath = path.join(projectRoot, 'docs', 'config.dev.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    return !!(cfg.ui_e2e && cfg.ui_e2e.enabled === true);
+  } catch {
+    return false;
+  }
+}
+
+function deriveOverall(doc, failureReason, opts = {}) {
   if (failureReason) return 'failed';
   const st = doc.stages || {};
   if (st.contract?.status === 'blocked' || st.contract?.outputs?.human_approval?.status === 'pending') {
@@ -39,7 +49,7 @@ function deriveOverall(doc, failureReason) {
     'build',
     'deploy',
     'smoke',
-    'ui_e2e',
+    ...(opts.uiE2eEnabled ? ['ui_e2e'] : []),
   ];
   let anyFail = false;
   let anyIncomplete = false;
@@ -181,7 +191,8 @@ function main() {
     process.exit(1);
   }
 
-  const overall = deriveOverall(doc, opts.failureReason);
+  const uiE2eEnabled = readUiE2eEnabled(projectRoot);
+  const overall = deriveOverall(doc, opts.failureReason, { uiE2eEnabled });
   const reportDir = path.join(projectRoot, '.pipeline', 'reports');
   fs.mkdirSync(reportDir, { recursive: true });
   const reportName = `autorun-${sessionId}.md`;

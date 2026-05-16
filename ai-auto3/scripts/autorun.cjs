@@ -1240,7 +1240,7 @@ async function main() {
           finishPhaseRun(phaseRunId, 'failed');
           break;
         }
-        const phaseReportCode = await runGenReport(projectRoot, `${sessionId}-${phase}`, `phase=${phase}`);
+        const phaseReportCode = await runGenReport(projectRoot, `${sessionId}-${phase}`, '');
         if (phaseReportCode !== 0) {
           appendLog(projectRoot, sessionId, `phase report warn: phase=${phase} exit=${phaseReportCode}`);
         }
