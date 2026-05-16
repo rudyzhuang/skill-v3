@@ -26,6 +26,33 @@ function isCleanWorkingTree(projectRoot) {
   return String(r.stdout || '').trim() === '';
 }
 
+/** Paths ignored for merge-push cleanliness (nested worktrees are separate git dirs). */
+const MERGE_PORCELAIN_IGNORE_PREFIXES = [
+  '.agent-sessions/',
+  '.pipeline/worktrees/',
+];
+
+function porcelainPath(line) {
+  if (!line || line.length < 4) return '';
+  return line.slice(3).trim().replace(/^"\{(.+)\}"$/, '$1').split(' -> ')[0].trim();
+}
+
+function isCleanWorkingTreeForMerge(projectRoot) {
+  const r = git(projectRoot, ['status', '--porcelain'], { stdio: 'pipe' });
+  if (r.status !== 0) return false;
+  const blocking = String(r.stdout || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const p = porcelainPath(line);
+      return !MERGE_PORCELAIN_IGNORE_PREFIXES.some(
+        (prefix) => p === prefix.replace(/\/$/, '') || p.startsWith(prefix)
+      );
+    });
+  return blocking.length === 0;
+}
+
 const MERGE_AUTOSTASH_MESSAGE = 'ai-code3:pre-merge-push-autostash';
 
 /**
@@ -33,7 +60,7 @@ const MERGE_AUTOSTASH_MESSAGE = 'ai-code3:pre-merge-push-autostash';
  * @returns {{ ok: boolean, stashed?: boolean, error?: string }}
  */
 function prepareWorkingTreeForMerge(projectRoot) {
-  if (isCleanWorkingTree(projectRoot)) return { ok: true, stashed: false };
+  if (isCleanWorkingTreeForMerge(projectRoot)) return { ok: true, stashed: false };
   const r = git(
     projectRoot,
     ['stash', 'push', '-u', '-m', MERGE_AUTOSTASH_MESSAGE],
@@ -44,8 +71,8 @@ function prepareWorkingTreeForMerge(projectRoot) {
     return { ok: false, error: combined.trim() || `git stash failed (${r.status})` };
   }
   const stashed = r.status === 0 && !/No local changes to save/i.test(combined);
-  if (!isCleanWorkingTree(projectRoot)) {
-    return { ok: false, error: 'working tree still dirty after autostash' };
+  if (!isCleanWorkingTreeForMerge(projectRoot)) {
+    return { ok: false, error: 'working tree still dirty after autostash (excluding worktrees)' };
   }
   return { ok: true, stashed };
 }
@@ -257,6 +284,7 @@ module.exports = {
   git,
   isInsideGitWorkTree,
   isCleanWorkingTree,
+  isCleanWorkingTreeForMerge,
   prepareWorkingTreeForMerge,
   popMergeAutostash,
   MERGE_AUTOSTASH_MESSAGE,
