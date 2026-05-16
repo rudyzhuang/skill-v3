@@ -43,8 +43,10 @@ const board = buildFeatureBoard(doc, root, runtime, { alive: true });
 const byId = Object.fromEntries(board.features.map((f) => [f.feature_id, f]));
 
 assert(byId['F-A'].pipeline_status === 'completed', `F-A expected completed, got ${byId['F-A'].pipeline_status}`);
-assert(byId['F-B'].pipeline_status === 'pending', `F-B expected pending, got ${byId['F-B'].pipeline_status}`);
-assert(byId['F-B'].hints.includes('queued_for_codegen'), 'F-B should be queued_for_codegen');
+assert(byId['F-B'].pipeline_status === 'in_progress', `F-B expected in_progress (active codegen), got ${byId['F-B'].pipeline_status}`);
+assert(byId['F-B'].hints.includes('active_codegen_feature'), 'F-B should be active_codegen_feature');
+assert(byId['F-B'].pipeline_stage_label, 'F-B should have pipeline_stage_label');
+assert(typeof byId['F-B'].stage_elapsed_ms === 'number' || byId['F-B'].stage_elapsed_ms === null);
 
 assert(isFeatureCodegenDone(root, 'F-A'), 'F-A codegen done');
 assert(!isFeatureCodegenDone(root, 'F-B'), 'F-B codegen not done');

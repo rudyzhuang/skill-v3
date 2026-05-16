@@ -258,6 +258,20 @@ main {
   margin-top: 0.25rem;
 }
 
+.feature-card .feature-stage strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.feature-card .feature-timing {
+  font-size: 0.72rem;
+}
+
+.feature-card .muted-hint {
+  opacity: 0.85;
+  font-size: 0.7rem;
+}
+
 .badge {
   display: inline-block;
   font-size: 0.7rem;

@@ -33,6 +33,7 @@ function $(id) {
 let registryProjects = [];
 let currentProjectRoot = '';
 let lastDashboard = null;
+let featureFilter = 'all';
 let timer = null;
 
 async function fetchJson(url, options) {
@@ -40,6 +41,23 @@ async function fetchJson(url, options) {
   const data = await r.json();
   if (!r.ok && r.status !== 207) throw new Error(data.message || data.error || `HTTP ${r.status}`);
   return data;
+}
+
+function formatDuration(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec} 秒`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} 分 ${sec % 60} 秒`;
+  const hr = Math.floor(min / 60);
+  return `${hr} 时 ${min % 60} 分`;
+}
+
+function formatLocalTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('zh-CN', { hour12: false });
 }
 
 function updateStopButton(dash) {
@@ -59,9 +77,19 @@ function setBanner(overall, dash) {
   if (lock?.present && lock.alive) {
     extra = ` · pipeline 锁 PID=${lock.pid}`;
   } else if (lock?.present && lock.alive === false) {
-    extra = ' · 锁文件残留';
+    extra = ' · 锁文件残留（进程已退出）';
   }
-  if (dash.autorun_active) extra += ' · registry 有未结束 run';
+  if (dash.registry_stale_run) {
+    extra += ' · registry 有未结束 run（进程可能已退出，可点「停止运行」清理）';
+  } else if (dash.autorun_active) {
+    extra += ' · autorun 运行中';
+  }
+  if (dash.active_codegen_feature_id) {
+    extra += ` · 当前 codegen：${dash.active_codegen_feature_id}`;
+  }
+  if (dash.generated_at) {
+    extra += ` · 刷新于 ${formatLocalTime(dash.generated_at)}`;
+  }
   el.className = `status-banner overall-${overall || 'idle'}`;
   el.textContent = `${OVERALL_LABEL[overall] || overall}${extra}`;
 }
@@ -83,10 +111,12 @@ function renderRuntime(dash) {
   fillKv($('runtimeDl'), [
     ['autorun 活跃', dash.autorun_active ? '是' : '否'],
     ['PID 锁存活', dash.pid_lock_alive ? '是' : '否'],
+    ['registry 僵尸 run', dash.registry_stale_run ? '是（建议停止运行）' : '否'],
     ['registry 未结束 run', dash.registry_run_active ? '是' : '否'],
+    ['当前 codegen feature', dash.active_codegen_feature_id || '—'],
     ['当前 phase', rt.current_phase],
     ['当前 stage', rt.current_stage],
-    ['pending features', (rt.pending_features || []).join(', ') || '—'],
+    ['pending 数量', (rt.pending_features || []).length],
     ['active_run_id', rt.active_run_id],
     ['runtime 更新', rt.updated_at],
   ]);
@@ -105,6 +135,7 @@ function renderSummary(dash) {
 }
 
 function renderFeatures(dash, filterStatus) {
+  if (filterStatus !== undefined) featureFilter = filterStatus || 'all';
   const board = $('featureBoard');
   const tabs = $('featureTabs');
   const feats = dash.features || [];
@@ -117,16 +148,14 @@ function renderFeatures(dash, filterStatus) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = `${st === 'all' ? '全部' : FEATURE_LABEL[st] || st} (${count})`;
-    btn.classList.toggle('active', st === (filterStatus || 'all'));
+    btn.classList.toggle('active', st === featureFilter);
     btn.addEventListener('click', () => renderFeatures(dash, st));
     tabs.appendChild(btn);
   }
 
   board.innerHTML = '';
   const list =
-    !filterStatus || filterStatus === 'all'
-      ? feats
-      : feats.filter((f) => f.pipeline_status === filterStatus);
+    featureFilter === 'all' ? feats : feats.filter((f) => f.pipeline_status === featureFilter);
 
   if (!list.length) {
     board.innerHTML = '<p class="empty">暂无 feature（检查 prd_review.phase_plan）</p>';
@@ -137,12 +166,17 @@ function renderFeatures(dash, filterStatus) {
     const card = document.createElement('article');
     card.className = 'feature-card';
     card.dataset.status = f.pipeline_status;
+    const stageLine = escapeHtml(f.pipeline_stage_label || displayStage(f.pipeline_stage) || '—');
+    const startedLine = escapeHtml(formatLocalTime(f.stage_started_at));
+    const elapsedLine = escapeHtml(formatDuration(f.stage_elapsed_ms));
     card.innerHTML = `
       <div class="fid">${escapeHtml(f.feature_id)}</div>
       ${f.name ? `<div class="meta">${escapeHtml(f.name)}</div>` : ''}
       <div class="meta">phase: ${escapeHtml(f.phase)}${f.client_target ? ` · ${escapeHtml(f.client_target)}` : ''}</div>
+      <div class="meta feature-stage">阶段: <strong>${stageLine}</strong></div>
+      <div class="meta feature-timing">开始: ${startedLine} · 已运行: ${elapsedLine}</div>
       <span class="badge badge-${f.pipeline_status}">${FEATURE_LABEL[f.pipeline_status] || f.pipeline_status}</span>
-      ${f.list_status ? `<div class="meta">feature_list: ${escapeHtml(f.list_status)}</div>` : ''}
+      ${f.list_status ? `<div class="meta muted-hint">清单状态: ${escapeHtml(f.list_status)}（PRD feature_list，非流水线阶段）</div>` : ''}
     `;
     board.appendChild(card);
   }
@@ -165,7 +199,7 @@ function renderStages(dash) {
     const st = r.status || '—';
     if (st === 'failed') tr.classList.add('stage-failed');
     else if (st === 'completed') tr.classList.add('stage-completed');
-    else if (st === 'in_progress') tr.classList.add('stage-in_progress');
+    else if (st === 'running' || st === 'in_progress') tr.classList.add('stage-in_progress');
     const v =
       r.validation_passed === true ? 'ok' : r.validation_passed === false ? 'no' : '—';
     tr.innerHTML = `<td>${displayStage(r.stage)}</td><td class="status">${escapeHtml(st)}</td><td>${v}</td>`;
@@ -256,7 +290,7 @@ async function loadDashboard() {
     setBanner(dash.overall, dash);
     renderRuntime(dash);
     renderSummary(dash);
-    renderFeatures(dash, 'all');
+    renderFeatures(dash);
     renderStages(dash);
     renderBlockers(dash);
     renderRuns(dash);
@@ -308,6 +342,7 @@ async function stopPipeline() {
 
 function scheduleAutoRefresh() {
   if (timer) clearInterval(timer);
+  timer = null;
   if ($('autoRefresh').checked) {
     timer = setInterval(() => {
       loadRegistry().then(() => loadDashboard()).catch(() => {});
@@ -336,8 +371,16 @@ async function init() {
 
   $('projectPath').addEventListener('change', loadDashboard);
   $('refreshBtn').addEventListener('click', async () => {
-    await loadRegistry();
-    await loadDashboard();
+    const btn = $('refreshBtn');
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+    try {
+      await loadRegistry();
+      await loadDashboard();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '刷新';
+    }
   });
   $('stopBtn').addEventListener('click', () => {
     stopPipeline().catch((e) => window.alert(String(e.message || e)));

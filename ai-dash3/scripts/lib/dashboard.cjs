@@ -60,6 +60,8 @@ function buildDashboard(projectRoot, registryExport) {
     autorun_active: autorunActive,
     registry_run_active: registryRunActive,
     pid_lock_alive: pid?.alive === true,
+    registry_stale_run: registryRunActive && pid?.alive !== true,
+    active_codegen_feature_id: featureBoard.active_codegen_feature_id || null,
     pipeline_stoppable: pid?.alive === true || registryRunActive,
     recent_runs: recentRuns,
     generated_at: new Date().toISOString(),
