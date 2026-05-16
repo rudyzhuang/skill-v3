@@ -26,6 +26,38 @@ function isCleanWorkingTree(projectRoot) {
   return String(r.stdout || '').trim() === '';
 }
 
+const MERGE_AUTOSTASH_MESSAGE = 'ai-code3:pre-merge-push-autostash';
+
+/**
+ * Stash dirty main worktree so feature-branch merges can proceed during autorun.
+ * @returns {{ ok: boolean, stashed?: boolean, error?: string }}
+ */
+function prepareWorkingTreeForMerge(projectRoot) {
+  if (isCleanWorkingTree(projectRoot)) return { ok: true, stashed: false };
+  const r = git(
+    projectRoot,
+    ['stash', 'push', '-u', '-m', MERGE_AUTOSTASH_MESSAGE],
+    { stdio: 'pipe' }
+  );
+  const combined = `${r.stdout || ''}${r.stderr || ''}`;
+  if (r.status !== 0 && !/No local changes to save/i.test(combined)) {
+    return { ok: false, error: combined.trim() || `git stash failed (${r.status})` };
+  }
+  const stashed = r.status === 0 && !/No local changes to save/i.test(combined);
+  if (!isCleanWorkingTree(projectRoot)) {
+    return { ok: false, error: 'working tree still dirty after autostash' };
+  }
+  return { ok: true, stashed };
+}
+
+function popMergeAutostash(projectRoot) {
+  const list = git(projectRoot, ['stash', 'list'], { stdio: 'pipe' });
+  if (list.status !== 0) return;
+  const first = String(list.stdout || '').split('\n').find((l) => l.trim());
+  if (!first || !first.includes(MERGE_AUTOSTASH_MESSAGE)) return;
+  git(projectRoot, ['stash', 'pop'], { stdio: 'pipe' });
+}
+
 function resolveWtPath(projectRoot, worktreePath) {
   if (!worktreePath || !String(worktreePath).trim()) return projectRoot;
   const s = String(worktreePath).trim();
@@ -225,6 +257,9 @@ module.exports = {
   git,
   isInsideGitWorkTree,
   isCleanWorkingTree,
+  prepareWorkingTreeForMerge,
+  popMergeAutostash,
+  MERGE_AUTOSTASH_MESSAGE,
   collectWorktreeRows,
   listFeatureBranchesToMerge,
   listChangedPathsBetween,

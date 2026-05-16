@@ -308,12 +308,14 @@ async function run(ctx) {
     return 1;
   }
 
-  if (!mergeGit.isCleanWorkingTree(projectRoot)) {
-    const msg = 'merge_push blocked: working tree must be clean (commit or stash changes first)';
+  const mergePrep = mergeGit.prepareWorkingTreeForMerge(projectRoot);
+  if (!mergePrep.ok) {
+    const msg = `merge_push blocked: ${mergePrep.error || 'working tree must be clean (commit or stash changes first)'}`;
     console.error(`failed_stage=merge_push: ${msg}`);
     writeTerminal(projectRoot, doc, 'merge_push', 'blocked', { summary: msg });
     return 1;
   }
+  const mergeStashed = Boolean(mergePrep.stashed);
 
   const lock = stagesIo.tryAcquireLock(projectRoot, 'merge-push', {
     sessionId: options.sessionId || '',
@@ -607,6 +609,7 @@ async function run(ctx) {
       if (hbMerge) clearInterval(hbMerge);
     }
   } finally {
+    if (mergeStashed) mergeGit.popMergeAutostash(projectRoot);
     lock.release();
   }
 }
