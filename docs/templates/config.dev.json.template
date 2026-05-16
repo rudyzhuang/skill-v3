@@ -111,8 +111,24 @@
     },
     "mobile": {
       "sub_platforms": [],
-      "android": { "device_id": "", "bundle_id": "" },
-      "ios": { "simulator": "", "bundle_id": "" }
+      "android": {
+        "device_id": "",
+        "emulator_id": "",
+        "auto_launch_emulator": true,
+        "install_before_test": true,
+        "bundle_id": ""
+      },
+      "ios": {
+        "simulator": "",
+        "device_id": "",
+        "auto_launch_simulator": true,
+        "install_before_test": true,
+        "bundle_id": ""
+      },
+      "commands": {
+        "boot_wait_s": 90,
+        "smoke_run_s": 35
+      }
     },
     "commands": {
       "ui_test_max_fix_attempts": 3

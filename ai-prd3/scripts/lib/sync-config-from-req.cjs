@@ -143,6 +143,25 @@ function syncUiE2e(configJson, parsed, declaredSlugs) {
     subs.add('android');
     if (process.platform === 'darwin') subs.add('ios');
     ui.mobile.sub_platforms = [...subs];
+    ui.mobile.android = {
+      device_id: '',
+      emulator_id: '',
+      auto_launch_emulator: true,
+      install_before_test: true,
+      ...(ui.mobile.android || {}),
+    };
+    ui.mobile.ios = {
+      simulator: '',
+      device_id: '',
+      auto_launch_simulator: true,
+      install_before_test: true,
+      ...(ui.mobile.ios || {}),
+    };
+    ui.mobile.commands = {
+      boot_wait_s: 90,
+      smoke_run_s: 35,
+      ...(ui.mobile.commands || {}),
+    };
   }
   ui.commands = ui.commands || {};
   if (ui.commands.ui_test_max_fix_attempts == null) {

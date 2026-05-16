@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { runWithTimeout } = require('./run-with-timeout.cjs');
 
-function buildPrompt({ scenario, baseUrl, mode }) {
+function buildPrompt({ scenario, baseUrl, mode, deviceId }) {
   const lines = [
     'You are ai-e2e3 external agent (non-interactive).',
     `Mode: ${mode} (use ${mode === 'browser' ? 'cursor-ide-browser MCP' : 'user-dart MCP'}).`,
@@ -12,6 +12,7 @@ function buildPrompt({ scenario, baseUrl, mode }) {
     `Client target: ${scenario.client_target}`,
     `Platform: ${scenario.platform}`,
   ];
+  if (deviceId) lines.push(`Flutter device id (already booted + app installed): ${deviceId}`);
   if (baseUrl) lines.push(`Base URL: ${baseUrl}`);
   lines.push(
     '',
@@ -28,7 +29,7 @@ function buildPrompt({ scenario, baseUrl, mode }) {
 /**
  * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string, code?: number, passed?: boolean, error?: string, duration_ms?: number }>}
  */
-async function invokeE2eAgent({ projectRoot, scenario, baseUrl, outputJsonPath, timeoutMs, mode }) {
+async function invokeE2eAgent({ projectRoot, scenario, baseUrl, outputJsonPath, timeoutMs, mode, deviceId }) {
   const bin =
     process.env.AI_E2E3_AGENT_BIN ||
     process.env.AI_CODE3_AGENT_BIN ||
@@ -53,9 +54,9 @@ async function invokeE2eAgent({ projectRoot, scenario, baseUrl, outputJsonPath, 
   const args = [];
   const cmdBase = path.basename(bin).toLowerCase();
   if (cmdBase === 'cursor-agent') {
-    args.push('--print', '--trust', buildPrompt({ scenario, baseUrl, mode }));
+    args.push('--print', '--trust', buildPrompt({ scenario, baseUrl, mode, deviceId }));
   } else {
-    args.push(buildPrompt({ scenario, baseUrl, mode }));
+    args.push(buildPrompt({ scenario, baseUrl, mode, deviceId }));
   }
   const t0 = Date.now();
   const r = await runWithTimeout(bin, args, { cwd: projectRoot, timeoutMs, env });

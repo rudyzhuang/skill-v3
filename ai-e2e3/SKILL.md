@@ -33,7 +33,7 @@ node <skill_dir>/scripts/run.cjs --project=<业务项目根绝对路径> \
 
 | 变量 | 说明 |
 | --- | --- |
-| `AI_E2E3_SKIP_AGENT=1` | stub：web 仅 navigate GET；mobile 尝试 `flutter test integration_test` |
+| `AI_E2E3_SKIP_AGENT=1` | stub：web 仅 navigate GET；mobile 仍自动启模拟器、`flutter install`、跑 `integration_test` 或 `flutter run` 冒烟 |
 | `AI_E2E3_AGENT_BIN` | 外部 Agent（默认回退 `AI_CODE3_AGENT_BIN`） |
 | `AI_E2E3_SKIP_FIX_AGENT=1` | 禁用失败后 `ui_test_fix` |
 

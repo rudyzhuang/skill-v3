@@ -243,6 +243,8 @@ curl -i --max-time 10 <deploy_url>/<health_or_ping_path>
 
 ### 6.4 Mobile（若 req.md 含 mobile 端）
 
+当 **`ui_e2e.enabled=true`** 时，模拟器启动、安装与测试由 **ai-e2e3** `mobile-device.cjs` 在 `ui_e2e` 阶段自动完成（`auto_launch_emulator` / `auto_launch_simulator`、`flutter install`）；本节手工命令仅作复核或 `ui_e2e` 未启用时的回退。
+
 **步骤一：确认 build 成功**
 
 ```bash

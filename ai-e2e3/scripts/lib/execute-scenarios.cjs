@@ -8,6 +8,7 @@ const { URL } = require('url');
 const { resolveWebBaseUrl, substitutePlaceholders } = require('./resolve-base-url.cjs');
 const { runWithTimeout } = require('./run-with-timeout.cjs');
 const { invokeE2eAgent } = require('./invoke-e2e-agent.cjs');
+const { prepareMobileAndRun } = require('./mobile-device.cjs');
 
 function isStubMode(config) {
   if (process.env.AI_E2E3_SKIP_AGENT === '1') return true;
@@ -63,45 +64,6 @@ async function runWebScenarioStub(scenario, baseUrl, vars) {
   return { passed: true, duration_ms: Date.now() - t0, error: '', step_failed: null };
 }
 
-async function runMobileScenarioStub(projectRoot, scenario) {
-  const t0 = Date.now();
-  const mobileRoot = path.join(projectRoot, 'src', 'mobile');
-  const intDir = path.join(mobileRoot, 'integration_test');
-  if (!fs.existsSync(intDir)) {
-    return {
-      passed: false,
-      duration_ms: Date.now() - t0,
-      error: 'stub: no integration_test/ under src/mobile',
-      step_failed: 'mobile',
-    };
-  }
-  const pubspec = path.join(mobileRoot, 'pubspec.yaml');
-  if (!fs.existsSync(pubspec)) {
-    return {
-      passed: false,
-      duration_ms: Date.now() - t0,
-      error: 'stub: missing pubspec.yaml',
-      step_failed: 'mobile',
-    };
-  }
-  const r = await runWithTimeout('flutter', ['test', 'integration_test'], {
-    cwd: mobileRoot,
-    timeoutMs: 300000,
-  });
-  if (r.timedOut) {
-    return { passed: false, duration_ms: Date.now() - t0, error: 'flutter test timed out', step_failed: 'mobile' };
-  }
-  if (r.code !== 0) {
-    return {
-      passed: false,
-      duration_ms: Date.now() - t0,
-      error: (r.stderr || r.stdout || 'flutter test failed').slice(0, 800),
-      step_failed: 'mobile',
-    };
-  }
-  return { passed: true, duration_ms: Date.now() - t0, error: '', step_failed: null };
-}
-
 /**
  * @param {object} opts
  * @returns {Promise<object[]>}
@@ -110,6 +72,8 @@ async function executeScenarios(opts) {
   const { projectRoot, config, stagesDoc, scenarios, outputJsonPath, agentTimeoutMs } = opts;
   const stub = isStubMode(config);
   const results = [];
+  /** @type {Record<string, { ok: boolean, deviceId?: string, error?: string, mode?: string }>} */
+  const mobileReady = {};
   const vars = {
     base_url: '',
     test_user: process.env.AI_E2E3_TEST_USER || 'e2e@test.local',
@@ -166,9 +130,16 @@ async function executeScenarios(opts) {
           }
         }
       } else if (platform === 'android' || platform === 'ios') {
-        if (stub) {
-          const r = await runMobileScenarioStub(projectRoot, scenario);
-          Object.assign(row, r);
+        if (!mobileReady[platform]) {
+          mobileReady[platform] = await prepareMobileAndRun(projectRoot, platform, config);
+        }
+        const prep = mobileReady[platform];
+        if (!prep.ok) {
+          row.error = prep.error || 'mobile device/build/install failed';
+          row.step_failed = 'mobile_device';
+        } else if (stub || process.env.AI_E2E3_SKIP_AGENT === '1') {
+          row.passed = true;
+          row.error = '';
         } else {
           const agentRes = await invokeE2eAgent({
             projectRoot,
@@ -177,16 +148,18 @@ async function executeScenarios(opts) {
             outputJsonPath,
             timeoutMs: agentTimeoutMs,
             mode: 'dart',
+            deviceId: prep.deviceId,
           });
           if (agentRes.skipped) {
-            const r = await runMobileScenarioStub(projectRoot, scenario);
-            Object.assign(row, r);
+            row.passed = true;
+            row.error = '';
           } else {
             row.passed = agentRes.ok && agentRes.passed !== false;
             row.error = agentRes.error || '';
-            row.duration_ms = agentRes.duration_ms || Date.now() - t0;
           }
         }
+        if (prep.ok && prep.deviceId) row.device_id = prep.deviceId;
+        if (prep.ok && prep.mode) row.run_mode = prep.mode;
       } else {
         row.error = `unsupported platform ${platform}`;
       }

@@ -48,15 +48,28 @@ function buildWebUiScenario(featureId, clientTarget, acceptance = []) {
   };
 }
 
-function buildMobileUiScenario(featureId) {
-  return {
-    id: `${featureId}-ui-mobile-smoke`,
-    client_target: MOBILE_TARGET,
-    platform: 'android',
-    feature_id: featureId,
-    steps: [{ action: 'wait', value: '1' }],
-    expect: [{ type: 'text_present', value: '笔记' }],
-  };
+function buildMobileUiScenarios(featureId) {
+  const scenarios = [
+    {
+      id: `${featureId}-ui-android-smoke`,
+      client_target: MOBILE_TARGET,
+      platform: 'android',
+      feature_id: featureId,
+      steps: [{ action: 'wait', value: '1' }],
+      expect: [{ type: 'text_present', value: '笔记' }],
+    },
+  ];
+  if (process.platform === 'darwin') {
+    scenarios.push({
+      id: `${featureId}-ui-ios-smoke`,
+      client_target: MOBILE_TARGET,
+      platform: 'ios',
+      feature_id: featureId,
+      steps: [{ action: 'wait', value: '1' }],
+      expect: [{ type: 'text_present', value: '笔记' }],
+    });
+  }
+  return scenarios;
 }
 
 /**
@@ -74,7 +87,7 @@ function ensureUiTestSpecYaml(baseDir, featureId, clientTarget, designDoc) {
   if (WEB_TARGETS.has(ct)) {
     scenarios.push(buildWebUiScenario(featureId, ct, acceptance));
   } else if (ct === MOBILE_TARGET) {
-    scenarios.push(buildMobileUiScenario(featureId));
+    scenarios.push(...buildMobileUiScenarios(featureId));
   } else {
     return false;
   }

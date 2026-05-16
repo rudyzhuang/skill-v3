@@ -38,6 +38,15 @@ function runPreflight(projectRoot, { requireUiE2e } = {}) {
     return { ok: false, message: '前置 merge_push 未完成' };
   }
 
+  const build = doc.stages?.build;
+  const mobileArt = (build?.outputs?.artifacts || []).find((a) => a.client_target === 'mobile');
+  if ((ui.mobile?.sub_platforms || []).length && (!build || build.status !== 'completed')) {
+    return { ok: false, message: 'mobile ui_e2e 需要 stages.build（mobile）已完成' };
+  }
+  if (mobileArt && mobileArt.status && !['completed', 'success'].includes(mobileArt.status)) {
+    return { ok: false, message: 'stages.build mobile 产物未 completed' };
+  }
+
   return { ok: true, config, skip: false };
 }
 
