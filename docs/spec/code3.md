@@ -257,6 +257,7 @@ ai-code3/
 - **调用面（二选一或并存，实现须写死优先级）**：  
   1. **Cursor Agent CLI**（与 v2 一致：显式二进制路径 **`AI_CODE3_AGENT_BIN`** 或兼容 **`AI_CODEGEN_AGENT_BIN`** 的只读回退）；  
   2. **`@cursor/sdk`** 本地/云端 **headless Agent**（适用于 CI；凭证与网络策略不在本文展开，见 **`docs/input-spec.md`** 与发布运维约定）。  
+- **Cursor Agent CLI 非交互约束**：若调用的是 **`cursor-agent`** 可执行文件，必须使用非交互参数（至少含 **`--print`** 与显式 prompt；可附带 **`--trust`**），禁止“无参数启动”导致会话阻塞。  
 - **超时**：单相 Agent 调用须有**子超时**（环境变量或 `config.dev.json` 的 **`timeouts.subcommand.*`**）；**所有**子调用累计须在 **`timeouts.stages.codegen_s`** 内结束，否则 **退出码 3**，并写 **`outputs.timed_out=true`**。  
 - **跳过 Agent**：**`AI_CODE3_SKIP_AGENT=1`**（或兼容 **`AI_CODEGEN_SKIP_AGENT=1`**）时**不得**调用外部 Agent；仅执行 worktree + 骨架（若启用）；**`outputs.agent.skipped=true`** 与 **`skip_reason`** 写入 **`stages.json`**（见模板）；**`impl_codegen_status` / `test_codegen_status`** 不得假装 **`success`**——应 **`failed`** 或 **`skipped`**（与 **`input-spec.md` §7.1** 枚举一致），除非团队显式允许「骨架即完成」（须在 **`SKILL.md`** 声明为实验模式）。  
 - **日志**：每次 Agent 调用将 **request id / session 片段 / 失败摘要** 写入 **`.agent-sessions/`**；stdout/stderr 须含 **`failed_stage=codegen`** 与 **`feature_id=`**（多 feature 时）。
@@ -326,6 +327,7 @@ ai-code3/
 
 - 命令优先 **`docs/config.dev.json.build.commands.test`**；否则探测 `npm`/`pytest`/`cargo` 等。  
 - **`build.commands.test_max_fix_attempts`**（默认 **3**）为上限。  
+- 可选测试层级门禁：从 contract `test_spec.required_test_levels` 读取必需层级（`unit` / `integration`），并由 **`build.test_level_gate.mode`**（`off` / `warn` / `enforce`）控制告警或阻断；当 `test_spec` 未声明时可用 **`build.test_level_gate.fallback_required_test_levels`**。  
 - **`stages.test.outputs.result`** 枚举与 **`rollback_to`** 见模板与 **`input-spec.md` §7.1**。
 
 ### 9.3 与编排的职责划分

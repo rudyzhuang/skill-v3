@@ -63,7 +63,7 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 **常用选项**：`--from-stage=`、`--to-stage=`、`--feature=`（**逗号分隔多 id** 合法）、`--force-rerun=<stage>`、`--dry-run`、`--session-id=`。
 
 **由 ai-auto3 自动编排调用时**：每一次 spawn（含 **`merge-push` / `build`**）**必须**带**非空** **`--feature=`**（`merge-push`/`build` 建议为**本轮 feature id 全集**逗号拼接）；不得以「省略参数走 `phase_plan` 默认全集」作为编排隐式行为。多 feature 并行与 **`merge-push`** 汇合规则见 **`docs/spec/auto3.md` §5.6**、**`docs/input-spec.md` §4.3**。
-外部 Agent 为 `cursor-agent` 时，`invoke-ai-code3-agent` 会自动附带 `--trust`，避免 worktree 首次执行触发 Workspace Trust 交互阻塞无人值守链路。
+外部 Agent 为 `cursor-agent` 时，`invoke-ai-code3-agent` 会以非交互参数调用（`--print --trust "<phase prompt>"`），避免无提示词启动导致挂起；`code_review` 相仍需按 `AI_CODE3_CODE_REVIEW_OUTPUT` 写出 JSON。
 
 **`--stub-remaining`**：在完成 **test** 之后，将 **code-review / merge-push / build** 以占位字段写回 `stages.json`（供本仓结构冒烟）；**不得**用于真实合码与发版。
 
@@ -74,12 +74,15 @@ node <skill_dir>/scripts/run.cjs [子命令] --project=<业务项目根绝对路
 ```bash
 node ai-code3/scripts/self-test-secret-scan.cjs
 node ai-code3/scripts/self-test-merge-push.cjs
+node ai-code3/scripts/self-test-test-level-gate.cjs
 node ai-code3/scripts/smoke.cjs
 ```
 
-`smoke.cjs` 会：在 **`ai-code3/`** 目录执行 **`npm ci`**（安装 **ajv** 等依赖）；依次跑 secret-scan、**merge-push（真实 git）** 自测、**`self-test-clean.cjs`**、**`self-test-preflight-upstream.cjs`**；再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
+`smoke.cjs` 会：在 **`ai-code3/`** 目录执行 **`npm ci`**（安装 **ajv** 等依赖）；依次跑 secret-scan、**merge-push（真实 git）** 自测、**`self-test-clean.cjs`**、**`self-test-preflight-upstream.cjs`**、**`self-test-test-level-gate.cjs`**；再将 fixture 复制到临时目录并执行 `preflight` + `all --stub-remaining`。
 
 自动化门禁与两轮全量评审见 **`docs/spec/code3.md` §16.1**（须与上表三条自测命令一致）。
+
+`test` 阶段支持可选测试层级门禁：优先读取 contract `test_spec.required_test_levels`（`unit` / `integration`），并由 `docs/config.dev.json` 的 `build.test_level_gate.mode`（`off` / `warn` / `enforce`）控制；`test_spec` 未声明时可回退 `build.test_level_gate.fallback_required_test_levels`。
 
 ## 退出码（与 `docs/input-spec.md` §5 一致）
 

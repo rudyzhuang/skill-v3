@@ -59,8 +59,8 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 - `feature_list.md` 解析仅以 `## Features` 段落中的 `Feature ID` 表为准，忽略 `## Metadata` 等其他表，避免把 `Field/schema_name` 这类元数据误判为 feature。
 - **组间并行**上限：**`pipeline.autorun.feature_group_max_parallel`**（默认 **3**）。**`merge-push` 前**须等 **`codegen`～`code-review` 全组**成功（**§5.6**）。
 - 在**真实 Agent 模式**且未显式配置 `feature_group_max_parallel` 时，`autorun.cjs` 默认按 **1** 串行执行 codegen/typecheck/test/code-review，降低多并发子进程导致的卡住风险；若需并发请在配置中显式给出该值。
-- `codegen` 在真实 Agent 模式增加双保险：单组超时默认上限 **300s**（可用 `AI_AUTO3_CODEGEN_AGENT_MAX_S` 覆盖）；若首轮 codegen 失败（含超时/agent 退出），同组会自动以 `--stub-remaining` 重试一次，避免无人值守流程因单点卡住而整体中断。
-- 若 `codegen` 首轮通过但 `outputs.worktrees` 覆盖不足当前 phase 的 feature 集，`autorun.cjs` 会自动对缺失 feature 以 `force-rerun=codegen + --stub-remaining` 做一次补齐再复核，避免“阶段 completed 但覆盖不全”导致假阳性。
+- `codegen` 在真实 Agent 模式增加双保险：单组超时默认上限 **300s**（可用 `AI_AUTO3_CODEGEN_AGENT_MAX_S` 覆盖）；若首轮 codegen 失败（含超时/agent 退出），**不再**隐式回退 `--stub-remaining`，而是直接失败退出，避免“假成功”掩盖真实故障。
+- 仅当未探测到 Agent 或显式 `pipeline.autorun.force_stub_remaining=true` 时，才允许以 `--stub-remaining` 做 codegen 重试/补齐；真实 Agent 模式下若覆盖不足会直接失败并给出缺失 feature 列表。
 - **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。
 - 在 `design` 宏链路开跑前，`autorun.cjs` 会对 `prd_review.phase_plan` 中缺失的 `docs/designs/<feature_id>.design.json` 做最小 seed（`status=draft`，并补 `client_targets` / `cross_client`），避免 `scan-design-style` 因缺文件直接失败且减少 feature-plan 端型误判噪音。
 - `autorun.cjs` 调用 `ai-code3` 时优先探测真实 Agent（优先级：`pipeline.autorun.code3_agent_bin` > `AI_CODE3_AGENT_BIN` > `AI_CODEGEN_AGENT_BIN` > `~/.local/bin/cursor-agent` > `zsh/bash -lc "command -v cursor-agent"`）；探测到后启用真实 codegen，未探测到才降级 stub。

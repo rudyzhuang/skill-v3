@@ -961,20 +961,28 @@ async function main() {
             }
             if (code !== 0) {
               if (sk === 'codegen') {
-                appendLog(
-                  projectRoot,
-                  sessionId,
-                  `codegen failed code=${code}; retry full phase once with force-rerun=codegen + --stub-remaining`
-                );
-                code = await spawnCode3(
-                  projectRoot,
-                  cmd,
-                  phaseFeatStr,
-                  cfg,
-                  `${sessionId}-retry-stub-all`,
-                  'codegen',
-                  true
-                );
+                if (realAgentDetected) {
+                  appendLog(
+                    projectRoot,
+                    sessionId,
+                    `codegen failed code=${code}; real-agent mode disables implicit stub fallback`
+                  );
+                } else {
+                  appendLog(
+                    projectRoot,
+                    sessionId,
+                    `codegen failed code=${code}; retry full phase once with force-rerun=codegen + --stub-remaining`
+                  );
+                  code = await spawnCode3(
+                    projectRoot,
+                    cmd,
+                    phaseFeatStr,
+                    cfg,
+                    `${sessionId}-retry-stub-all`,
+                    'codegen',
+                    true
+                  );
+                }
               }
             }
             if (code !== 0) {
@@ -986,6 +994,12 @@ async function main() {
             if (sk === 'codegen') {
               const cov = validateCodegenCoverage(projectRoot, phaseFeatureIds);
               if (cov.missing.length) {
+                if (realAgentDetected) {
+                  exitCode = 1;
+                  failureReason = `ai-code3 codegen 覆盖不足，缺少 feature: ${cov.missing.join(', ')}`;
+                  stoppedAt = sk;
+                  break;
+                }
                 appendLog(
                   projectRoot,
                   sessionId,

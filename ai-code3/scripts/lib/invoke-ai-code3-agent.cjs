@@ -11,6 +11,35 @@ function stageLabelForLog(phase) {
   return 'codegen';
 }
 
+function buildCursorAgentPrompt({ phase, worktreePath, projectRoot, featureId, extraEnv }) {
+  const p = String(phase || 'impl');
+  const fid = featureId != null && String(featureId) !== '' ? String(featureId) : '(none)';
+  const outPath = String(extraEnv?.AI_CODE3_CODE_REVIEW_OUTPUT || '').trim();
+  const lines = [
+    'You are running as ai-code3 external agent in non-interactive mode.',
+    `Phase: ${p}`,
+    `Feature ID: ${fid}`,
+    `Worktree: ${worktreePath}`,
+    `Project root: ${projectRoot}`,
+    '',
+    'Requirements:',
+    '- Make only the minimal required changes for the current phase.',
+    '- Do not modify contract artifacts under docs/contracts.',
+    '- Do not print secrets.',
+  ];
+  if (p === 'code_review') {
+    lines.push(
+      '- Perform code review and write JSON output to AI_CODE3_CODE_REVIEW_OUTPUT.',
+      `- Output path: ${outPath || '(missing)'}`,
+      '- JSON must be valid and follow the expected schema.',
+      '- After writing the file, exit successfully.'
+    );
+  } else {
+    lines.push('- Complete the requested phase work, then exit successfully.');
+  }
+  return lines.join('\n');
+}
+
 /**
  * 统一外部 Agent 二进制（P4/P5/codegen 共用）。
  * 环境：`AI_CODE3_AGENT_BIN` 或兼容 `AI_CODEGEN_AGENT_BIN`。
@@ -42,7 +71,19 @@ async function invokeAiCode3Agent({
   };
   if (fid) env.AI_CODE3_FEATURE_ID = fid;
   const cmdBase = path.basename(bin).toLowerCase();
-  const args = cmdBase === 'cursor-agent' ? ['--trust'] : [];
+  const args = [];
+  if (cmdBase === 'cursor-agent') {
+    args.push('--print', '--trust');
+    args.push(
+      buildCursorAgentPrompt({
+        phase,
+        worktreePath,
+        projectRoot,
+        featureId: fid,
+        extraEnv,
+      })
+    );
+  }
 
   const r = await runWithTimeout(bin, args, {
     cwd: worktreePath,

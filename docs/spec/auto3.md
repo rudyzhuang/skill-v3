@@ -317,7 +317,7 @@ ai-auto3/
 | 场景 | 行为 |
 | --- | --- |
 | 子 skill 退出 **0** | 继续下一阶段（或通过 **§6** 跳过）。 |
-| 子 skill 非 **0** | **立即停止**自动推进；**`autorun.cjs` 最终退出码**建议与子进程**相同**，便于 CI/人诊断；若需归一化须在 **`SKILL.md`** 单列映射表。 |
+| 子 skill 非 **0** | **立即停止**自动推进；**`autorun.cjs` 最终退出码**建议与子进程**相同**，便于 CI/人诊断；若需归一化须在 **`SKILL.md`** 单列映射表。对 `codegen` 的 `--stub-remaining` 回退仅允许用于“已处于 stub 模式”的续跑（未探测到 agent 或显式 `force_stub_remaining=true`）；真实 Agent 模式失败不得静默降级为 stub 成功。 |
 | **总超时 / 阶段超时 / 子命令超时** | 统一映射为 **3**，并在 **`stages.<stage>.outputs.timed_out`**、**`duration_ms`**、**`timeout_reason`** 留证据（由各 **ai-*3** 写入；编排层负责 kill 与传播退出码）（**`input-spec.md` §6.1**）。 |
 
 ---
