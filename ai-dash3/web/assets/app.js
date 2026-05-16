@@ -172,11 +172,10 @@ function renderFeatures(dash, filterStatus) {
     card.innerHTML = `
       <div class="fid">${escapeHtml(f.feature_id)}</div>
       ${f.name ? `<div class="meta">${escapeHtml(f.name)}</div>` : ''}
-      <div class="meta">phase: ${escapeHtml(f.phase)}${f.client_target ? ` · ${escapeHtml(f.client_target)}` : ''}</div>
+      <div class="meta">phase: ${escapeHtml(f.phase)}${f.client_target ? ` · ${escapeHtml(f.client_target)}` : ''}${f.priority_tier != null ? ` · P${f.priority_tier}` : ''}</div>
       <div class="meta feature-stage">阶段: <strong>${stageLine}</strong></div>
       <div class="meta feature-timing">开始: ${startedLine} · 已运行: ${elapsedLine}</div>
       <span class="badge badge-${f.pipeline_status}">${FEATURE_LABEL[f.pipeline_status] || f.pipeline_status}</span>
-      ${f.list_status ? `<div class="meta muted-hint">清单状态: ${escapeHtml(f.list_status)}（PRD feature_list，非流水线阶段）</div>` : ''}
     `;
     board.appendChild(card);
   }

@@ -59,7 +59,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 - 启动前先加载全部 `feature_list.md` 做完整性校验：每个 feature 必须进入 `phase_plan` 或显式 `deferred`，否则 preflight 失败。
 - `feature_list.md` 解析仅以 `## Features` 段落中的 `Feature ID` 表为准，忽略 `## Metadata` 等其他表，避免把 `Field/schema_name` 这类元数据误判为 feature。
 - **组间并行**上限：**`pipeline.autorun.feature_group_max_parallel`**（默认 **3**）。**`merge-push` 前**须等 **`codegen`～`code-review` 全组**成功（**§5.6**）。
-- 在**真实 Agent 模式**且未显式配置 `feature_group_max_parallel` 时，`autorun.cjs` 默认按 **1** 串行执行 codegen/typecheck/test/code-review，降低多并发子进程导致的卡住风险；若需并发请在配置中显式给出该值。
+- **组间并行**默认 **3**（`getFeatureGroupMaxParallel`）；在 `docs/config.dev.json` 的 **`pipeline.autorun.feature_group_max_parallel`** 可改为 **1** 强制串行（多路并行时须注意 **§5.6.2** `stages.json` 写竞态）。
 - `codegen` 在真实 Agent 模式：默认超时取自 **`timeouts.stages.codegen_s`**（与 `ai-code3` 一致）；仅当设置环境变量 **`AI_AUTO3_CODEGEN_AGENT_MAX_S`** 时才对该值做上限裁剪。若首轮 codegen 失败（含超时/agent 退出），**不再**隐式回退 `--stub-remaining`，而是直接失败退出，避免“假成功”掩盖真实故障。
 - 仅当未探测到 Agent 或显式 `pipeline.autorun.force_stub_remaining=true` 时，才允许以 `--stub-remaining` 做 codegen 重试/补齐；真实 Agent 模式下若覆盖不足会直接失败并给出缺失 feature 列表。
 - **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。

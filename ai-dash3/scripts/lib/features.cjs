@@ -2,7 +2,19 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { isStageDone } = require('./summary.cjs');
+
+const FEATURE_GROUPS_LIB = path.resolve(
+  __dirname,
+  '../../../ai-auto3/scripts/lib/feature-groups.cjs'
+);
+let collectFeatureMeta;
+try {
+  collectFeatureMeta = require(FEATURE_GROUPS_LIB).collectFeatureMeta;
+} catch {
+  collectFeatureMeta = null;
+}
 
 function collectPhasePlans(doc) {
   const phases = doc?.stages?.prd_review?.review?.phase_plan || [];
@@ -66,25 +78,88 @@ function collectFeatureWorktreeIds(doc, projectRoot) {
   return out;
 }
 
+function loadStagesDoc(projectRoot, doc) {
+  if (doc && typeof doc === 'object') return doc;
+  const fp = path.join(projectRoot, '.pipeline', 'stages.json');
+  if (!fs.existsSync(fp)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(fp, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {object|undefined} */
+function codegenWorktreeRecord(doc, featureId) {
+  const fid = String(featureId || '').trim();
+  if (!doc || !fid) return undefined;
+  const rows = doc?.stages?.codegen?.outputs?.worktrees || [];
+  return rows.find((r) => String(r?.feature_id || '').trim() === fid);
+}
+
 /**
- * codegen 是否已在 worktree 落盘（启发式：package.json 或非空 src/）
+ * health-full 脚手架：仅初始化提交 + 未提交工件（非 Agent 完成态）
+ */
+function isScaffoldOnlyWorktree(projectRoot, featureId) {
+  const wt = worktreePath(projectRoot, featureId);
+  if (!fs.existsSync(wt) || !fs.existsSync(path.join(wt, 'package.json'))) return false;
+  try {
+    const count = Number(
+      execFileSync('git', ['-C', wt, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()
+    );
+    const porcelain = execFileSync('git', ['-C', wt, 'status', '--porcelain'], { encoding: 'utf8' });
+    return Number.isFinite(count) && count <= 1 && porcelain.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function testPerFeaturePassed(doc, featureId) {
+  const fid = String(featureId || '').trim();
+  const rows = doc?.stages?.test?.outputs?.per_feature || [];
+  const row = rows.find((r) => String(r?.feature_id || '').trim() === fid);
+  if (!row) return false;
+  const result = String(row.result || row.status || '').toLowerCase();
+  if (row.passed === true || result === 'passed' || result === 'success') return true;
+  return false;
+}
+
+/**
+ * feature 级 codegen 是否完成（禁止将 health 脚手架误判为已完成）
  * @param {string} projectRoot
  * @param {string} featureId
+ * @param {object|null} [doc] stages.json
  */
-function isFeatureCodegenDone(projectRoot, featureId) {
+function isFeatureCodegenDone(projectRoot, featureId, doc) {
   const fid = String(featureId || '').trim();
   if (!fid) return false;
-  const wt = path.join(projectRoot, '.pipeline', 'worktrees', `v3-fc-${fid}`);
-  if (!fs.existsSync(wt)) return false;
-  if (fs.existsSync(path.join(wt, 'package.json'))) return true;
-  const src = path.join(wt, 'src');
-  try {
-    if (fs.existsSync(src) && fs.statSync(src).isDirectory()) {
-      return fs.readdirSync(src).some((n) => !n.startsWith('.'));
-    }
-  } catch {
-    /* */
+  const stages = loadStagesDoc(projectRoot, doc);
+
+  const wtRow = codegenWorktreeRecord(stages, fid);
+  if (wtRow) {
+    const commit = String(wtRow.commit || '').trim();
+    const changed = Array.isArray(wtRow.files_changed) ? wtRow.files_changed.length : 0;
+    const testChanged = Array.isArray(wtRow.test_files_changed) ? wtRow.test_files_changed.length : 0;
+    if (commit || changed > 0 || testChanged > 0) return true;
   }
+
+  if (stages && testPerFeaturePassed(stages, fid)) return true;
+
+  const wt = worktreePath(projectRoot, fid);
+  if (!fs.existsSync(wt)) return false;
+  if (isScaffoldOnlyWorktree(projectRoot, fid)) return false;
+
+  try {
+    const count = Number(
+      execFileSync('git', ['-C', wt, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()
+    );
+    if (Number.isFinite(count) && count > 1) return true;
+    const porcelain = execFileSync('git', ['-C', wt, 'status', '--porcelain'], { encoding: 'utf8' });
+    if (porcelain.trim().length === 0 && fs.existsSync(path.join(wt, 'package.json'))) return true;
+  } catch {
+    /* 非 git worktree */
+  }
+
   return false;
 }
 
@@ -92,9 +167,43 @@ function isFeatureCodegenDone(projectRoot, featureId) {
  * 本期尚未完成 codegen 的 feature_id 列表（供 autorun pending_features_json）
  * @param {string} projectRoot
  * @param {string[]} featureIds
+ * @param {object|null} [doc]
  */
-function filterRemainingCodegenQueue(projectRoot, featureIds) {
-  return featureIds.filter((fid) => !isFeatureCodegenDone(projectRoot, fid));
+function filterRemainingCodegenQueue(projectRoot, featureIds, doc) {
+  const stages = loadStagesDoc(projectRoot, doc);
+  return featureIds.filter((fid) => !isFeatureCodegenDone(projectRoot, fid, stages));
+}
+
+function buildPhaseOrderIndex(phases) {
+  const idx = new Map();
+  let n = 0;
+  for (const { feature_ids: featureIds } of phases) {
+    for (const fid of featureIds) {
+      if (!idx.has(fid)) idx.set(fid, n++);
+    }
+  }
+  return idx;
+}
+
+function sortFeaturesByPriority(features, doc, projectRoot, orderIndex) {
+  if (!features.length) return features;
+  const ids = features.map((f) => f.feature_id);
+  const tierById = new Map();
+  if (collectFeatureMeta && doc) {
+    const { meta } = collectFeatureMeta(ids, doc, projectRoot);
+    for (const id of ids) tierById.set(id, meta.get(id)?.tier ?? 3);
+  } else {
+    for (const id of ids) tierById.set(id, 3);
+  }
+  return features.slice().sort((a, b) => {
+    const ta = tierById.get(a.feature_id) ?? 3;
+    const tb = tierById.get(b.feature_id) ?? 3;
+    if (ta !== tb) return ta - tb;
+    const oa = orderIndex.get(a.feature_id) ?? 9999;
+    const ob = orderIndex.get(b.feature_id) ?? 9999;
+    if (oa !== ob) return oa - ob;
+    return String(a.feature_id).localeCompare(String(b.feature_id));
+  });
 }
 
 function parsePendingFeatures(runtime) {
@@ -208,9 +317,10 @@ function displayStageKey(stageKey) {
  * 串行 codegen 时推断「当前正在做的」feature（至多一个）
  * @param {string[]} orderedIds phase_plan 顺序
  */
-function pickActiveCodegenFeature(orderedIds, projectRoot, pendingQueue) {
+function pickActiveCodegenFeature(orderedIds, projectRoot, pendingQueue, doc) {
+  const stages = loadStagesDoc(projectRoot, doc);
   for (const fid of orderedIds) {
-    if (!isFeatureCodegenDone(projectRoot, fid)) {
+    if (!isFeatureCodegenDone(projectRoot, fid, stages)) {
       if (pendingQueue.has(fid) || worktreeTimestamps(projectRoot, fid).exists) {
         return fid;
       }
@@ -276,6 +386,16 @@ function deriveFeatureStageFields(p) {
     pipeline_stage = 'codegen';
     pipeline_stage_label = 'codegen（排队）';
     stage_started_at = null;
+  } else if (pipeline_status === 'pending') {
+    pipeline_stage = currentStage || 'not_started';
+    if (currentStage === 'codegen') {
+      pipeline_stage_label = 'codegen（未开始）';
+    } else if (currentStage) {
+      pipeline_stage_label = `${displayStageKey(currentStage)}（未开始）`;
+      stage_started_at = globalStageStartedAt(doc, currentStage);
+    } else {
+      pipeline_stage_label = '未开始';
+    }
   } else if (currentStage) {
     pipeline_stage = currentStage;
     pipeline_stage_label = `${displayStageKey(currentStage)}（未开始本 feature）`;
@@ -322,9 +442,16 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
   for (const { feature_ids: featureIds } of phases) {
     for (const fid of featureIds) allOrderedIds.push(fid);
   }
+  const orderIndex = buildPhaseOrderIndex(phases);
+  const tierById = new Map();
+  if (collectFeatureMeta && doc) {
+    const { meta } = collectFeatureMeta(allOrderedIds, doc, projectRoot);
+    for (const fid of allOrderedIds) tierById.set(fid, meta.get(fid)?.tier ?? 3);
+  }
+
   const activeCodegenFid =
     codegenRunning || pidLockAlive
-      ? pickActiveCodegenFeature(allOrderedIds, projectRoot, pendingQueue)
+      ? pickActiveCodegenFeature(allOrderedIds, projectRoot, pendingQueue, doc)
       : null;
 
   const features = [];
@@ -332,7 +459,7 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
     for (const fid of featureIds) {
       let pipeline_status = 'pending';
       const hints = [];
-      const codegenDone = isFeatureCodegenDone(projectRoot, fid);
+      const codegenDone = isFeatureCodegenDone(projectRoot, fid, doc);
       const hasWorktree = worktrees.has(fid);
       const wtTimes = worktreeTimestamps(projectRoot, fid);
       const isActiveCodegen = fid === activeCodegenFid;
@@ -382,6 +509,7 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
         name: listMeta[fid]?.name || '',
         list_status: listMeta[fid]?.status || null,
         client_target: listMeta[fid]?.client_target || null,
+        priority_tier: tierById.get(fid) ?? 3,
         pipeline_status,
         hints,
         ...stageFields,
@@ -389,9 +517,11 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
     }
   }
 
+  const sortedFeatures = sortFeaturesByPriority(features, doc, projectRoot, orderIndex);
+
   return {
     phases: phases.map((p) => ({ phase: p.phase, feature_ids: p.feature_ids.slice() })),
-    features,
+    features: sortedFeatures,
     runtime: runtime
       ? {
           active_run_id: runtime.active_run_id || null,
@@ -419,6 +549,9 @@ module.exports = {
   parseFeatureLists,
   worktreesOnDisk,
   isFeatureCodegenDone,
+  isScaffoldOnlyWorktree,
   collectFeatureWorktreeIds,
   filterRemainingCodegenQueue,
+  sortFeaturesByPriority,
+  buildPhaseOrderIndex,
 };

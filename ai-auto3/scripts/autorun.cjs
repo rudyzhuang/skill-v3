@@ -608,15 +608,11 @@ async function runCodeStageWithFeatureGroups(
     appendLog(projectRoot, sessionId, `[feature-plan] ${w}`);
     console.error(`[ai-auto3][feature-plan] ${w}`);
   }
-  const configuredMaxParallel = cfg?.pipeline?.autorun?.feature_group_max_parallel;
-  const hasConfiguredParallel =
-    typeof configuredMaxParallel === 'number' &&
-    Number.isFinite(configuredMaxParallel) &&
-    configuredMaxParallel >= 1;
   let maxP = getFeatureGroupMaxParallel(cfg);
-  if (realAgentDetected && !hasConfiguredParallel) {
-    // Real agent mode 默认串行，避免多并发 codegen 导致长时间阻塞。
-    maxP = 1;
+  if (realAgentDetected && maxP > 1) {
+    console.error(
+      `[ai-auto3] codegen 组间并行 maxParallel=${maxP}（pipeline.autorun.feature_group_max_parallel；串行请设为 1）`
+    );
   }
   appendLog(
     projectRoot,
