@@ -193,9 +193,55 @@ function featureCsv(ids) {
   return ids.join(',');
 }
 
-function validateCodegenCoverage(projectRoot, requiredFeatureIds) {
+function codegenWorktreesFromDisk(projectRoot) {
+  const wtDir = path.join(projectRoot, '.pipeline', 'worktrees');
+  if (!fs.existsSync(wtDir)) return [];
+  return fs
+    .readdirSync(wtDir)
+    .filter((d) => d.startsWith('v3-fc-'))
+    .map((d) => ({
+      feature_id: d.replace(/^v3-fc-/, ''),
+      branch: d,
+      worktree_path: path.join(wtDir, d),
+      commit: '',
+      files_expected: [],
+      files_changed: [],
+      test_files_expected: [],
+      test_files_changed: [],
+    }))
+    .sort((a, b) => String(a.feature_id).localeCompare(String(b.feature_id)));
+}
+
+function mergeCodegenWorktreeRows(existing, extra) {
+  const byId = new Map();
+  for (const r of existing || []) {
+    const id = String(r?.feature_id || '').trim();
+    if (id) byId.set(id, r);
+  }
+  for (const r of extra || []) {
+    const id = String(r?.feature_id || '').trim();
+    if (id) byId.set(id, { ...(byId.get(id) || {}), ...r });
+  }
+  return [...byId.values()].sort((a, b) =>
+    String(a.feature_id || '').localeCompare(String(b.feature_id || ''))
+  );
+}
+
+/** Reconcile stages with on-disk worktrees (parallel codegen can race on stages.json). */
+function persistCodegenWorktrees(projectRoot) {
   const doc = readStages(projectRoot);
-  const rows = doc.stages?.codegen?.outputs?.worktrees || [];
+  const disk = codegenWorktreesFromDisk(projectRoot);
+  const merged = mergeCodegenWorktreeRows(doc.stages?.codegen?.outputs?.worktrees, disk);
+  if (!doc.stages) doc.stages = {};
+  if (!doc.stages.codegen) doc.stages.codegen = {};
+  if (!doc.stages.codegen.outputs) doc.stages.codegen.outputs = {};
+  doc.stages.codegen.outputs.worktrees = merged;
+  writeStages(projectRoot, doc);
+  return merged;
+}
+
+function validateCodegenCoverage(projectRoot, requiredFeatureIds) {
+  const rows = persistCodegenWorktrees(projectRoot);
   const produced = new Set(
     rows
       .map((r) => String(r?.feature_id || '').trim())
