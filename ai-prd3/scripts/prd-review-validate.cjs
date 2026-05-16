@@ -7,6 +7,7 @@ const { parseArgs, requireProject, stagesPath } = require('./lib/paths.cjs');
 const { stableStringify } = require('./lib/json-stable.cjs');
 const { scanJsonSecrets } = require('./lib/secret-scan.cjs');
 const { markPrdReviewFailed } = require('./lib/stage-status.cjs');
+const { writeImplementationReport } = require('./prd-implementation-report.cjs');
 
 function safeMarkPrdReviewFailed(root, summary) {
   try {
@@ -175,6 +176,15 @@ function main() {
   stages.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
+
+  try {
+    const { path: reportPath } = writeImplementationReport(root, stages);
+    const rel = path.relative(root, reportPath);
+    console.error(`[ai-prd3] 实施节奏摘要（人话版）已写入: ${rel}`);
+  } catch (e) {
+    console.error('[ai-prd3] 写入实施节奏摘要失败（非致命）:', String(e.message || e));
+  }
+
   console.log(JSON.stringify({ ok: true, summary_hash: reviewHash }, null, 2));
 }
 

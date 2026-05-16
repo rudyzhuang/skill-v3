@@ -168,6 +168,16 @@ function runOneSmokeRound(roundLabel) {
   r = run(['validate-prd-review', `--project=${TMP}`], ROOT);
   assert.strictEqual(r.status, 0, r.stderr + r.stdout);
 
+  const implReport = path.join(TMP, '.pipeline', 'reports', 'prd-implementation-summary.md');
+  assert.ok(fs.existsSync(implReport), '终检通过应生成实施节奏摘要');
+  const implBody = fs.readFileSync(implReport, 'utf8');
+  assert.ok(implBody.includes('分几期做'), implBody);
+  assert.ok(implBody.includes('第一期做完'), implBody);
+
+  r = run(['report', `--project=${TMP}`], ROOT);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('分几期做'), 'report 子命令应在 stdout 输出摘要');
+
   const stages2 = JSON.parse(fs.readFileSync(path.join(TMP, '.pipeline', 'stages.json'), 'utf8'));
   assert.strictEqual(stages2.stages.prd_review.status, 'completed');
   assert.strictEqual(stages2.stages.prd_review.outputs.can_enter_design, true);

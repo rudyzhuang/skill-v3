@@ -92,7 +92,7 @@ function main() {
 
 子命令:
   bootstrap | parse-targets | validate-prd | write-prd |
-  validate-prd-review | write-prd-review
+  validate-prd-review | write-prd-review | report
 
 选项:
   --force  覆盖已完成阶段（prd / prd-review）；bootstrap 在 prd 已完成时须加此选项
@@ -101,6 +101,11 @@ function main() {
   --allow-fill-missing-keys  bootstrap：config 相对模板缺键时做 additive 补齐（prd3.md §7.2）
   --session-id=<id>  写入 .agent-sessions/ai-prd3.ndjson 与 <id>.log（prd3.md §11）
   --json=<path>  write-prd-review 合并用 JSON（绝对路径或相对项目根）
+
+report:
+  在 prd_review 已完成且 outputs.decision=passed 时，依据 phase_plan 与各端 feature_list 生成「人话版」实施节奏摘要；
+  写入 .pipeline/reports/prd-implementation-summary.md 并 stdout 输出全文（prd3.md §8.8）。
+  validate-prd-review 终检通过时也会自动写入该文件。
 
 超时（prd3.md §11）：默认读取 docs/config.dev.json → timeouts.stages.prd_s / prd_review_s（秒），
 子进程超时将写 stages.*.outputs.timed_out 并以退出码 3 结束。
@@ -178,6 +183,16 @@ function main() {
   if (sub === 'validate-prd-review') {
     const r = runNodeScript(scriptDir, 'prd-review-validate.cjs', project, args, [], 'prd_review');
     if (r.timedOut) done(3);
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
+    done(r.status === 0 ? 0 : r.status || 1);
+  }
+
+  if (sub === 'report') {
+    const r = runNodeScript(scriptDir, 'prd-implementation-report.cjs', project, args, [], null);
+    if (r.timedOut) done(3);
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
     done(r.status === 0 ? 0 : r.status || 1);
   }
 
