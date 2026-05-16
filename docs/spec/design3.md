@@ -114,7 +114,7 @@
 
 **说明**：
 
-- **`design_snapshot`** 必须与当前 design 规格结构化一致，供 design-review 做 diff/字段级核对；其 JSON Schema 文件名以 **§6.2** 为准（`design-snapshot.v3.schema.json`）。
+- **`design_snapshot`** 必须与当前 design 规格结构化一致，供 design-review 做 diff/字段级核对；其 JSON Schema 文件名以 **§6.2** 为准（`design-snapshot.v3.schema.json`）。**与 `ai-auto3` 编排对齐**：登记在 **`stages.contract.outputs.artifacts[].design_snapshot`** 的快照 JSON **根对象**须可被 **`docs/spec/auto3.md` §5.7** 读取：**须**含 **`depends_on`**（**`string[]`**，无 feature 间依赖时 **`[]`**），语义与 **`docs/spec/code3.md` §7.5** 一致；并**建议**包含 **`client_targets`**（**`string[]`**，每项 ∈ **`stages.client_targets.allowed_values`**）与可选 **`cross_client`**（**`boolean`**），供 **`docs/spec/auto3.md` §5.7** 划分 **feature group** 与 **P0～P3**；上述键与 **`design-snapshot.v3.schema.json`** 须在演进时**同一 PR 内**同步，避免编排与校验漂移。
 - **`api.yaml`** 除常规 OpenAPI 校验外，须满足后续 **ai-publish-dev3** 冒烟对 **`x-smoke`** 的约定（字段形状见 [`input-spec.md`](../input-spec.md) §8.13）。
 - **契约根目录**：默认 `docs/contracts/`；可在业务仓 `docs/config.dev.json` 设置 `pipeline.paths.contracts_dir`（**相对**项目根、**不得**含 `..`），`register-contract-artifacts` 与路径登记均使用该值。
 

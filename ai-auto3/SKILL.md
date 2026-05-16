@@ -25,7 +25,7 @@ disable-model-invocation: true
 | 路径 | 说明 |
 | --- | --- |
 | `.pipeline/stages.json` | 编排真源 |
-| `docs/config.dev.json` / `docs/config.release.json` | 超时、deploy、**`pipeline.autorun.allow_destructive_deploy`** |
+| `docs/config.dev.json` / `docs/config.release.json` | 超时、deploy、**`pipeline.autorun.allow_destructive_deploy`**、**`pipeline.autorun.feature_group_max_parallel`**（**auto3.md §5.7.4**） |
 | `docs/config.env` | 密钥（`deploy.enabled=true` 时 Cloudflare 等必填变量须非空） |
 | `.agent-sessions/` | 会话日志、**`locks/pipeline.pid`** |
 
@@ -50,10 +50,11 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 
 **`--features`**：限定本期 **`ai-code3`** 段使用的 **`feature_id`** 子集（须 ⊆ **`prd_review.phase_plan`**）。
 
-## 子 skill 与 **ai-code3 `--feature`（§5.6）**
+## 子 skill 与 **ai-code3 `--feature`（§5.6、§5.7）**
 
-- 每次 spawn **`ai-code3`** 均带 **`--feature=<非空>`**；多 id 时为 **`--feature=id1,id2,...`**（**单写者 / 单进程串行**，避免多进程盲写 **`stages.json`**；与 **auto3.md §5.6** 竞态约束一致）。
-- **`merge-push` / `build`** 与 **`codegen`** 等同，仍传上述**同一逗号串**。
+- 每次 spawn **`ai-code3`** 均带 **`--feature=<非空>`**；**规格**上 **`autorun.cjs`** 按 **auto3.md §5.7** 将本期 id 分为 **feature group**，**每 group 一次** spawn、**`--feature=<组内 id 逗号列表>`**；**`merge-push` / `build`** 传**本轮 id 全集**。
+- **组间并行**上限：**`pipeline.autorun.feature_group_max_parallel`**（默认 **3**）。**`merge-push` 前**须等 **`codegen`～`code-review` 全组**成功（**§5.6**）。
+- **`stages.json` 多写者竞态**：多路并行时仍须满足 **auto3.md §5.6.2**（单写者合并 / 分片写回 / 或 **`feature_group_max_parallel: 1`** 串行）。
 
 ## deploy 门闸（dev）
 
@@ -82,7 +83,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | 项 | 说明 |
 | --- | --- |
 | **编排层「已完成」捷径** | 对 **design / contract / design_review** 仅用 **`status===completed` + `validation.passed`** 跳过整段宏；**未**在编排层重算 **`inputs.summary_hash`**（子 skill 子命令内部仍会按自身规则跳过）。 |
-| **并行多路 ai-code3** | 本实现采用 **单进程** **`--feature=id1,id2,...`** 串行 **`codegen`→`build`**，**不**并行多进程（避免 **`stages.json` 整文件写竞态**）；与 **§5.6** 中「须有无竞态策略」一致。 |
+| **并行多路 ai-code3** | **规格**：**§5.7** 下按 **group** 并行（受 **`feature_group_max_parallel`** 约束）。**当前仓库实现**若仍为**单进程** **`--feature=<本期全集>`** 串行 **`codegen`→`build`**，属实现滞后于规格时须在迭代中收敛至 **§5.7**（或与 **§5.6.2** 无竞态策略一致）。 |
 | **编排心跳 tee** | **§8.2** 30s 心跳未在编排 `spawn` 层实现；依赖各子 skill 自身日志。 |
 
 ## 参考

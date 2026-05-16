@@ -158,7 +158,7 @@ ai-code3/
 ### 4.4 编排层（**ai-auto3**）与 **`--feature`**
 
 - **人工 / 本地单跑**：可省略 **`--feature`**，此时 **`codegen`** 等阶段按脚本约定从 **`stages.prd_review.review.phase_plan[*].feature_ids`** 推导默认范围（与 **`cli-args.cjs` / `codegen.cjs`** 行为一致）；**`--feature=id1,id2`** 仍为合法显式多 id。  
-- **由 ai-auto3 spawn 的自动编排**：**禁止**省略 **`--feature`**；每一次子进程（含 **`merge-push`**、**`build`**）**必须**带**非空** **`--feature=`**（并行波次后对 **`merge-push`/`build`** 推荐传入**本轮 id 全集**的逗号拼接）。**不得**依赖「未传参则由 ai-code3 从 `prd_review` 隐式聚合」作为编排默认范围。并行与 **`merge-push` 前汇合**见 **`docs/spec/auto3.md` §5.6**、**`docs/input-spec.md` §4.3**。
+- **由 ai-auto3 spawn 的自动编排**：**禁止**省略 **`--feature`**；每一次子进程（含 **`merge-push`**、**`build`**）**必须**带**非空** **`--feature=`**（**`merge-push`/`build`** 须为**本轮 id 全集**逗号拼接）。**`autorun.cjs`** 在 **`codegen`～`code-review`** 默认按 **`docs/spec/auto3.md` §5.7** 划分 **feature group** 后 spawn（每 group 一次、**`--feature=<组内 id 列表>`**）。**不得**依赖「未传参则由 ai-code3 从 **`prd_review`** 隐式聚合」作为编排默认范围。组间并行上限见 **`pipeline.autorun.feature_group_max_parallel`**；**`merge-push` 前汇合**与 **`stages.json` 竞态**仍见 **`docs/spec/auto3.md` §5.6**、**`docs/input-spec.md` §4.3**。
 
 ---
 

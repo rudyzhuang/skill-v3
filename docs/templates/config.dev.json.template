@@ -19,8 +19,9 @@
   "pipeline": {
     "_doc": "Orchestration flags consumed by ai-auto3 autorun.cjs (dev config only). See docs/spec/publish3.md §5.1.1 and docs/spec/auto3.md §5.1.",
     "autorun": {
-      "_doc": "When allow_destructive_deploy is false, autorun.cjs must not spawn ai-publish-dev3 deploy; missing key is treated as false (additive default). deploy.enabled alone is not sufficient.",
-      "allow_destructive_deploy": false
+      "_doc": "When allow_destructive_deploy is false, autorun.cjs must not spawn ai-publish-dev3 deploy; missing key is treated as false (additive default). deploy.enabled alone is not sufficient. feature_group_max_parallel caps concurrent ai-code3 group processes in codegen..code-review (see docs/spec/auto3.md §5.7.4); missing defaults to 3.",
+      "allow_destructive_deploy": false,
+      "feature_group_max_parallel": 3
     }
   },
   "build": {

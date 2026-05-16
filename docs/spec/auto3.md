@@ -122,7 +122,7 @@ ai-auto3/
 | **`--force-rerun=<stage>`** | 否 | 忽略 **§6**「已完成」判定，强制重跑该阶段；**destructive** 阶段仍须满足 **§6.3** 与 **`input-spec.md` §7.2**。 |
 | **`--session-id=<id>`** | 否 | 若缺省则由脚本生成 UUID；用于 **`.agent-sessions/<session_id>.log`** 与锁 JSON 内字段。 |
 | **`--dry-run`** | 否 | 只打印将执行的阶段与跳过原因，不申请锁、不 spawn 子 skill（可选 MVP+）。 |
-| **`--features=<id[,id...]>`** | 否 | **仅影响 ai-code3 段**：限定本期自动跑 **`codegen`→`build`** 所覆盖的 **`feature_id`** 集合；须为 **`stages.prd_review.review.phase_plan[*].feature_ids`** 去重后的**子集**；非法或越界 id → 退出码 **1**。缺省时默认等于「phase_plan 合并全集」（与 checklist 非空一致），但 **spawn 子进程时仍须把解析后的每个 id 显式写入 `--feature=`**（见 **§5.6**）。 |
+| **`--features=<id[,id...]>`** | 否 | **仅影响 ai-code3 段**：限定本期自动跑 **`codegen`→`build`** 所覆盖的 **`feature_id`** 集合；须为 **`stages.prd_review.review.phase_plan[*].feature_ids`** 去重后的**子集**；非法或越界 id → 退出码 **1**。缺省时默认等于「phase_plan 合并全集」（与 checklist 非空一致）。**spawn 时**按 **§5.7** 先分组，再对每个 group 显式传 **`--feature=<组内 id 列表>`**（见 **§5.6**）。 |
 
 **子命令（可选扩展）**：
 
@@ -180,7 +180,7 @@ ai-auto3/
 3. 自 **`from-stage`** 起遍历阶段链至 **`smoke`**：  
    - 若 **§6** 判定「已完成」且无 **`--force-rerun`** → 打日志「跳过」并 continue。  
    - 若本阶段为 **`contract`** 且 **`human_approval.status === "pending"`** → **§5.2** 写 **`blocked`** → **停跑**（退出码按子 skill 最近一次或 **1** 择定，须在 **§7** 文档化）。  
-   - 否则 **spawn** 对应子 skill（**§2.3**），传入 **`--project`** 与本阶段 **`timeouts.stages.<stage>_s`**（从 **`docs/config.dev.json`** 读取，缺省按模板）；若被调用方为 **ai-code3**，还须遵守 **§5.6**（**`--feature`** 非空、并行与 **`merge-push`** 前汇合）。  
+   - 否则 **spawn** 对应子 skill（**§2.3**），传入 **`--project`** 与本阶段 **`timeouts.stages.<stage>_s`**（从 **`docs/config.dev.json`** 读取，缺省按模板）；若被调用方为 **ai-code3**，还须遵守 **§5.6** 与 **§5.7**（**`--feature`** 非空、**feature group** 划分与并行上限、**`merge-push`** 前汇合）。  
    - 子进程非 **0** → **停跑**，退出码 **§7**。  
    - 子进程 **0** → 可选：重新读取 **`stages.json`** 校验该阶段 **`status/completed`** 与 **`validation.passed`** 一致，防止子进程谎报。  
 4. 调用 **`ai-publish-dev3`** 执行 **dev** **`deploy` + `smoke`** 前：须满足 **`input-spec.md` §7.2** 与 **`docs/spec/publish3.md` §5.1.1**。具体地，当 **`docs/config.dev.json.deploy.enabled === true`** 时，必须 **`docs/config.dev.json.pipeline.autorun.allow_destructive_deploy === true`**（缺键或 **`false`** 均视为未授权）；**否则不得 spawn deploy**，**退出码 1**，**`gen-report.cjs`** 须在正文中写明原因（可引用 **`pipeline.autorun.allow_destructive_deploy`** 路径）。**`deploy.enabled === false`** 时跳过本约束（无自动 deploy）。**不得**仅以 **`deploy.enabled === true`** 代替 **`allow_destructive_deploy`**。  
@@ -194,7 +194,7 @@ ai-auto3/
 
 ### 5.6 调用 **ai-code3** 时的 **`--feature`** 与多进程并行（定稿）
 
-本节只约束 **ai-auto3 → ai-code3**；**人工**直接调用 **ai-code3** 时是否省略 **`--feature`** 仍由 **`docs/spec/code3.md`** 与 **`ai-code3/SKILL.md`** 描述（可与编排不同）。
+本节只约束 **ai-auto3 → ai-code3**；**人工**直接调用 **ai-code3** 时是否省略 **`--feature`** 仍由 **`docs/spec/code3.md`** 与 **`ai-code3/SKILL.md`** 描述（可与编排不同）。**`autorun.cjs`** 在 **`codegen`～`code-review`** 波次对多 feature 的默认切分、排队与并行上限以 **§5.7** 为准；本节 **形态 A / B** 仍描述**单次** spawn 的命令行合法性（编排可对每个 group 选用形态 A）。
 
 1. **显式 feature（必须）**  
    - 每一次 **spawn** **`node .../ai-code3/scripts/run.cjs`**（子命令为 **`all`**、**`codegen`**、**`typecheck`**、**`test`**、**`code-review`**、**`merge-push`**、**`build`** 等任一形式）时，命令行**必须**包含 **`--feature=<非空列表>`**。  
@@ -213,6 +213,66 @@ ai-auto3/
 
 4. **超时传递**  
    - 每个子进程仍须继承 **`timeouts.stages.<stage>_s`** 与 **`--project`**；并行时**总墙钟**可能受最慢子进程支配；**`autorun_total_s`** 仍封顶整条编排（**§11**）。
+
+### 5.7 Feature group 编排（**ai-code3** 段默认策略）
+
+本节约束 **`autorun.cjs`** 在 **`codegen`～`code-review`** 各波次如何**划分 feature 集合**、**如何并行 spawn** **ai-code3**，与 **§5.6** 的关系为：**§5.6** 仍约束「每次 spawn 须非空 **`--feature=`**」「**`merge-push`/`build` 前须汇合**」「**`stages.json` 多写者竞态**」；本节在遵守上述前提下，把「按 id 盲目 K 路并行」收敛为「**依赖闭合的 group** + **端型优先级** + **有上限的组间并行**」。
+
+#### 5.7.1 目的
+
+- **正确性**：有 **`depends_on`**（或等价有向边）的 feature **不得**拆到**并行**的两路 **ai-code3** 里，以免破坏 **ai-code3** 单进程内拓扑/codegen 顺序假设（见 **`docs/spec/code3.md` §7.5**）。  
+- **效率**：无依赖关系的 feature **不必**强行塞进同一次超长调用；在**安全并行度**内多 group 可同相并行。  
+- **可观测性**：一次 **ai-code3** 调用对应**一个 group**、**一条**命令行 **`--feature=id1,id2,...`**（组内 id 顺序由 **ai-code3** 按 **`depends_on`** 拓扑排序，与 **code3.md** 一致）。
+
+#### 5.7.2 Group 划分（依赖闭合）
+
+1. **输入 id 集合**：先取 **`--features`** 解析结果；若缺省则为 **`phase_plan[*].feature_ids`** 合并去重全集（与 **§4.3**、**§5.1#2** 一致）。仅对该集合分组。  
+2. **依赖边真源（定稿，方案 A）**：对每个待编排的 **`feature_id`**，在 **`stages.contract.outputs.artifacts[]`** 中定位 **`artifacts[].feature_id`** 与之相等的那一项，取其 **`artifacts[].design_snapshot`** 为**设计快照 JSON 文件路径**（相对 **`<project_root>`** 或绝对路径，解析规则与 **`docs/templates/stages.json.template`**、**`docs/spec/design3.md`** 一致）；读取该文件 JSON，取其内的 **`depends_on`**（**`string[]`**，元素为其它 **`feature_id`**），作为有向边 **`u → v`**（**u** 依赖 **v**，**v** 应先于 **u** 在同一 codegen 批次内被拓扑处理），语义与 **`docs/spec/code3.md` §7.5** 一致。若**无匹配 artifact**、路径不可读、JSON 解析失败或 **`depends_on` 缺失/非数组**：该 id 在依赖图中视为**无依赖边**的孤立点，并在编排日志 **`warnings`** 中记录原因。  
+3. **分组规则**：对每条依赖边 **`(u,v)`**（由 **§5.7.2#2** 解析得到）做 **并查集合并**（**u** 与 **v** 必须落在**同一 group**）。无连边的 feature 各自为独立连通分量，即**自成一组**。  
+4. **环**：若图中存在环，并查集仍将环上全体置于**同一 group**；**ai-code3** 对环的告警与字典序回退仍按 **code3.md** 执行。  
+5. **组间先后**：在 **group** 粒度构造 DAG：若存在 **f∈G**、**g∈H** 且 **f** 依赖 **g**，则加边 **G→H**（**G 在 H 之后**执行）。对该 DAG **拓扑排序**；同一拓扑层内的 groups **彼此无依赖**，允许并行（受 **§5.7.4** 上限约束）。**不得**在组间 DAG 未满足时启动下游组。
+
+#### 5.7.3 端型优先级 P0～P3（组内代表优先级 / 同层排队）
+
+用于**同一拓扑层**内多个 ready group 的**启动次序**及日志/报告中的**人类可读排序**（**不**改变组间 DAG 必须满足的先后关系）。
+
+**真源路径与读取顺序（定稿，仅方案 A）**
+
+对给定 **`feature_id`**，**P0～P3 与跨端判定**一律按下述顺序解析；**不**使用 **`stages.json`** 内其它并行投影表（例如不在 **`stages.design.outputs`** 下维护第二套 feature 端型索引）作为真源。
+
+1. **定位契约产物行**：在 **`stages.contract.outputs.artifacts[]`** 中查找 **`artifacts[].feature_id`** 与该 **`feature_id`** 相等的项。  
+2. **若无匹配项**：视为**元数据缺失** → 该 feature 的端型按 **§5.7.3 末段**处理（**P3** + **`warnings`**）。  
+3. **读取快照文件**：将该项的 **`artifacts[].design_snapshot`** 解析为**可读**的 JSON 文件路径（相对 **`<project_root>`** 或绝对路径），读取 UTF-8 JSON。若文件不存在、不可读或解析失败 → **元数据缺失**。  
+4. **字段读取（均在上述快照 JSON 根对象上，除非 `design3.md` 对某字段另有唯一钉死的子路径——若存在子路径，以 `design3.md` 与本文同一 PR 内一致为准）**：  
+   - **`cross_client`**：可选 **`boolean`**。若为 **`true`** → 该 feature **直接定为 P0**。  
+   - **`client_targets`**：**`string[]`**，每项须为 **`stages.client_targets.allowed_values`**（或与 **`docs/templates/stages.json.template`** 一致的端 slug 枚举）中的合法值；非法项须剔除并 **`warnings`**；剔除后若数组为空且 **`cross_client` 不为 `true`** → **元数据缺失**。  
+5. **若未触发 `cross_client: true` 且 `client_targets` 可用**：按下表由 **`client_targets`** 推导 **P0～P3**；若 **`client_targets.length >= 2`**（去重后仍 ≥2 个不同 slug）→ **P0**（跨端）。
+
+| 等级 | 含义（在 **§5.7.3** 上述读取成功且未因 `cross_client: true` 已定为 P0 时，由 **`client_targets`** 推导） |
+| --- | --- |
+| **P0** | **`client_targets`** 去重后 **≥ 2** 个不同 slug（跨端）。 |
+| **P1** | **单端**且唯一 slug 为 **`backend`**。 |
+| **P2** | **单端**且唯一 slug 为 **`admin`**。 |
+| **P3** | **单端**且 slug 为 **`website` / `miniapp` / `mobile` / `desktop` / `agent`** 之一；或其它在枚举内但未列入 P1/P2 的单端 slug。 |
+
+**多字段异常**：若快照中同时出现 **`cross_client: true`** 与长度 **1** 的 **`client_targets`**，仍以 **`cross_client: true`** 为准，定 **P0**，并 **`warnings`** 提示数据自相矛盾待人工修正。
+
+**组优先级**：取组内 feature 的 **min（P 数值越小越高）** 作为该 **group** 的代表优先级；同层 **ready** 队列中 **P0 组先于 P1** 启动，以此类推；仍并列时按 **`feature_id` 字典序** 稳定决胜。
+
+**元数据缺失**（含无 artifact、快照不可用、无有效 **`client_targets`** 且 **`cross_client` 不为 true**）：该 feature 的端型**默认按 P3** 处理，并在编排日志 **`warnings`** 中列出 **`feature_id`** 与原因。
+
+#### 5.7.4 并行度配置
+
+- **键名**：**`docs/config.dev.json` → `pipeline.autorun.feature_group_max_parallel`**（**integer ≥ 1**）。  
+- **默认**：键缺失时视为 **`3`**（与 **`input-spec.md` §9.1** additive 默认一致）。  
+- **语义**：在 **codegen**、**typecheck**、**test**、**code-review** 各阶段波次中，**同一时刻**处于 **running** 的 **ai-code3** 子进程数（**按 group 计**）**不得超过**该值；下一 ready group 须等待空槽。  
+- **`1`**：退化为**完全串行**（最保守，利于规避 **§5.6.2** 多进程整文件写 **`stages.json`** 的竞态，直至 **ai-code3** 提供分片原子写回或编排器单写者聚合）。
+
+#### 5.7.5 与 **§5.6** 的硬衔接
+
+- **每次 spawn**：仍须 **`--feature=<本 group 内 id 逗号列表>`**（非空）；**禁止**省略。  
+- **`merge-push` / `build`**：仍须在 **`codegen`～`code-review` 全组**（本期 **`--features`** 范围内**所有** group）均**成功结束后**，**单次串行** spawn，**`--feature=`** 为本期 id **全集**（与 **§5.6.1** 一致）。  
+- **`stages.json` 竞态**：多 group 并行**不**免除 **§5.6.2**；若当前实现仍为整文件覆盖写回，**推荐**将 **`feature_group_max_parallel` 默认保持为较低值**或实现「单写者合并 / 分片更新」后再提高并行度。
 
 ---
 
@@ -324,6 +384,7 @@ ai-auto3/
 | **总超时** | **`timeouts.autorun_total_s`** | **7200** | 覆盖整个 **`autorun.cjs`** 一次 run |
 | **阶段超时** | **`timeouts.stages.<stage>_s`**（如 **`design_s`**） | 见模板 | 传给子 skill 或作为 wrap 上限 |
 | **子命令超时** | **`timeouts.subcommand.*`** | 见模板 | 主要在子 skill 内使用 |
+| **组并行上限** | **`pipeline.autorun.feature_group_max_parallel`** | **3** | 见 **§5.7.4**；键缺失按 **3** |
 
 **关系**：总超时与各阶段超时**嵌套封顶**（**`input-spec.md` §6.1**）；触发后子进程 **SIGTERM → 5s → SIGKILL**，退出码 **3**。
 
@@ -341,7 +402,7 @@ ai-auto3/
 - [x] **不**修改各阶段业务 **`outputs`**（**§5.2** 窄接口除外）。  
 - [x] **`deploy.enabled === true`** 时 **`pipeline.autorun.allow_destructive_deploy === true`** 才 spawn dev deploy；否则 **1** 且有 **report**（与 **`publish3.md` §5.1.1** 一致）。  
 - [x] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。  
-- [x] 每次 spawn **ai-code3** 均带**非空** **`--feature=`**；多 feature 时 **`--features`** 过滤与 **`SKILL.md`** 载明的**单进程串行**策略一致，**无**多进程盲写 **`stages.json`**（与 **§5.6** 竞态约束对齐；多进程并行留待 **ai-code3** 分片写回后再开启）。
+- [x] 每次 spawn **ai-code3** 均带**非空** **`--feature=`**；**§5.7** 下按 **group** 调用（组内多 id 逗号拼接），**`pipeline.autorun.feature_group_max_parallel`** 生效；**§5.6.2** 竞态策略与 **`SKILL.md`** 一致（**无**未协调的整文件盲写）。
 
 ---
 
@@ -351,7 +412,7 @@ ai-auto3/
 | --- | --- |
 | 全流水线阶段语义、退出码、日志 | **`docs/input-spec.md`** |
 | **ai-design3**、**contract** 审批停跑 | **`docs/spec/design3.md` §8** |
-| **ai-code3**、**merge-push/build**、**`--feature` / 编排并行** | **`docs/spec/code3.md`**、**`docs/spec/auto3.md` §5.6** |
+| **ai-code3**、**merge-push/build**、**`--feature` / 编排并行 / feature group** | **`docs/spec/code3.md`**、**`docs/spec/auto3.md` §5.6、§5.7** |
 | **ai-publish-dev3**、**deploy/smoke**、**`pipeline.autorun.allow_destructive_deploy`** | **`docs/spec/publish3.md` §2.3、§4.2、§5.1.1** |
 | **ai-prd3** 与 **ai-auto3** checklist 对齐 | **`docs/spec/prd3.md` §8.5** |
 | **字段真源** | **`docs/templates/stages.json.template`**、**`config.dev.json.template`** |

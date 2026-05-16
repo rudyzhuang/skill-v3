@@ -42,7 +42,7 @@
 
 | 文件（路径均相对于 `<project_root>/docs/`） | 职责划分 |
 | --- | --- |
-| **config.dev.json** | **开发环境**侧非敏感、可结构化管理的项目信息：例如 Git 相关配置（远程、默认分支、与工作流有关的选项）、**编译与构建**选项、**dev 部署**所需的云服务**资源级**配置（区域、服务标识、功能开关、环境名等），以及 **`pipeline.autorun.allow_destructive_deploy`**（**ai-auto3** 自动执行 dev **deploy** 的显式授权，见 **`docs/spec/publish3.md` §5.1.1**）等你希望与 **ai-publish-dev3** 门闸对齐的其它管理字段。上一版分散在各端 **`deployment_plan.json`** 里的「部署草案 / 资源级约定」类信息，**本版统一收敛到此文件（及 release 对档）**，**不再**为每端单独维护 `deployment_plan.json`。 |
+| **config.dev.json** | **开发环境**侧非敏感、可结构化管理的项目信息：例如 Git 相关配置（远程、默认分支、与工作流有关的选项）、**编译与构建**选项、**dev 部署**所需的云服务**资源级**配置（区域、服务标识、功能开关、环境名等），以及 **`pipeline.autorun.allow_destructive_deploy`**（**ai-auto3** 自动执行 dev **deploy** 的显式授权，见 **`docs/spec/publish3.md` §5.1.1**）、**`pipeline.autorun.feature_group_max_parallel`**（**ai-code3** 段 **feature group** 并行上限，见 **`docs/spec/auto3.md` §5.7.4**）等你希望与 **ai-publish-dev3** / **ai-auto3** 门闸对齐的其它管理字段。上一版分散在各端 **`deployment_plan.json`** 里的「部署草案 / 资源级约定」类信息，**本版统一收敛到此文件（及 release 对档）**，**不再**为每端单独维护 `deployment_plan.json`。 |
 | **config.release.json** | **正式发布环境**侧与上表同类的非敏感配置，供 **ai-publish-release3** 及发布类步骤读取；与 **config.dev.json** 结构对齐，便于 diff 与晋升，但允许值不同（例如域名、实例规格、发布通道）。 |
 | **config.env** | 固定放在 **`<project_root>/docs/config.env`**，存放**凭证与密钥**：如云服务商的 API Key、访问令牌、账号标识等**敏感内容**；与上述 JSON **拆开**，便于单独做不入库、权限收紧或加密存储（具体纪律由团队模板与实现约定）。**禁止**把密钥写入 `config.dev.json` / `config.release.json`。 |
 
@@ -196,10 +196,10 @@
 - **`<ai-auto3_skill_dir>/scripts/gen-report.cjs`**：单一职责的 report 生成器，读取 `.pipeline/stages.json` 与 `.agent-sessions/` 索引，输出报告文件并写入 `stages.report`；由 `autorun.cjs` 在序列末尾调用。
 - **report 阶段的日志**：`autorun.cjs` 在调用 `gen-report.cjs` 后**仅追加一段会话日志**（指向 report 路径与最终状态），report **正文**由 `gen-report.cjs` 唯一写入；其它阶段的日志一律由该阶段对应 ai-*3 自己写入。
 
-**ai-auto3 调用 ai-code3（`codegen`→`build`）的定稿约束**（与 **`docs/spec/auto3.md` §4.3、§5.6** 一致，不重复细则）：
+**ai-auto3 调用 ai-code3（`codegen`→`build`）的定稿约束**（与 **`docs/spec/auto3.md` §4.3、§5.6、§5.7** 一致，不重复细则）：
 
-1. **必须显式 `feature_id`**：编排层每一次 spawn **`ai-code3/scripts/run.cjs`** 时，命令行**必须**包含**非空** **`--feature=...`**（含 **`merge-push` / `build`** 调用：须传**本轮 feature 全集**的逗号拼接，不得省略）；可为**逗号分隔多 id** 的单进程调用，或**每进程单 id** 的多进程并行（后者仅适用于 **`codegen`～`code-review`** 波次）；**不得**依赖「未传 `--feature` 时由 ai-code3 从 `prd_review.phase_plan` 隐式聚合」作为**自动编排**的默认范围。可选 **`--features=`**（autorun 自有参数）用于把本期自动跑限定到 **`phase_plan`** 中某一子集；越界 id 须在开跑前失败。  
-2. **多进程并行**：当本期存在多个 **`feature_id`** 时，**允许**同时发起多路 **ai-code3** 子进程（通常每路 **`--feature=<单个 id>`** 且 **`--session-id`** 互不相同）；**在进入 `merge-push` 之前**必须等待该并行波次全部成功后再串行执行 **`merge-push` / `build`**（或采用 **`docs/spec/auto3.md` §5.6** 已文档化的其它无竞态合并策略）。**禁止**多进程在无协调的情况下并发整文件覆盖 **`.pipeline/stages.json`**。
+1. **必须显式 `feature_id`**：编排层每一次 spawn **`ai-code3/scripts/run.cjs`** 时，命令行**必须**包含**非空** **`--feature=...`**（含 **`merge-push` / `build`** 调用：须传**本轮 feature 全集**的逗号拼接，不得省略）；**`autorun.cjs`** 在 **`codegen`～`code-review`** 默认按 **`docs/spec/auto3.md` §5.7** 将本期 id 划分为 **feature group**，**每个 group 一次 spawn**，**`--feature=`** 为该组内 id 列表（形态 A）；**不得**依赖「未传 `--feature` 时由 ai-code3 从 `prd_review.phase_plan` 隐式聚合」作为**自动编排**的默认范围。可选 **`--features=`**（autorun 自有参数）用于把本期自动跑限定到 **`phase_plan`** 中某一子集；越界 id 须在开跑前失败。  
+2. **多进程并行**：当本期存在多个 **group**（或经 **`docs/spec/auto3.md` §5.7** 退化为多路单 id）时，**允许**同时发起多路 **ai-code3** 子进程，且**同时 running 数**受 **`pipeline.autorun.feature_group_max_parallel`**（默认 **3**，见 **`docs/spec/auto3.md` §5.7.4**）约束；**在进入 `merge-push` 之前**必须等待该并行波次**全部**成功后再串行执行 **`merge-push` / `build`**（或采用 **`docs/spec/auto3.md` §5.6** 已文档化的其它无竞态合并策略）。**禁止**多进程在无协调的情况下并发整文件覆盖 **`.pipeline/stages.json`**。
 
 **默认自动序列的起止（本版定稿）**：
 
