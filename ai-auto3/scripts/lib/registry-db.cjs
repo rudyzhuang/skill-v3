@@ -51,6 +51,23 @@ function openDb() {
       skipped INTEGER NOT NULL DEFAULT 0,
       notes TEXT
     );
+    CREATE TABLE IF NOT EXISTS phase_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      priority_bucket TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      result TEXT
+    );
+    CREATE TABLE IF NOT EXISTS project_runtime_state (
+      project_id TEXT PRIMARY KEY,
+      active_run_id TEXT,
+      current_phase TEXT,
+      current_stage TEXT,
+      pending_features_json TEXT,
+      updated_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_runs_project ON pipeline_runs(project_id, started_at);
   `);
   _db = db;
@@ -120,6 +137,63 @@ function recordStageEvent(runId, stage, childExit, durationMs, skipped, notes) {
   ).run(runId, stage, childExit, durationMs || 0, skipped ? 1 : 0, notes || '');
 }
 
+function startPhaseRun(runId, phase, priorityBucket) {
+  const db = openDb();
+  const now = new Date().toISOString();
+  const info = db
+    .prepare(
+      `INSERT INTO phase_runs (run_id, phase, priority_bucket, started_at, ended_at, result)
+       VALUES (?, ?, ?, ?, NULL, NULL)`
+    )
+    .run(runId, phase || '', priorityBucket || '', now);
+  return String(info.lastInsertRowid || '');
+}
+
+function finishPhaseRun(phaseRunId, result) {
+  if (!phaseRunId) return;
+  const db = openDb();
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE phase_runs SET ended_at = ?, result = ? WHERE id = ?`).run(now, result || '', phaseRunId);
+}
+
+function updateProjectRuntimeState(projectId, patch) {
+  const db = openDb();
+  const now = new Date().toISOString();
+  const row = db
+    .prepare(
+      `SELECT project_id, active_run_id, current_phase, current_stage, pending_features_json
+       FROM project_runtime_state WHERE project_id = ?`
+    )
+    .get(projectId);
+  const next = {
+    project_id: projectId,
+    active_run_id: patch.active_run_id !== undefined ? patch.active_run_id : row?.active_run_id || '',
+    current_phase: patch.current_phase !== undefined ? patch.current_phase : row?.current_phase || '',
+    current_stage: patch.current_stage !== undefined ? patch.current_stage : row?.current_stage || '',
+    pending_features_json:
+      patch.pending_features_json !== undefined
+        ? patch.pending_features_json
+        : row?.pending_features_json || '[]',
+    updated_at: now,
+  };
+  db.prepare(
+    `INSERT INTO project_runtime_state
+      (project_id, active_run_id, current_phase, current_stage, pending_features_json, updated_at)
+     VALUES (@project_id, @active_run_id, @current_phase, @current_stage, @pending_features_json, @updated_at)
+     ON CONFLICT(project_id) DO UPDATE SET
+       active_run_id = excluded.active_run_id,
+       current_phase = excluded.current_phase,
+       current_stage = excluded.current_stage,
+       pending_features_json = excluded.pending_features_json,
+       updated_at = excluded.updated_at`
+  ).run(next);
+}
+
+function clearProjectRuntimeState(projectId) {
+  const db = openDb();
+  db.prepare(`DELETE FROM project_runtime_state WHERE project_id = ?`).run(projectId);
+}
+
 module.exports = {
   openDb,
   hasProject,
@@ -127,5 +201,9 @@ module.exports = {
   startRun,
   finishRun,
   recordStageEvent,
+  startPhaseRun,
+  finishPhaseRun,
+  updateProjectRuntimeState,
+  clearProjectRuntimeState,
   REGISTRY_DB,
 };

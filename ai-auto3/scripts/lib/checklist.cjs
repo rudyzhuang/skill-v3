@@ -29,6 +29,59 @@ function collectPhasePlanFeatureIds(doc) {
   return out;
 }
 
+function collectDeferredFeatureIds(doc) {
+  const arr = doc.stages?.prd_review?.review?.deferred_features || [];
+  const out = [];
+  const seen = new Set();
+  for (const row of arr) {
+    if (typeof row === 'string') {
+      const id = row.trim();
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+      continue;
+    }
+    if (row && typeof row === 'object') {
+      const id = String(row.feature_id || row.id || '').trim();
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+  }
+  return out;
+}
+
+function collectFeatureUniverseFromLists(projectRoot, declaredTargets) {
+  const out = [];
+  const seen = new Set();
+  const docs = path.join(projectRoot, 'docs');
+  for (const slug of declaredTargets || []) {
+    const fl = path.join(docs, slug, 'feature_list.md');
+    if (!fs.existsSync(fl)) continue;
+    const raw = fs.readFileSync(fl, 'utf8');
+    for (const line of raw.split('\n')) {
+      const t = line.trim();
+      if (!t.startsWith('|')) continue;
+      if (/^\|\s*Feature ID\s*\|/i.test(t)) continue;
+      if (/^\|\s*[-: ]+\|/.test(t)) continue;
+      const cells = t
+        .split('|')
+        .slice(1, -1)
+        .map((v) => v.trim());
+      if (!cells.length) continue;
+      const id = cells[0];
+      if (!/^[A-Za-z0-9_.-]+$/.test(id)) continue;
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+  }
+  return out;
+}
+
 function parseFeaturesFilter(raw, allowedSet) {
   if (raw == null || raw === '') return null;
   const parts = String(raw)
@@ -129,6 +182,19 @@ function runAutorunChecklist(projectRoot, opts = {}) {
   const allIds = collectPhasePlanFeatureIds(doc);
   if (allIds.length === 0) {
     return { ok: false, message: 'checklist#2: prd_review.review.phase_plan[*].feature_ids 合并后不得为空' };
+  }
+  const deferredIds = collectDeferredFeatureIds(doc);
+  const declaredTargets = doc.client_targets?.declared || doc.stages?.prd?.outputs?.client_targets || [];
+  const universe = collectFeatureUniverseFromLists(projectRoot, declaredTargets);
+  if (universe.length) {
+    const covered = new Set([...allIds, ...deferredIds]);
+    const uncovered = universe.filter((id) => !covered.has(id));
+    if (uncovered.length) {
+      return {
+        ok: false,
+        message: `checklist#2: feature_list 全集存在未进入 phase_plan/deferred 的特性: ${uncovered.join(', ')}`,
+      };
+    }
   }
 
   const allowed = new Set(allIds);

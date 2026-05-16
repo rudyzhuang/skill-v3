@@ -25,9 +25,19 @@
 
 - `review.summary`：简短结论。
 - `review.phase_plan`：数组；每项含 `phase`、`feature_ids`（**非空** 字符串数组）、`goal`、`exit_criteria`。
+- `review.deferred_features`（可选）：延期特性列表；可为字符串数组或对象数组（建议对象含 `feature_id`、`reason`、`priority`）。
 - `outputs.decision`：若可进入设计且无阻塞，用 **`passed`**。**`conditional_passed`** 仅当确有未落实条件时使用；终检在条件未解除前会失败——若条件已在材料中落实，应直接输出 **`passed`** 并保持 `conditions: []`。
 - `blocking_issues`：阻塞项数组；通过时须为空数组。
 - `conditions`：条件项；若无条件则为 `[]`。
+
+## 全量覆盖与分期优先级（必须）
+
+1. 先加载全部已声明端 `docs/<target>/feature_list.md`，构建 **feature 全集**。  
+2. 全集中的每个 `feature_id` 必须且只能落在以下两类之一：  
+   - `review.phase_plan[*].feature_ids`（本轮分期执行）  
+   - `review.deferred_features[*]`（明确延期）  
+3. 不允许遗漏 feature，不允许重复归档到多个 phase。  
+4. 每个 feature 必须有优先级（可沿用 `feature_list.md` 的 Priority，或在 `deferred_features[].priority` 明确给出）。
 
 将 JSON 保存到业务仓（例如 **`.pipeline/prd-review-output.json`**），然后由 Agent **一次**执行（推荐）：
 

@@ -22,30 +22,59 @@ function sha256HexParts(parts) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
-function parseFeatureIds(md) {
+function parseFeatureRows(md) {
   const m = md.match(/^##\s+Features\s*$/m);
-  if (!m || m.index === undefined) return [];
+  if (!m || m.index === undefined) return new Map();
   const start = m.index + m[0].length;
   const tail = md.slice(start);
   const nextH2 = tail.search(/^##\s+/m);
   const section = nextH2 >= 0 ? tail.slice(0, nextH2) : tail;
-  const ids = [];
-  const seen = new Set();
+  const rows = new Map();
   for (const line of section.split('\n')) {
     const t = line.trim();
     if (!t.startsWith('|')) continue;
     if (/^\|\s*:?-+:?\s*\|/.test(t)) continue;
     const cells = t.split('|').map((c) => c.trim());
-    if (cells.length < 3) continue;
+    if (cells.length < 8) continue;
     const id = cells[1];
     if (!id || /^feature id$/i.test(id)) continue;
     if (/^[-:]+$/.test(id)) continue;
-    if (/^[A-Za-z0-9_.-]+$/.test(id) && !seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
+    if (!/^[A-Za-z0-9_.-]+$/.test(id)) continue;
+    rows.set(id, {
+      id,
+      priority: cells[5] || '',
+      phase: cells[6] || '',
+    });
+  }
+  return rows;
+}
+
+function parseDeferredFeatureIds(deferredFeatures) {
+  const out = new Set();
+  for (const row of deferredFeatures || []) {
+    if (typeof row === 'string') {
+      const id = row.trim();
+      if (id) out.add(id);
+      continue;
+    }
+    if (row && typeof row === 'object') {
+      const id = String(row.feature_id || row.id || '').trim();
+      if (id) out.add(id);
     }
   }
-  return ids;
+  return out;
+}
+
+function parseDeferredPriorityMap(deferredFeatures) {
+  const out = new Map();
+  for (const row of deferredFeatures || []) {
+    if (!row || typeof row !== 'object') continue;
+    const id = String(row.feature_id || row.id || '').trim();
+    if (!id) continue;
+    const p = String(row.priority || '').trim();
+    if (p) out.set(id, p);
+  }
+  return out;
 }
 
 function main() {
@@ -100,16 +129,34 @@ function main() {
 
   const declared = stages.client_targets?.declared || [];
   const unionIds = new Set();
+  const featureMeta = new Map();
   for (const slug of declared) {
     const fp = path.join(root, 'docs', slug, 'feature_list.md');
     if (!fs.existsSync(fp)) {
       errs.push(`missing_feature_list:${slug}`);
       continue;
     }
-    for (const id of parseFeatureIds(fs.readFileSync(fp, 'utf8'))) unionIds.add(id);
+    const rows = parseFeatureRows(fs.readFileSync(fp, 'utf8'));
+    for (const [id, row] of rows.entries()) {
+      unionIds.add(id);
+      if (!featureMeta.has(id)) featureMeta.set(id, row);
+    }
   }
   for (const fid of idSet) {
     if (!unionIds.has(fid)) errs.push(`feature_id_not_in_lists:${fid}`);
+  }
+  const deferredIds = parseDeferredFeatureIds(pr.review?.deferred_features || []);
+  for (const fid of deferredIds) {
+    if (!unionIds.has(fid)) errs.push(`feature_id_not_in_lists:${fid}`);
+  }
+  const covered = new Set([...idSet, ...deferredIds]);
+  for (const fid of unionIds) {
+    if (!covered.has(fid)) errs.push(`feature_not_covered_in_phase_plan:${fid}`);
+  }
+  const deferredPriority = parseDeferredPriorityMap(pr.review?.deferred_features || []);
+  for (const fid of covered) {
+    const p = deferredPriority.get(fid) || featureMeta.get(fid)?.priority || '';
+    if (!String(p || '').trim()) errs.push(`missing_priority_for_feature:${fid}`);
   }
 
   const devPath = path.join(root, 'docs', 'config.dev.json');

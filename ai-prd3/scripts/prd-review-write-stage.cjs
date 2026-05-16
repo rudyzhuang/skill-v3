@@ -5,41 +5,75 @@ const path = require('path');
 const { parseArgs, requireProject, stagesPath, skillDirFrom } = require('./lib/paths.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
 
-function parseFeatureIdsFromFeatureList(md) {
+function parseFeatureRowsFromFeatureList(md) {
   const m = md.match(/^##\s+Features\s*$/m);
-  if (!m || m.index === undefined) return [];
+  if (!m || m.index === undefined) return new Map();
   const start = m.index + m[0].length;
   const tail = md.slice(start);
   const nextH2 = tail.search(/^##\s+/m);
   const section = nextH2 >= 0 ? tail.slice(0, nextH2) : tail;
-  const ids = [];
-  const seen = new Set();
+  const rows = new Map();
   for (const line of section.split('\n')) {
     const t = line.trim();
     if (!t.startsWith('|')) continue;
     if (/^\|\s*:?-+:?\s*\|/.test(t)) continue;
     const cells = t.split('|').map((c) => c.trim());
-    if (cells.length < 3) continue;
+    if (cells.length < 8) continue;
     const id = cells[1];
     if (!id || /^feature id$/i.test(id)) continue;
     if (/^[-:]+$/.test(id)) continue;
-    if (/^[A-Za-z0-9_.-]+$/.test(id) && !seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
+    if (!/^[A-Za-z0-9_.-]+$/.test(id)) continue;
+    rows.set(id, {
+      id,
+      status: cells[4] || '',
+      priority: cells[5] || '',
+      phase: cells[6] || '',
+    });
+  }
+  return rows;
+}
+
+function parseDeferredFeatureIds(deferredFeatures) {
+  const ids = new Set();
+  for (const row of deferredFeatures || []) {
+    if (typeof row === 'string') {
+      const id = row.trim();
+      if (id) ids.add(id);
+      continue;
+    }
+    if (row && typeof row === 'object') {
+      const id = String(row.feature_id || row.id || '').trim();
+      if (id) ids.add(id);
     }
   }
   return ids;
 }
 
+function parseDeferredPriorityMap(deferredFeatures) {
+  const out = new Map();
+  for (const row of deferredFeatures || []) {
+    if (!row || typeof row !== 'object') continue;
+    const id = String(row.feature_id || row.id || '').trim();
+    if (!id) continue;
+    const p = String(row.priority || '').trim();
+    if (p) out.set(id, p);
+  }
+  return out;
+}
+
 function collectDeclaredFeatureIds(root, declaredTargets) {
   const all = new Set();
+  const featureMeta = new Map();
   for (const slug of declaredTargets || []) {
     const fp = path.join(root, 'docs', slug, 'feature_list.md');
     if (!fs.existsSync(fp)) continue;
     const content = fs.readFileSync(fp, 'utf8');
-    for (const id of parseFeatureIdsFromFeatureList(content)) all.add(id);
+    for (const [id, row] of parseFeatureRowsFromFeatureList(content).entries()) {
+      all.add(id);
+      if (!featureMeta.has(id)) featureMeta.set(id, row);
+    }
   }
-  return all;
+  return { all, featureMeta };
 }
 
 function main() {
@@ -81,9 +115,15 @@ function main() {
   for (const ph of phasePlan) {
     for (const fid of ph?.feature_ids || []) requestedIds.add(String(fid || '').trim());
   }
+  const deferredFeatures = payload?.review?.deferred_features || [];
+  const deferredIds = parseDeferredFeatureIds(deferredFeatures);
   const declaredTargets = stages.client_targets?.declared || [];
-  const declaredIds = collectDeclaredFeatureIds(root, declaredTargets);
+  const { all: declaredIds, featureMeta } = collectDeclaredFeatureIds(root, declaredTargets);
   const unknownIds = [...requestedIds].filter((fid) => fid && !declaredIds.has(fid));
+  const unknownDeferredIds = [...deferredIds].filter((fid) => fid && !declaredIds.has(fid));
+  if (unknownDeferredIds.length) {
+    unknownIds.push(...unknownDeferredIds);
+  }
   if (unknownIds.length) {
     console.error(
       JSON.stringify(
@@ -93,6 +133,45 @@ function main() {
           hint: '请改用 docs/<target>/feature_list.md 中存在的 feature_id（可参考项目根的 prd-review-auto.json）',
           declared_targets: declaredTargets,
           sample_feature_ids: [...declaredIds].slice(0, 20),
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(1);
+  }
+  const covered = new Set([...requestedIds, ...deferredIds].filter(Boolean));
+  const uncovered = [...declaredIds].filter((id) => !covered.has(id));
+  if (uncovered.length) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          errors: uncovered.map((fid) => `feature_not_covered_in_phase_plan:${fid}`),
+          hint: '请确保所有 feature_id 都进入 review.phase_plan 或 review.deferred_features。',
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(1);
+  }
+  const deferredPriority = parseDeferredPriorityMap(deferredFeatures);
+  const missingPriority = [];
+  for (const fid of covered) {
+    if (!fid) continue;
+    const p = deferredPriority.get(fid) || featureMeta.get(fid)?.priority || '';
+    if (!String(p || '').trim()) {
+      missingPriority.push(fid);
+    }
+  }
+  if (missingPriority.length) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          errors: missingPriority.map((fid) => `missing_priority_for_feature:${fid}`),
+          hint: '请在 feature_list.md 的 Priority 列或 review.deferred_features[].priority 中提供优先级。',
         },
         null,
         2,

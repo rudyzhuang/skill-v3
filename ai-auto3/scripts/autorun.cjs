@@ -20,6 +20,10 @@ const {
   startRun,
   finishRun,
   recordStageEvent,
+  startPhaseRun,
+  finishPhaseRun,
+  updateProjectRuntimeState,
+  clearProjectRuntimeState,
 } = require('./lib/registry-db.cjs');
 const { shouldSkipCodeStage } = require('./lib/code-skip.cjs');
 const {
@@ -152,6 +156,24 @@ function sliceStages(fromStage, toStage) {
   }
   if (fi > ti) return [];
   return STAGE_ORDER.slice(fi, ti + 1);
+}
+
+function collectPhasePlans(doc) {
+  const phases = doc.stages?.prd_review?.review?.phase_plan || [];
+  const out = [];
+  for (const row of phases) {
+    const phase = String(row?.phase || '').trim() || 'phase';
+    const ids = [];
+    const seen = new Set();
+    for (const fid of row?.feature_ids || []) {
+      const id = String(fid || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+    if (ids.length) out.push({ phase, featureIds: ids });
+  }
+  return out;
 }
 
 function featureCsv(ids) {
@@ -317,9 +339,10 @@ function ensureSeedDesignSpecs(projectRoot, featureIds, sessionId) {
   }
 }
 
-async function spawnDesign3(projectRoot, cmd, cfg, sessionId, forceRerunStage) {
+async function spawnDesign3(projectRoot, cmd, cfg, sessionId, forceRerunStage, featureCsvStr) {
   const script = scriptPath('ai-design3', 'scripts/run.cjs');
   const args = [cmd, `--project=${projectRoot}`];
+  if (featureCsvStr) args.push(`--feature=${featureCsvStr}`);
   if (forceRerunStage === 'design') args.push('--force-rerun=design');
   const t = stageTimeoutMs(cfg, 'design');
   return runNodeScript({
@@ -332,19 +355,20 @@ async function spawnDesign3(projectRoot, cmd, cfg, sessionId, forceRerunStage) {
   });
 }
 
-async function runDesignChain(projectRoot, cfg, sessionId, forceRerun) {
+async function runDesignChain(projectRoot, cfg, sessionId, forceRerun, featureCsvStr) {
   const fr = forceRerun === 'design' ? 'design' : null;
   for (const cmd of DESIGN_CHAIN) {
-    const code = await spawnDesign3(projectRoot, cmd, cfg, sessionId, fr);
+    const code = await spawnDesign3(projectRoot, cmd, cfg, sessionId, fr, featureCsvStr);
     if (code !== 0) return { code, stage: 'design', detail: cmd };
   }
   return { code: 0 };
 }
 
-async function runContractChain(projectRoot, cfg, sessionId, forceRerun) {
+async function runContractChain(projectRoot, cfg, sessionId, forceRerun, featureCsvStr) {
   for (const cmd of CONTRACT_CHAIN) {
     const script = scriptPath('ai-design3', 'scripts/run.cjs');
     const args = [cmd, `--project=${projectRoot}`];
+    if (featureCsvStr) args.push(`--feature=${featureCsvStr}`);
     if (forceRerun === 'contract') args.push('--force-rerun=contract');
     const code = await runNodeScript({
       node: process.execPath,
@@ -379,10 +403,11 @@ async function autoApproveContractIfPending(projectRoot, cfg) {
   return { code, changed: true };
 }
 
-async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun) {
+async function runDesignReviewChain(projectRoot, cfg, sessionId, forceRerun, featureCsvStr) {
   for (const cmd of DESIGN_REVIEW_CHAIN) {
     const script = scriptPath('ai-design3', 'scripts/run.cjs');
     const args = [cmd, `--project=${projectRoot}`];
+    if (featureCsvStr) args.push(`--feature=${featureCsvStr}`);
     if (forceRerun === 'design_review') args.push('--force-rerun=design_review');
     const code = await runNodeScript({
       node: process.execPath,
@@ -627,6 +652,16 @@ async function main() {
   const cfg = ck.configDev;
   const featureIds = ck.featureIds;
   const featStr = featureCsv(featureIds);
+  const selectedFeatureSet = new Set(featureIds);
+  let phasePlans = collectPhasePlans(doc)
+    .map((p) => ({
+      phase: p.phase,
+      featureIds: p.featureIds.filter((id) => selectedFeatureSet.has(id)),
+    }))
+    .filter((p) => p.featureIds.length > 0);
+  if (!phasePlans.length) {
+    phasePlans = [{ phase: 'mvp', featureIds: featureIds.slice() }];
+  }
 
   try {
     upsertProjectFromStages(projectRoot, doc);
@@ -648,16 +683,23 @@ async function main() {
 
   if (opts.dryRun) {
     console.error(`[dry-run] would run stages: ${slice.join(' -> ')} features=${featStr}`);
+    console.error(
+      `[dry-run] phase order: ${phasePlans.map((p) => `${p.phase}(${p.featureIds.length})`).join(' -> ')}`
+    );
     if (slice.some((s) => ['codegen', 'typecheck', 'test', 'code_review', 'merge_push', 'build'].includes(s))) {
       try {
-        const plan = planFeatureGroupWaves(featureIds, readStages(projectRoot), projectRoot);
         console.error(`[dry-run] feature_group_max_parallel=${getFeatureGroupMaxParallel(cfg)}`);
-        plan.warnings.forEach((w) => console.error(`[dry-run][feature-plan] ${w}`));
-        plan.layers.forEach((layer, i) => {
-          console.error(
-            `[dry-run] layer ${i + 1}: ${layer.length} group(s) -> ${layer.map((g) => groupSortKey(g)).join(' | ')}`
-          );
-        });
+        for (const p of phasePlans) {
+          const plan = planFeatureGroupWaves(p.featureIds, readStages(projectRoot), projectRoot);
+          plan.warnings.forEach((w) => console.error(`[dry-run][feature-plan][${p.phase}] ${w}`));
+          plan.layers.forEach((layer, i) => {
+            console.error(
+              `[dry-run][${p.phase}] layer ${i + 1}: ${layer.length} group(s) -> ${layer
+                .map((g) => groupSortKey(g))
+                .join(' | ')}`
+            );
+          });
+        }
       } catch (e) {
         console.error(`[dry-run] feature plan preview failed: ${e.message || e}`);
       }
@@ -694,174 +736,178 @@ async function main() {
       failureReason = 'ai-design3 preflight failed';
       stoppedAt = 'preflight';
     } else {
-      for (const stage of slice) {
-        const budget = checkBudget();
-        if (budget) {
-          exitCode = 3;
-          failureReason = budget;
-          stoppedAt = stage;
-          break;
-        }
-
-        doc = readStages(projectRoot);
-        doc = updatePipelineMeta(doc, {
-          currentStage: stage,
-          lastCompleted: doc.pipeline?.last_completed_stage,
-          by: 'ai-auto3',
+      for (const phaseRow of phasePlans) {
+        const phase = phaseRow.phase;
+        const phaseFeatureIds = phaseRow.featureIds;
+        const phaseFeatStr = featureCsv(phaseFeatureIds);
+        const phaseRunId = startPhaseRun(runId, phase, '');
+        appendLog(projectRoot, sessionId, `phase begin: ${phase} features=${phaseFeatStr}`);
+        updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
+          active_run_id: runId,
+          current_phase: phase,
+          current_stage: '',
+          pending_features_json: JSON.stringify(phaseFeatureIds),
         });
-        writeStages(projectRoot, doc);
 
-        if (stage === 'design') {
-          if (
-            !opts.forceRerun &&
-            doc.stages?.design?.status === 'completed' &&
-            doc.stages?.design?.validation?.passed
-          ) {
-            appendLog(projectRoot, sessionId, 'skip design (completed+passed)');
-            recordStageEvent(runId, 'design', 0, 0, true, 'orchestrator skip');
-            continue;
-          }
-          ensureSeedDesignSpecs(projectRoot, featureIds, sessionId);
-          const r = await runDesignChain(projectRoot, cfg, sessionId, opts.forceRerun);
-          if (r.code !== 0) {
-            exitCode = r.code;
-            failureReason = `design failed at ${r.detail}`;
-            stoppedAt = 'design';
+        for (const stage of slice) {
+          const budget = checkBudget();
+          if (budget) {
+            exitCode = 3;
+            failureReason = budget;
+            stoppedAt = stage;
             break;
           }
-          recordStageEvent(runId, 'design', 0, 0, false, '');
-        } else if (stage === 'contract') {
-          if (
-            !opts.forceRerun &&
-            doc.stages?.contract?.status === 'completed' &&
-            doc.stages?.contract?.validation?.passed
-          ) {
-            appendLog(projectRoot, sessionId, 'skip contract (completed+passed)');
-            recordStageEvent(runId, 'contract', 0, 0, true, 'orchestrator skip');
-            continue;
-          }
-          const r = await runContractChain(projectRoot, cfg, sessionId, opts.forceRerun);
-          if (r.code !== 0) {
-            exitCode = r.code;
-            failureReason = `contract failed at ${r.detail}`;
-            stoppedAt = 'contract';
-            break;
-          }
-          const autoApprove = await autoApproveContractIfPending(projectRoot, cfg);
-          if (autoApprove.code !== 0) {
-            exitCode = autoApprove.code;
-            failureReason = 'contract auto-approval failed';
-            stoppedAt = 'contract';
-            break;
-          }
-          if (autoApprove.changed) {
-            appendLog(
-              projectRoot,
-              sessionId,
-              'contract human_approval pending -> auto mark-contract-not-required by ai-auto3'
-            );
-          }
+
           doc = readStages(projectRoot);
-          const ha = doc.stages?.contract?.outputs?.human_approval?.status;
-          if (ha === 'pending') {
-            doc = setContractBlocked(doc);
-            doc = updatePipelineMeta(doc, {
-              currentStage: 'contract',
-              lastCompleted: doc.pipeline?.last_completed_stage,
-              by: 'ai-auto3',
-            });
-            writeStages(projectRoot, doc);
-            exitCode = 1;
-            failureReason =
-              'contract human_approval pending — 请使用 ai-design3 approve-contract / reject-contract';
-            stoppedAt = 'contract';
-            break;
-          }
-          recordStageEvent(runId, 'contract', 0, 0, false, '');
-        } else if (stage === 'design_review') {
-          if (
-            !opts.forceRerun &&
-            doc.stages?.design_review?.status === 'completed' &&
-            doc.stages?.design_review?.validation?.passed
-          ) {
-            appendLog(projectRoot, sessionId, 'skip design_review (completed+passed)');
-            recordStageEvent(runId, 'design_review', 0, 0, true, 'orchestrator skip');
-            continue;
-          }
-          const r = await runDesignReviewChain(projectRoot, cfg, sessionId, opts.forceRerun);
-          if (r.code !== 0) {
-            exitCode = r.code;
-            failureReason = `design_review failed at ${r.detail}`;
-            stoppedAt = 'design_review';
-            break;
-          }
-          recordStageEvent(runId, 'design_review', 0, 0, false, '');
-        } else if (['codegen', 'typecheck', 'test', 'code_review', 'merge_push', 'build'].includes(stage)) {
-          const sk = stage;
-          if (shouldSkipCodeStage(doc, sk, projectRoot, featureIds, opts.forceRerun)) {
-            appendLog(projectRoot, sessionId, `skip ${sk} (summary_hash)`);
-            recordStageEvent(runId, sk, 0, 0, true, 'hash skip');
-            continue;
-          }
-          const row = CODE_ORDER.find(([k]) => k === sk);
-          if (!row) {
-            exitCode = 1;
-            failureReason = `internal: unknown code stage ${sk}`;
-            stoppedAt = sk;
-            break;
-          }
-          const cmd = row[1];
-          let code = 0;
-          if (sk === 'merge_push' || sk === 'build') {
-            code = await spawnCode3(
-              projectRoot,
-              cmd,
-              featStr,
-              cfg,
-              `${sessionId}-${sk}`,
-              opts.forceRerun
-            );
-          } else {
-            code = await runCodeStageWithFeatureGroups(
-              projectRoot,
-              cmd,
-              sk,
-              featureIds,
-              cfg,
-              sessionId,
-              opts.forceRerun,
-              featurePlanWarningCache
-            );
-          }
-          if (code !== 0) {
-            exitCode = code;
-            failureReason = `ai-code3 ${cmd} exit=${code}`;
-            stoppedAt = sk;
-            break;
-          }
-          recordStageEvent(runId, sk, code, 0, false, '');
-        } else if (stage === 'deploy_smoke') {
-          const deployEnabled = !!(cfg.deploy && cfg.deploy.enabled);
-          if (deployEnabled) {
-            const allow =
-              cfg.pipeline && cfg.pipeline.autorun && cfg.pipeline.autorun.allow_destructive_deploy === true;
-            if (!allow) {
+          doc = updatePipelineMeta(doc, {
+            currentStage: stage,
+            lastCompleted: doc.pipeline?.last_completed_stage,
+            by: 'ai-auto3',
+          });
+          writeStages(projectRoot, doc);
+          updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
+            active_run_id: runId,
+            current_phase: phase,
+            current_stage: stage,
+            pending_features_json: JSON.stringify(phaseFeatureIds),
+          });
+
+          if (stage === 'design') {
+            ensureSeedDesignSpecs(projectRoot, phaseFeatureIds, sessionId);
+            const r = await runDesignChain(projectRoot, cfg, sessionId, opts.forceRerun, phaseFeatStr);
+            if (r.code !== 0) {
+              exitCode = r.code;
+              failureReason = `design failed at ${r.detail}`;
+              stoppedAt = 'design';
+              break;
+            }
+            recordStageEvent(runId, 'design', 0, 0, false, `phase=${phase}`);
+          } else if (stage === 'contract') {
+            const r = await runContractChain(projectRoot, cfg, sessionId, opts.forceRerun, phaseFeatStr);
+            if (r.code !== 0) {
+              exitCode = r.code;
+              failureReason = `contract failed at ${r.detail}`;
+              stoppedAt = 'contract';
+              break;
+            }
+            const autoApprove = await autoApproveContractIfPending(projectRoot, cfg);
+            if (autoApprove.code !== 0) {
+              exitCode = autoApprove.code;
+              failureReason = 'contract auto-approval failed';
+              stoppedAt = 'contract';
+              break;
+            }
+            if (autoApprove.changed) {
+              appendLog(
+                projectRoot,
+                sessionId,
+                'contract human_approval pending -> auto mark-contract-not-required by ai-auto3'
+              );
+            }
+            doc = readStages(projectRoot);
+            const ha = doc.stages?.contract?.outputs?.human_approval?.status;
+            if (ha === 'pending') {
+              doc = setContractBlocked(doc);
+              doc = updatePipelineMeta(doc, {
+                currentStage: 'contract',
+                lastCompleted: doc.pipeline?.last_completed_stage,
+                by: 'ai-auto3',
+              });
+              writeStages(projectRoot, doc);
               exitCode = 1;
               failureReason =
-                'deploy.enabled=true 但 pipeline.autorun.allow_destructive_deploy !== true — 未 spawn ai-publish-dev3（publish3.md §5.1.1）';
+                'contract human_approval pending — 请使用 ai-design3 approve-contract / reject-contract';
+              stoppedAt = 'contract';
+              break;
+            }
+            recordStageEvent(runId, 'contract', 0, 0, false, `phase=${phase}`);
+          } else if (stage === 'design_review') {
+            const r = await runDesignReviewChain(projectRoot, cfg, sessionId, opts.forceRerun, phaseFeatStr);
+            if (r.code !== 0) {
+              exitCode = r.code;
+              failureReason = `design_review failed at ${r.detail}`;
+              stoppedAt = 'design_review';
+              break;
+            }
+            recordStageEvent(runId, 'design_review', 0, 0, false, `phase=${phase}`);
+          } else if (['codegen', 'typecheck', 'test', 'code_review', 'merge_push', 'build'].includes(stage)) {
+            const sk = stage;
+            if (shouldSkipCodeStage(doc, sk, projectRoot, phaseFeatureIds, opts.forceRerun)) {
+              appendLog(projectRoot, sessionId, `skip ${sk} (summary_hash) phase=${phase}`);
+              recordStageEvent(runId, sk, 0, 0, true, `hash skip phase=${phase}`);
+              continue;
+            }
+            const row = CODE_ORDER.find(([k]) => k === sk);
+            if (!row) {
+              exitCode = 1;
+              failureReason = `internal: unknown code stage ${sk}`;
+              stoppedAt = sk;
+              break;
+            }
+            const cmd = row[1];
+            let code = 0;
+            if (sk === 'merge_push' || sk === 'build') {
+              code = await spawnCode3(
+                projectRoot,
+                cmd,
+                phaseFeatStr,
+                cfg,
+                `${sessionId}-${phase}-${sk}`,
+                opts.forceRerun
+              );
+            } else {
+              code = await runCodeStageWithFeatureGroups(
+                projectRoot,
+                cmd,
+                sk,
+                phaseFeatureIds,
+                cfg,
+                sessionId,
+                opts.forceRerun,
+                featurePlanWarningCache
+              );
+            }
+            if (code !== 0) {
+              exitCode = code;
+              failureReason = `ai-code3 ${cmd} exit=${code}`;
+              stoppedAt = sk;
+              break;
+            }
+            recordStageEvent(runId, sk, code, 0, false, `phase=${phase}`);
+          } else if (stage === 'deploy_smoke') {
+            const deployEnabled = !!(cfg.deploy && cfg.deploy.enabled);
+            if (deployEnabled) {
+              const allow =
+                cfg.pipeline && cfg.pipeline.autorun && cfg.pipeline.autorun.allow_destructive_deploy === true;
+              if (!allow) {
+                exitCode = 1;
+                failureReason =
+                  'deploy.enabled=true 但 pipeline.autorun.allow_destructive_deploy !== true — 未 spawn ai-publish-dev3（publish3.md §5.1.1）';
+                stoppedAt = 'deploy';
+                break;
+              }
+            }
+            const pub = await runPublishDev(projectRoot, cfg, `${sessionId}-${phase}`);
+            if (pub !== 0) {
+              exitCode = pub;
+              failureReason = `ai-publish-dev3 exit=${pub}`;
               stoppedAt = 'deploy';
               break;
             }
+            recordStageEvent(runId, 'deploy_smoke', pub, 0, false, `phase=${phase}`);
           }
-          const pub = await runPublishDev(projectRoot, cfg, sessionId);
-          if (pub !== 0) {
-            exitCode = pub;
-            failureReason = `ai-publish-dev3 exit=${pub}`;
-            stoppedAt = 'deploy';
-            break;
-          }
-          recordStageEvent(runId, 'deploy_smoke', pub, 0, false, '');
         }
+
+        if (exitCode !== 0) {
+          finishPhaseRun(phaseRunId, 'failed');
+          break;
+        }
+        const phaseReportCode = await runGenReport(projectRoot, `${sessionId}-${phase}`, `phase=${phase}`);
+        if (phaseReportCode !== 0) {
+          appendLog(projectRoot, sessionId, `phase report warn: phase=${phase} exit=${phaseReportCode}`);
+        }
+        finishPhaseRun(phaseRunId, 'success');
+        appendLog(projectRoot, sessionId, `phase done: ${phase}`);
       }
     }
 
@@ -877,11 +923,18 @@ async function main() {
     writeStages(projectRoot, doc);
 
     if (runId) finishRun(runId, exitCode, stoppedAt || 'done');
+    if (doc?.project?.project_id) clearProjectRuntimeState(doc.project.project_id);
   } catch (e) {
     console.error(e);
     exitCode = 1;
     failureReason = String(e.message || e);
     if (runId) finishRun(runId, 1, 'exception');
+    try {
+      const d = readStages(projectRoot);
+      if (d?.project?.project_id) clearProjectRuntimeState(d.project.project_id);
+    } catch (_) {
+      /* noop */
+    }
   } finally {
     lock.release();
   }

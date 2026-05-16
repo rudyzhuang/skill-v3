@@ -42,6 +42,42 @@ function parseFeatureIds(md) {
   return ids;
 }
 
+/**
+ * 从 prd-spec 的「核心功能」表提取功能 ID（首列）。
+ * 同时兼容中英文标题：`## 6. 核心功能` / `## 6. Core Features`。
+ * @param {string} md
+ * @returns {string[]}
+ */
+function parseCoreFeatureIdsFromPrdSpec(md) {
+  const h2 =
+    md.match(/^##\s*6\.\s*核心功能\s*$/m) ||
+    md.match(/^##\s*6\.\s*Core Features\s*$/im) ||
+    md.match(/^##\s+核心功能\s*$/m) ||
+    md.match(/^##\s+Core Features\s*$/im);
+  if (!h2 || h2.index === undefined) return [];
+  const start = h2.index + h2[0].length;
+  const tail = md.slice(start);
+  const nextH2 = tail.search(/^##\s+/m);
+  const section = nextH2 >= 0 ? tail.slice(0, nextH2) : tail;
+  const ids = [];
+  const seen = new Set();
+  for (const line of section.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('|')) continue;
+    if (/^\|\s*:?-+:?\s*\|/.test(t)) continue;
+    const cells = t.split('|').map((c) => c.trim());
+    if (cells.length < 3) continue;
+    const id = cells[1];
+    if (!id || /^功能 id$/i.test(id) || /^feature id$/i.test(id)) continue;
+    if (/^[-:]+$/.test(id)) continue;
+    if (/^[A-Za-z0-9_.-]+$/.test(id) && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
 function main() {
   const args = parseArgs(process.argv);
   const root = requireProject(args);
@@ -53,6 +89,7 @@ function main() {
   const stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
   const declared = stages.client_targets?.declared || [];
   const errors = [];
+  const unionFeatureIds = new Set();
   for (const slug of declared) {
     const prd = path.join(root, 'docs', slug, 'prd.md');
     const fl = path.join(root, 'docs', slug, 'feature_list.md');
@@ -71,6 +108,16 @@ function main() {
       }
       const ids = parseFeatureIds(md);
       if (ids.length === 0) errors.push(`feature_table_empty:${slug}`);
+      for (const id of ids) unionFeatureIds.add(id);
+    }
+  }
+  const prdSpec = path.join(root, 'docs', 'prd-spec.md');
+  if (fs.existsSync(prdSpec)) {
+    const coreIds = parseCoreFeatureIdsFromPrdSpec(fs.readFileSync(prdSpec, 'utf8'));
+    for (const id of coreIds) {
+      if (!unionFeatureIds.has(id)) {
+        errors.push(`core_feature_not_in_feature_lists:${id}`);
+      }
     }
   }
   if (errors.length) {
