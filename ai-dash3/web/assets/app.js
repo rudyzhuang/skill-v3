@@ -150,6 +150,7 @@ function renderSummary(dash) {
   const s = dash.summary || {};
   const p = s.pipeline || {};
   fillKv($('summaryDl'), [
+    ['项目名', dash.project_name || dash.project_id],
     ['project_id', dash.project_id],
     ['current_stage', p.current_stage],
     ['last_completed', p.last_completed_stage],
@@ -283,12 +284,13 @@ async function loadRegistry() {
   registryProjects = reg.projects || [];
   const sel = $('projectSelect');
   const prev = sel.value;
-  sel.innerHTML = '<option value="">— 从 registry 选择 —</option>';
+  sel.innerHTML = '<option value="">— 选择项目 —</option>';
   for (const p of registryProjects) {
     const opt = document.createElement('option');
     opt.value = p.root_path;
     const tag = p.autorun_active ? ' ●' : '';
-    opt.textContent = `${p.project_id || p.root_path}${tag}`;
+    const label = p.project_name || p.project_id || p.root_path;
+    opt.textContent = `${label}${tag}`;
     sel.appendChild(opt);
   }
   if (prev) sel.value = prev;

@@ -206,7 +206,7 @@ function stopProjectPipeline(projectRoot) {
   if (projectId) {
     try {
       runsFinished = finishActiveRegistryRuns(projectId);
-      clearProjectRuntimeState(projectId);
+      clearProjectRuntimeState(projectId, abs, doc);
     } catch (e) {
       return {
         ok: true,

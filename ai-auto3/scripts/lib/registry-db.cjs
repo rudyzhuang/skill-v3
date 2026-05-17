@@ -23,13 +23,17 @@ function finishPhaseRun() {}
 module.exports = {
   hasProject: (projectId) => !!runtimeIo.readRuntimeFile(projectId),
   upsertProjectFromStages,
-  startRun: (projectId, sessionId) => runtimeIo.startRun(projectId, sessionId, 'ai-auto3'),
+  startRun: (projectId, sessionId, projectRoot, stagesDoc) =>
+    runtimeIo.startRun(projectId, sessionId, 'ai-auto3', projectRoot, stagesDoc),
   finishRun: runtimeIo.finishRun,
   recordStageEvent,
   startPhaseRun,
   finishPhaseRun,
-  updateProjectRuntimeState: (projectId, patch) =>
-    runtimeIo.updateProjectRuntimeState(projectId, patch, 'ai-auto3'),
-  clearProjectRuntimeState: runtimeIo.clearProjectRuntimeState,
+  updateProjectRuntimeState: (projectId, patch, projectRoot, stagesDoc) =>
+    runtimeIo.updateProjectRuntimeState(projectId, patch, 'ai-auto3', projectRoot, stagesDoc),
+  clearProjectRuntimeState: (projectId, projectRoot, stagesDoc) =>
+    runtimeIo.clearProjectRuntimeState(projectId, projectRoot, stagesDoc),
+  registerProcess: (projectId, entry, projectRoot, stagesDoc) =>
+    runtimeIo.registerProcess(projectId, entry, projectRoot, stagesDoc),
   finishActiveRuns: runtimeIo.finishActiveRuns,
 };

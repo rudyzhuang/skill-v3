@@ -122,8 +122,8 @@ function writeDashServeMeta(projectRoot, host, port) {
   if (!projectRoot) return;
   try {
     const read = readStages(projectRoot);
-    if (!read.ok || !read.data?.project?.project_id) return;
-    setDashServe(read.data.project.project_id, {
+    if (!read.ok) return;
+    setDashServe(null, {
       pid: process.pid,
       host,
       port,

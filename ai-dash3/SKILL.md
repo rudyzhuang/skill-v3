@@ -1,7 +1,7 @@
 ---
 name: ai-dash3
 description: >-
-  Skill V3 流水线看板（只读）：读 `<skills_root>/_runtime/<project_id>/runtime.json 与业务仓 .pipeline/stages.json、reports/、Feature 流水线；
+  Skill V3 流水线看板（只读）：读 <skills_root>/_projects/<project.name>/runtime.json 与业务仓 stages/reports；项目名来自 config.dev.json；
   CLI 或本地 Web（serve）展示进度、阻塞与 ai-auto3 正在跑什么；不 spawn 子 skill、不写 stages、不持锁。
   用户说「ai-dash3」「第三代看板」「流水线看板」「本地网页」「卡在哪」时使用。
 disable-model-invocation: true
@@ -22,7 +22,7 @@ disable-model-invocation: true
 | **只读**诊断 + 建议 | **autorun** 自动推进 + **runtime.json** + **PID 锁** + **gen-report** |
 | **不**执行 `ai-design3` / `ai-code3` / `ai-publish-*` | **会** spawn 上述 skill |
 
-多项目列表：扫描 **`~/.cursor/skills/_runtime/*/runtime.json`**（见 **`docs/spec/runtime-pipeline.md`**），**不**使用 **`registry.sqlite`**。
+多项目列表：扫描 **`~/.cursor/skills/_projects/*/runtime.json`**（**仅 `_projects`**）；展示 **`config.dev.json` → `project.name`**（见 **`docs/spec/runtime-pipeline.md`**）。
 
 ## Agent 会话（必读）
 

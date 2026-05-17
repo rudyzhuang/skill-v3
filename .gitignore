@@ -1,4 +1,5 @@
 _runtime/
+_projects/
 # 旧路径（迁移后应为空，勿再写入）
 .pipeline/
 _registry/

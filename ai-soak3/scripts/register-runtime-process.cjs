@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * 登记后台进程到 <skills_root>/_runtime/<project_id>/runtime.json
+ * 登记后台进程到 <skills_root>/_projects/<config.dev.json project.name>/runtime.json
  * 用法: node register-runtime-process.cjs --project=<abs> --kind=... --pid=... [--command=] [--log-path=]
  */
 
@@ -67,7 +67,9 @@ function main() {
     runtimeIo.updateProjectRuntimeState(
       projectId,
       { orchestrator: 'ai-soak3', active: true },
-      'ai-soak3'
+      'ai-soak3',
+      abs,
+      doc
     );
   }
   if (opts.markExited && opts.pid) {
@@ -76,14 +78,19 @@ function main() {
     return;
   }
   if (opts.pid) {
-    runtimeIo.registerProcess(projectId, {
-      kind: opts.kind,
-      pid: opts.pid,
-      command: opts.command,
-      log_path: opts.logPath,
-      cwd: opts.cwd || abs,
-      updated_by: 'ai-soak3',
-    });
+    runtimeIo.registerProcess(
+      projectId,
+      {
+        kind: opts.kind,
+        pid: opts.pid,
+        command: opts.command,
+        log_path: opts.logPath,
+        cwd: opts.cwd || abs,
+        updated_by: 'ai-soak3',
+      },
+      abs,
+      doc
+    );
   }
   process.stdout.write(`runtime: registered kind=${opts.kind} pid=${opts.pid || '—'} project_id=${projectId}\n`);
 }

@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const { buildJsonSummary, readStages, pidLockInfo } = require('./summary.cjs');
 const { buildFeatureBoard } = require('./features.cjs');
 const {
@@ -37,9 +38,15 @@ function buildDashboard(projectRoot, registryExport) {
   let recentRuns = [];
   let registryRunActive = false;
   if (registryExport && registryExport.ok) {
-    runtime = runtimeForProject(registryExport, projectId);
-    recentRuns = recentRunsForProject(registryExport, projectId, 8);
-    registryRunActive = (registryExport.active_runs || []).some((r) => r.project_id === projectId);
+    runtime = runtimeForProject(registryExport, projectId, projectRoot);
+    recentRuns = recentRunsForProject(registryExport, projectId, 8, projectRoot);
+    registryRunActive = (registryExport.active_runs || []).some((r) => {
+      if (r.project_id === projectId) return true;
+      const p = (registryExport.projects || []).find(
+        (x) => x.project_id === r.project_id && path.resolve(x.root_path || '') === path.resolve(projectRoot)
+      );
+      return !!p;
+    });
   }
 
   const featureBoard = read.data
@@ -55,11 +62,19 @@ function buildDashboard(projectRoot, registryExport) {
 
   const runtimeRead = readRuntimeForProjectRoot(projectRoot);
   const processes = runtimeRead?.doc?.processes || [];
+  const projectName =
+    runtimeRead?.doc?.project?.project_name ||
+    runtimeRead?.doc?.project?.name ||
+    (registryExport?.projects || []).find(
+      (p) => path.resolve(p.root_path || '') === path.resolve(projectRoot)
+    )?.project_name ||
+    '';
 
   return {
     schema: 'ai-dash3.dashboard.v1',
     project_root: projectRoot,
     project_id: projectId,
+    project_name: projectName,
     overall: deriveProjectOverall(summary, boardForOverall),
     summary,
     features: featureBoard.features,
@@ -105,6 +120,8 @@ function buildProjectsPayload() {
       (data.active_runs || []).some((r) => r.project_id === p.project_id) || rt?.active === true;
     return {
       project_id: p.project_id,
+      project_name: p.project_name || p.dir_name || p.project_id,
+      dir_name: p.dir_name,
       root_path: p.root_path,
       last_seen_at: p.last_seen_at,
       current_phase: rt?.current_phase || null,
@@ -117,7 +134,7 @@ function buildProjectsPayload() {
     schema: 'ai-dash3.projects.v1',
     ok: true,
     exported_at: data.exported_at,
-    source: data.source || 'runtime.json',
+    source: data.source || '_projects/runtime.json',
     projects,
     active_runs: data.active_runs || [],
   };

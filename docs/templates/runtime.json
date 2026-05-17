@@ -6,6 +6,8 @@
   },
   "project": {
     "project_id": "",
+    "project_name": "",
+    "name": "",
     "root_path": "",
     "display_name": ""
   },

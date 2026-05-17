@@ -4,12 +4,12 @@ const path = require('path');
 const {
   listProjectsFromRuntime,
   runtimeRowFromDoc,
-  readRuntimeFile,
+  readRuntimeForProjectRoot: readRuntimeDocByRoot,
   buildRegistryExportShape,
 } = require('../../../ai-auto3/scripts/lib/runtime-io.cjs');
 
 /**
- * 只读：扫描 skills_root/_runtime 下各项目 runtime.json（dash3 不读 SQLite）
+ * dash3 仅消费 <skills_root>/_projects/（不读 _runtime）
  * @returns {{ ok: boolean, data?: object, error?: string }}
  */
 function fetchRuntimeExport() {
@@ -21,30 +21,43 @@ function fetchRuntimeExport() {
   }
 }
 
-/** @deprecated 使用 fetchRuntimeExport */
+/** @deprecated */
 function fetchRegistryExport() {
   return fetchRuntimeExport();
 }
 
-function runtimeForProject(exportData, projectId) {
+function runtimeForProject(exportData, projectId, rootPath) {
   if (!exportData?.runtime_states) return null;
+  if (rootPath) {
+    const abs = path.resolve(rootPath);
+    const hit = exportData.projects?.find((p) => p.root_path && path.resolve(p.root_path) === abs);
+    if (hit) {
+      return exportData.runtime_states.find((r) => r.project_id === hit.project_id) || null;
+    }
+  }
   return exportData.runtime_states.find((r) => r.project_id === projectId) || null;
 }
 
-function recentRunsForProject(exportData, projectId, limit = 5) {
+function recentRunsForProject(exportData, projectId, limit = 5, rootPath) {
   if (!exportData?.recent_runs) return [];
+  const abs = rootPath ? path.resolve(rootPath) : '';
   return exportData.recent_runs
-    .filter((run) => run.project_id === projectId)
+    .filter((run) => {
+      if (abs) {
+        const p = (exportData.projects || []).find(
+          (x) => x.project_id === run.project_id && path.resolve(x.root_path || '') === abs
+        );
+        if (p) return true;
+      }
+      return run.project_id === projectId;
+    })
     .slice(0, limit);
 }
 
 function readRuntimeForProjectRoot(projectRoot) {
-  const projects = listProjectsFromRuntime();
-  const abs = path.resolve(projectRoot);
-  const row = projects.find((p) => path.resolve(p.root_path || '') === abs);
-  if (!row) return null;
-  const doc = readRuntimeFile(row.project_id);
-  return doc ? { doc, row: runtimeRowFromDoc(doc) } : null;
+  const doc = readRuntimeDocByRoot(projectRoot);
+  if (!doc) return null;
+  return { doc, row: runtimeRowFromDoc(doc) };
 }
 
 module.exports = {

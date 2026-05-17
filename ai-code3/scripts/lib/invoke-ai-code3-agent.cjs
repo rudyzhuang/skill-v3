@@ -114,13 +114,18 @@ async function invokeAiCode3Agent({
         const doc = JSON.parse(fs.readFileSync(stagesPath, 'utf8'));
         const projectId = doc?.project?.project_id;
         if (!projectId) return;
-        runtimeIo.registerProcess(projectId, {
-          kind: `codegen-agent-${String(phase || 'impl')}`,
-          pid,
-          command: `${bin} ${args.slice(0, 2).join(' ')}…`,
-          cwd: worktreePath,
-          updated_by: 'ai-code3',
-        });
+        runtimeIo.registerProcess(
+          projectId,
+          {
+            kind: `codegen-agent-${String(phase || 'impl')}`,
+            pid,
+            command: `${bin} ${args.slice(0, 2).join(' ')}…`,
+            cwd: worktreePath,
+            updated_by: 'ai-code3',
+          },
+          projectRoot,
+          doc
+        );
       } catch {
         /* ignore runtime registration failures */
       }

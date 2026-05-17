@@ -589,9 +589,12 @@ function refreshCodegenPendingFeatures(projectRoot, phaseFeatureIds) {
   const projectId = doc?.project?.project_id;
   if (!projectId) return;
   const remaining = filterRemainingCodegenQueue(projectRoot, phaseFeatureIds);
-  updateProjectRuntimeState(projectId, {
-    pending_features_json: JSON.stringify(remaining),
-  });
+  updateProjectRuntimeState(
+    projectId,
+    { pending_features_json: JSON.stringify(remaining) },
+    projectRoot,
+    doc
+  );
 }
 
 async function runLayerGroupsParallel(
@@ -1031,7 +1034,7 @@ async function main() {
   const featurePlanWarningCache = new Set();
 
   try {
-    runId = startRun(doc.project?.project_id || 'unknown', sessionId);
+    runId = startRun(doc.project?.project_id || 'unknown', sessionId, projectRoot, doc);
 
     const design3Preflight = scriptPath('ai-design3', 'scripts/run.cjs');
     const pf = spawnSync(process.execPath, [design3Preflight, 'preflight', `--project=${projectRoot}`], {
@@ -1054,12 +1057,17 @@ async function main() {
         appendLog(projectRoot, sessionId, `phase begin: ${phase} features=${phaseFeatStr}`);
         console.error(`[ai-auto3] phase begin phase=${phase} feature_count=${phaseFeatureIds.length}`);
         const pendingAtPhaseStart = filterRemainingCodegenQueue(projectRoot, phaseFeatureIds);
-        updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
-          active_run_id: runId,
-          current_phase: phase,
-          current_stage: '',
-          pending_features_json: JSON.stringify(pendingAtPhaseStart),
-        });
+        updateProjectRuntimeState(
+          doc.project?.project_id || 'unknown',
+          {
+            active_run_id: runId,
+            current_phase: phase,
+            current_stage: '',
+            pending_features_json: JSON.stringify(pendingAtPhaseStart),
+          },
+          projectRoot,
+          doc
+        );
 
         for (const stage of slice) {
           const budget = checkBudget();
@@ -1081,12 +1089,17 @@ async function main() {
             stage === 'codegen'
               ? filterRemainingCodegenQueue(projectRoot, phaseFeatureIds)
               : phaseFeatureIds;
-          updateProjectRuntimeState(doc.project?.project_id || 'unknown', {
-            active_run_id: runId,
-            current_phase: phase,
-            current_stage: stage,
-            pending_features_json: JSON.stringify(pendingForStage),
-          });
+          updateProjectRuntimeState(
+            doc.project?.project_id || 'unknown',
+            {
+              active_run_id: runId,
+              current_phase: phase,
+              current_stage: stage,
+              pending_features_json: JSON.stringify(pendingForStage),
+            },
+            projectRoot,
+            doc
+          );
           console.error(`[ai-auto3] stage begin phase=${phase} stage=${stage}`);
 
           if (stage === 'design') {
@@ -1376,7 +1389,7 @@ async function main() {
     writeStages(projectRoot, doc);
 
     if (runId) finishRun(runId, exitCode, stoppedAt || 'done');
-    if (doc?.project?.project_id) clearProjectRuntimeState(doc.project.project_id);
+    if (doc?.project?.project_id) clearProjectRuntimeState(doc.project.project_id, projectRoot, doc);
   } catch (e) {
     console.error(e);
     exitCode = 1;
@@ -1384,7 +1397,7 @@ async function main() {
     if (runId) finishRun(runId, 1, 'exception');
     try {
       const d = readStages(projectRoot);
-      if (d?.project?.project_id) clearProjectRuntimeState(d.project.project_id);
+      if (d?.project?.project_id) clearProjectRuntimeState(d.project.project_id, projectRoot, d);
     } catch (_) {
       /* noop */
     }
