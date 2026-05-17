@@ -87,8 +87,10 @@ function resolveBuildWorktreeRoot(doc, projectRoot) {
 }
 
 function buildCommandEnv(doc, projectRoot) {
-  if (!hasToolingPackageJson(projectRoot)) return {};
-  return { AI_CODE3_WORKTREE_ROOT: resolveBuildWorktreeRoot(doc, projectRoot) };
+  const wtRoot = resolveBuildWorktreeRoot(doc, projectRoot);
+  const base = { AI_CODE3_PROJECT_ROOT: projectRoot, AI_CODE3_WORKTREE_ROOT: wtRoot };
+  if (!hasToolingPackageJson(projectRoot)) return base;
+  return base;
 }
 
 module.exports = {
