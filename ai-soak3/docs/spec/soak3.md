@@ -28,7 +28,10 @@ ai-soak3/
 │   │   └── soak3.md               # 本文件（规范 SSOT）
 │   └── templates/
 │       └── req-template.md        # inputs/req.md 模板
+├── config.env.template            # Agent/代理占位（运行后生成 config.env）
 └── scripts/
+    ├── ensure-agent-env.cjs       # 探测 cursor-agent → config.env
+    ├── load-soak-env.sh           # source config.env
     ├── ensure-req.cjs             # req.md 存在性与完整性校验
     ├── check-session-health.cjs   # codegen 会话卡住检测
     ├── diagnose-run.cjs           # 全面运行状态诊断
@@ -45,6 +48,7 @@ ai-soak3/
 | **ai-auto3** | 已安装于 `~/.cursor/skills/ai-auto3/` |
 | **inputs/req.md** | 存在于业务项目根目录下（`ensure-req.cjs` 负责校验/生成） |
 | **Node.js** | ≥ 18；`node` 可执行 |
+| **cursor-agent** | 由 `ensure-agent-env.cjs` 自动探测；路径写入 skill `config.env` |
 | **Flutter**（mobile 端） | `flutter doctor` 通过，且有可用模拟器（Android Emulator 或 iOS Simulator） |
 | **macOS**（iOS 端） | 编译 iOS 目标须 Darwin 系统；非 macOS 仅支持 Android 目标 |
 | **网络代理** | 外网命令前须 `export http_proxy=http://127.0.0.1:1087 https_proxy=http://127.0.0.1:1087` |
@@ -81,18 +85,16 @@ ai-soak3/
 用户通过 **`/ai-soak3`** 或等价话术触发时，Agent **必须先**按 **`prompts/invoke-soak3.md`** 执行：
 
 - **PROJECT_ROOT**：当前 Cursor 工作区根目录（业务项目），非 skill 仓路径；
-- **环境**：`AI_SOAK3_STRICT=1`；禁止 `AI_CODE3_SKIP_AGENT`；
-- **范围**：ensure-req → prd3 → autorun 至 report。
+- **环境**：`ensure-agent-env.cjs` 探测 `cursor-agent` → 写入 skill 目录 **`config.env`** → `load-soak-env.sh` 加载；含 `AI_SOAK3_STRICT=1`；禁止 `AI_CODE3_SKIP_AGENT`；
+- **范围**：ensure-agent-env → ensure-req → prd3 → autorun 至 report。
 
 `SKILL.md` §0.1 为入口摘要；本文 §5.0 以下为 strict 技术细则。
 
 ### 5.0 Soak 严格模式（`AI_SOAK3_STRICT=1`）
 
-**ai-soak3 在 Round 开始前**须对当前 shell 及子进程导出：
+**ai-soak3 在 Round 开始前**须执行 `scripts/ensure-agent-env.cjs`（退出码 0），并 `source scripts/load-soak-env.sh` 加载 skill 目录 **`config.env`**（含 `AI_SOAK3_STRICT=1`、`AI_CODE3_AGENT_BIN`、`AI_E2E3_AGENT_BIN`、代理默认值）。
 
-```bash
-export AI_SOAK3_STRICT=1
-```
+探测顺序与 ai-auto3 `resolveCode3AgentBin` 一致：`config.dev.json` → 环境变量 → `~/.local/bin/cursor-agent` → `command -v cursor-agent`。
 
 | 约束 | 说明 |
 | --- | --- |
@@ -103,7 +105,7 @@ export AI_SOAK3_STRICT=1
 
 ```
 Round N:
-  export AI_SOAK3_STRICT=1
+  ensure-agent-env.cjs + load-soak-env.sh
   prereq-check (ensure-req.cjs exit=0)
     ↓
   A: ai-prd3  (bootstrap → validate-prd → write-prd → finalize-prd-review)
@@ -212,6 +214,22 @@ mobile 须实现 req 声明的 **列表 / 创建 / 编辑 / 详情**（见 prd-s
 ---
 
 ## 8. 辅助脚本规范
+
+### 8.0 ensure-agent-env.cjs / load-soak-env.sh
+
+| 脚本 | 说明 |
+|------|------|
+| `ensure-agent-env.cjs` | 探测 `cursor-agent`，写入 **skill 根目录 `config.env`**（勿与业务项目 `inputs/config.env` 混淆） |
+| `load-soak-env.sh` | 调用 `ensure-agent-env` 后 `source config.env`，并 `unset AI_CODE3_SKIP_AGENT` |
+
+| 参数 | 说明 |
+|------|------|
+| `--project=<abs>` | 可选；用于读取 `docs/config.dev.json`（`ui_e2e` 告警） |
+| `--skill-dir=<abs>` | skill 根目录（默认从脚本位置推导） |
+| `--print-shell` | 向 stdout 输出 `export …` 供 `eval "$(…)"` |
+| `--force` | 覆盖 `config.env` 中已有且路径仍存在的 Agent 路径 |
+
+**退出码**：0=已写入且探测到 Agent；3=未找到 `cursor-agent`
 
 ### 8.1 ensure-req.cjs
 
@@ -327,4 +345,5 @@ bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh <PROJECT_ROOT> [CHEC
 | 0.1.0 | 2026-05-16 | 从 `inputs/agent-prompt.md` 迁出，提升为正式 skill |
 | 0.2.0 | 2026-05-16 | 新增：退出条件重新定义（成功=真正跑通）、不可解阻塞 §5.2、部署与端完整验证 §6、skill 评估步骤、mobile 模拟器安装冒烟要求 |
 | 0.3.0 | 2026-05-17 | RFC soak3-req-fidelity：§5.0 strict、§6.2.1/§6.3.1、§7、§10 手工门闸、§11 req 漂移 |
+| 0.3.3 | 2026-05-17 | `ensure-agent-env.cjs`：自动探测 Agent → skill `config.env` → `load-soak-env.sh` |
 | 0.3.1 | 2026-05-17 | RFC §2.5：req 四类分流 C/O/I/N；§11 与 prd3/auto3/code3 衔接 |

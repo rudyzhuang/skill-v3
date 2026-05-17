@@ -1,6 +1,6 @@
 ---
 name: ai-soak3
-version: "0.3.2"
+version: "0.3.3"
 description: >-
   Skill V3 Unattended Soak Agent：在目标业务项目中无人值守地执行 ai-prd3 → ai-auto3
   全链路压测，直至项目完整实现（含服务端部署上线、mobile 编译安装到模拟器、测试全通过）。
@@ -25,9 +25,9 @@ description: >-
 | 项 | 约定 |
 | --- | --- |
 | **PROJECT_ROOT** | 当前 Cursor **工作区根目录**（业务项目仓）的绝对路径；**不是** skill 安装目录 |
-| **严格模式** | 每轮 shell 先 `export AI_SOAK3_STRICT=1`；`unset AI_CODE3_SKIP_AGENT` |
-| **Agent** | 须已配置 `AI_CODE3_AGENT_BIN`；启用 ui_e2e 时须 `AI_E2E3_AGENT_BIN` |
-| **顺序** | ensure-req → prd3 全链 → autorun 至 report → §6/§7 |
+| **严格模式** | `ensure-agent-env.cjs` 写入并加载 `config.env`（含 `AI_SOAK3_STRICT=1`）；禁止 `AI_CODE3_SKIP_AGENT` |
+| **Agent** | 自动探测 `cursor-agent` → `AI_CODE3_AGENT_BIN` / `AI_E2E3_AGENT_BIN`（skill 目录 `config.env`） |
+| **顺序** | ensure-agent-env → ensure-req → prd3 全链 → autorun 至 report → §6/§7 |
 
 用户只发 `/ai-soak3` 即视为同意上表，**无需**再重复粘贴环境变量。
 
@@ -47,9 +47,24 @@ description: >-
 
 ---
 
-## 2. 前置：inputs/req.md 校验（每轮第一步）
+## 2. 前置：Agent 环境 + inputs/req.md（每轮最先）
 
-**在执行任何 ai-prd3 命令之前**，先运行：
+**在执行任何 ai-prd3 命令之前**，先探测 Agent 并加载环境：
+
+```bash
+node ~/.cursor/skills/ai-soak3/scripts/ensure-agent-env.cjs --project=<PROJECT_ROOT>
+source ~/.cursor/skills/ai-soak3/scripts/load-soak-env.sh <PROJECT_ROOT>
+echo "ensure-agent-env + load-soak-env done"
+```
+
+| 退出码 | 含义 | 动作 |
+|--------|------|------|
+| **0** | 已写入 `~/.cursor/skills/ai-soak3/config.env` 且探测到 `cursor-agent` | 继续 §2.1 |
+| **3** | 未找到 `cursor-agent` | 安装 CLI 或手工编辑 skill `config.env` 后重试 |
+
+### 2.1 req.md 校验
+
+**在 ensure-agent-env 成功之后**，运行：
 
 ```bash
 node ~/.cursor/skills/ai-soak3/scripts/ensure-req.cjs --project=<PROJECT_ROOT>
@@ -233,6 +248,8 @@ bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh PROJECT_ROOT
 
 | 脚本 | 用途 | 命令 |
 |------|------|------|
+| `ensure-agent-env.cjs` | 探测 Agent，写入 skill `config.env` | `node ~/.cursor/skills/ai-soak3/scripts/ensure-agent-env.cjs --project=<P>` |
+| `load-soak-env.sh` | 加载 `config.env` 到当前 shell | `source ~/.cursor/skills/ai-soak3/scripts/load-soak-env.sh <P>` |
 | `ensure-req.cjs` | 校验/生成 `inputs/req.md` | `node ~/.cursor/skills/ai-soak3/scripts/ensure-req.cjs --project=<P>` |
 | `check-session-health.cjs` | 检测 codegen 会话是否卡住 | `node ~/.cursor/skills/ai-soak3/scripts/check-session-health.cjs --project=<P>` |
 | `diagnose-run.cjs` | 全面诊断运行状态 | `node ~/.cursor/skills/ai-soak3/scripts/diagnose-run.cjs --project=<P>` |
@@ -396,11 +413,12 @@ echo "mobile smoke: done"
 
 ## 10. 启动清单（第一步）
 
-1. 读并执行 **`prompts/invoke-soak3.md`**（解析 `PROJECT_ROOT`、导出 `AI_SOAK3_STRICT=1`、禁止 `AI_CODE3_SKIP_AGENT`）。
-2. 运行 `ensure-req.cjs`（见 §2）；退出码 0 才继续。
-3. 确认运行环境：`uname -s` 是否为 Darwin（macOS）；若 req.md 含 mobile iOS 且非 macOS → 提前标记（见 §3.4）。
-4. 从 **§4.A** 开始执行；默认连续多 Round 直至 §7 或 §3 #2/#3。
-5. **自检**：若你正准备发送的回复里只有失败总结、没有接下来的命令 → **禁止发送**，先按 §3.1 执行。
+1. 读并执行 **`prompts/invoke-soak3.md`**（解析 `PROJECT_ROOT`）。
+2. 运行 `ensure-agent-env.cjs` + `load-soak-env.sh`（见 §2）；退出码 0 才继续。
+3. 运行 `ensure-req.cjs`（见 §2.1）；退出码 0 才继续。
+4. 确认运行环境：`uname -s` 是否为 Darwin（macOS）；若 req.md 含 mobile iOS 且非 macOS → 提前标记（见 §3.4）。
+5. 从 **§4.A** 开始执行；默认连续多 Round 直至 §7 或 §3 #2/#3。
+6. **自检**：若你正准备发送的回复里只有失败总结、没有接下来的命令 → **禁止发送**，先按 §3.1 执行。
 
 ---
 

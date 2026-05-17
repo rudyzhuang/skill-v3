@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { detectCursorAgentBin } = require('./detect-agent-bin.cjs');
 
 const STRICT_STAGES = ['codegen', 'build', 'deploy', 'smoke', 'ui_e2e'];
 const STRICT_STAGES_PUBLISH = ['deploy', 'smoke'];
@@ -57,9 +58,12 @@ function buildSoakAutorunPlan(projectRoot, opts = {}) {
   let blockReason = null;
   if (strict) {
     const cg = readStagesCodegen(projectRoot);
-    if (cg?.agent?.skipped === true || cg?.impl_codegen_status === 'skipped') {
+    const skipped = cg?.agent?.skipped === true || cg?.impl_codegen_status === 'skipped';
+    const cfgDev = readConfigDev(projectRoot);
+    const agentBin = detectCursorAgentBin(cfgDev);
+    if (skipped && !agentBin) {
       blockReason =
-        'AI_SOAK3_STRICT=1 但 stages.codegen.outputs.agent.skipped=true（须真实 Agent 填码，禁止 SKIP_AGENT 伪完成）';
+        'AI_SOAK3_STRICT=1 但 stages.codegen.outputs.agent.skipped=true 且未探测到 cursor-agent（请运行 ensure-agent-env.cjs）';
     }
   }
 
@@ -77,6 +81,16 @@ function buildSoakAutorunPlan(projectRoot, opts = {}) {
         ? scopedFeatureIds
         : null,
   };
+}
+
+function readConfigDev(projectRoot) {
+  const p = path.join(projectRoot, 'docs', 'config.dev.json');
+  if (!fs.existsSync(p)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 function readStagesCodegen(projectRoot) {

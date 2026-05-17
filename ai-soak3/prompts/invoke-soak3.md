@@ -20,27 +20,29 @@
 
 ## 2. 环境（每轮 Round 开始前必须导出）
 
-在**本 Agent 会话内**执行任何 soak 子步骤（ensure-req、prd3、autorun）之前，对当前 shell 及子进程：
+在**本 Agent 会话内**执行任何 soak 子步骤（ensure-req、prd3、autorun）之前，**先**探测 Agent 并写入 skill 目录 `config.env`，再加载到当前 shell：
 
 ```bash
-export AI_SOAK3_STRICT=1
-unset AI_CODE3_SKIP_AGENT
-unset AI_CODEGEN_SKIP_AGENT
+# ① 探测 cursor-agent → ~/.cursor/skills/ai-soak3/config.env
+node ~/.cursor/skills/ai-soak3/scripts/ensure-agent-env.cjs \
+  --project=<PROJECT_ROOT>
+echo "ensure-agent-env exit: $?"
+
+# ② 加载（任选其一）
+source ~/.cursor/skills/ai-soak3/scripts/load-soak-env.sh <PROJECT_ROOT>
+# 或：eval "$(node ~/.cursor/skills/ai-soak3/scripts/ensure-agent-env.cjs --print-shell --project=<PROJECT_ROOT>)"
 ```
 
 | 变量 | 要求 |
 | --- | --- |
-| `AI_SOAK3_STRICT=1` | **必须**；禁止用「阶段已完成 + hash 未变」跳过 codegen / build / deploy / smoke / ui_e2e |
-| `AI_CODE3_SKIP_AGENT` | **禁止设置**；不得使用 `--stub-remaining` 伪完成 codegen |
-| `AI_CODE3_AGENT_BIN` | **必须已配置**（本机或 Cursor 环境）；未配置则 codegen 失败，不得改业务仓糊弄 |
-| `AI_E2E3_AGENT_BIN` | 若 `config.dev.json` 中 `ui_e2e.enabled=true`，**必须已配置**（Browser / Dart MCP 或等价 CLI） |
+| `AI_SOAK3_STRICT=1` | **必须**（由 `ensure-agent-env` 写入）；禁止用「阶段已完成 + hash 未变」跳过 codegen / build / deploy / smoke / ui_e2e |
+| `AI_CODE3_SKIP_AGENT` | **禁止设置**；`load-soak-env.sh` 会自动 `unset` |
+| `AI_CODE3_AGENT_BIN` | **自动探测** `cursor-agent`（`~/.local/bin` 或 `command -v`）；写入 `config.env` 并 export |
+| `AI_E2E3_AGENT_BIN` | 默认与 codegen 相同；`ui_e2e.enabled=true` 时须非空 |
 
-可选（外网命令前，见 `SKILL.md` §4.1）：
+`ensure-agent-env` 退出码 **3** = 未找到 Agent，须安装 Cursor Agent CLI 或手工编辑 skill 目录 `config.env` 后重试。
 
-```bash
-export http_proxy=http://127.0.0.1:1087
-export https_proxy=http://127.0.0.1:1087
-```
+代理（外网命令前，已写入 `config.env`，见 `SKILL.md` §4.1）：`http_proxy` / `https_proxy` 默认 `http://127.0.0.1:1087`。
 
 ---
 
@@ -50,11 +52,12 @@ export https_proxy=http://127.0.0.1:1087
 
 ```
 Round N:
-  ① ensure-req.cjs          → 退出码须为 0
-  ② ai-prd3 全链            → bootstrap → validate-prd →（若 requires_agent：raw-input-impact + 更新 prd-spec）→ apply-raw-input-config → write-prd → finalize-prd-review
-  ③ ai-auto3 autorun        → design … → deploy_smoke → ui_e2e → report（须等 autorun 结束并读 exit code）
-  ④ §6 部署与端验证 + §7   → 见 SKILL.md；未满足不得宣布 success
-  ⑤ 失败 → §3.1 闭环 → Round N+1（同一会话）
+  ① ensure-agent-env.cjs + load-soak-env.sh  → 退出码须为 0
+  ② ensure-req.cjs          → 退出码须为 0
+  ③ ai-prd3 全链            → bootstrap → validate-prd →（若 requires_agent：raw-input-impact + 更新 prd-spec）→ apply-raw-input-config → write-prd → finalize-prd-review
+  ④ ai-auto3 autorun        → design … → deploy_smoke → ui_e2e → report（须等 autorun 结束并读 exit code）
+  ⑤ §6 部署与端验证 + §7   → 见 SKILL.md；未满足不得宣布 success
+  ⑥ 失败 → §3.1 闭环 → Round N+1（同一会话）
 ```
 
 **autorun 最低命令形态**（`AI_SOAK3_STRICT` 已由 autorun 读取；仍须在本 shell 已 `export`）：

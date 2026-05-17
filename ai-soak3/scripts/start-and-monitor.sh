@@ -33,16 +33,26 @@ AUTORUN_SCRIPT="$HOME/.cursor/skills/ai-auto3/scripts/autorun.cjs"
 HEALTH_SCRIPT="$SKILL_DIR/scripts/check-session-health.cjs"
 DIAGNOSE_SCRIPT="$SKILL_DIR/scripts/diagnose-run.cjs"
 
-# ──────────────────── Soak 严格模式（prompts/invoke-soak3.md）────
-export AI_SOAK3_STRICT=1
-unset AI_CODE3_SKIP_AGENT 2>/dev/null || true
-unset AI_CODEGEN_SKIP_AGENT 2>/dev/null || true
-
-# ──────────────────── 代理（soak3 §4.1）────────────────────────
-if [[ -z "${http_proxy:-}" ]]; then
-  export http_proxy="${http_proxy:-http://127.0.0.1:1087}"
-  export https_proxy="${https_proxy:-http://127.0.0.1:1087}"
-  echo "[monitor] 已设置默认代理: $http_proxy"
+# ──────────────────── Agent 环境（ensure-agent-env → config.env）──
+ENSURE_AGENT_SCRIPT="$SKILL_DIR/scripts/ensure-agent-env.cjs"
+LOAD_ENV_SCRIPT="$SKILL_DIR/scripts/load-soak-env.sh"
+if [[ -f "$ENSURE_AGENT_SCRIPT" ]]; then
+  node "$ENSURE_AGENT_SCRIPT" --skill-dir="$SKILL_DIR" --project="$PROJECT_ROOT" || {
+    echo "[monitor] ❌ ensure-agent-env 失败：未探测到 cursor-agent"
+    exit 3
+  }
+fi
+if [[ -f "$LOAD_ENV_SCRIPT" ]]; then
+  # shellcheck disable=SC1090
+  source "$LOAD_ENV_SCRIPT" "$PROJECT_ROOT"
+else
+  export AI_SOAK3_STRICT=1
+  unset AI_CODE3_SKIP_AGENT 2>/dev/null || true
+  unset AI_CODEGEN_SKIP_AGENT 2>/dev/null || true
+  if [[ -z "${http_proxy:-}" ]]; then
+    export http_proxy="http://127.0.0.1:1087"
+    export https_proxy="http://127.0.0.1:1087"
+  fi
 fi
 
 # ──────────────────── 脚本存在性检查 ──────────────────────────
@@ -70,7 +80,7 @@ echo "[monitor]   健康检查间隔:   ${CHECK_INTERVAL}s"
 echo "[monitor]   卡住阈值:       ${STUCK_MIN}min"
 echo "[monitor] ============================================"
 
-node "$AUTORUN_SCRIPT" --project="$PROJECT_ROOT" &
+node "$AUTORUN_SCRIPT" --project="$PROJECT_ROOT" --force-rerun=codegen,build,deploy,smoke,ui_e2e &
 AUTORUN_PID=$!
 echo "[monitor] autorun 已启动，PID=$AUTORUN_PID"
 
