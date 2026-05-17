@@ -528,43 +528,12 @@ async function run(ctx) {
 
     if (allowPush) {
       if (!mergeGit.remoteExists(projectRoot, remote)) {
-        pushStatus = 'failed';
+        pushStatus = 'skipped_no_remote';
         pushErr = `git remote "${remote}" not configured`;
-        const completedAt = new Date().toISOString();
-        doc = stagesIo.updateStage(doc, 'merge_push', {
-          status: 'failed',
-          completed_at: completedAt,
-          inputs: {
-            ...doc.stages?.merge_push?.inputs,
-            requires_stage: 'code_review',
-            worktrees: wt,
-            target_branch: targetBranch,
-            allow_push: allowPush,
-            summary_hash: hash,
-          },
-          outputs: {
-            ...doc.stages?.merge_push?.outputs,
-            merge_status: 'completed',
-            target_branch: targetBranch,
-            merge_commit: mergeCommit,
-            push_requested: true,
-            push_status: pushStatus,
-            conflict_files: [],
-            error: pushErr,
-            duration_ms: 0,
-            timed_out: false,
-            timeout_reason: null,
-          },
-          validation: {
-            ...doc.stages?.merge_push?.validation,
-            passed: false,
-            summary: pushErr,
-          },
-        });
-        stagesIo.writeStagesSync(projectRoot, doc);
-        console.error('failed_stage=merge_push push failed (no remote)');
-        return 7;
-      }
+        console.error(
+          `[ai-code3] merge_push: ${pushErr} — merge 已完成，跳过 push（本地/soak 仓无 remote 时允许继续 build）`
+        );
+      } else {
       const pr = await mergeGit.pushTargetAsync(projectRoot, remote, targetBranch, mergeStepMs);
       if (!pr.ok) {
         pushStatus = pr.timedOut ? 'failed' : 'failed';
@@ -604,7 +573,8 @@ async function run(ctx) {
         console.error('failed_stage=merge_push push failed');
         return pr.timedOut ? 3 : 7;
       }
-      pushStatus = 'pushed';
+        pushStatus = 'pushed';
+      }
     }
 
     const completedAt = new Date().toISOString();
