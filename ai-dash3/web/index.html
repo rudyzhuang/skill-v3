@@ -36,13 +36,33 @@
     <section class="status-banner" id="statusBanner" aria-live="polite"></section>
 
     <div class="grid-2">
-      <section class="card" id="runtimeCard">
-        <h2>ai-auto3 运行态</h2>
-        <dl id="runtimeDl" class="kv"></dl>
+      <section class="card collapsible" id="runtimeCard" data-card-id="runtime">
+        <header class="card-header">
+          <button type="button" class="card-toggle" aria-expanded="true" aria-controls="runtimeBody" title="展开/收起">
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+          <div class="card-heading">
+            <h2>ai-auto3 运行态</h2>
+            <p class="card-compact" id="runtimeCompact"></p>
+          </div>
+        </header>
+        <div class="card-body" id="runtimeBody">
+          <dl id="runtimeDl" class="kv"></dl>
+        </div>
       </section>
-      <section class="card" id="summaryCard">
-        <h2>项目概览</h2>
-        <dl id="summaryDl" class="kv"></dl>
+      <section class="card collapsible" id="summaryCard" data-card-id="summary">
+        <header class="card-header">
+          <button type="button" class="card-toggle" aria-expanded="true" aria-controls="summaryBody" title="展开/收起">
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+          <div class="card-heading">
+            <h2>项目概览</h2>
+            <p class="card-compact" id="summaryCompact"></p>
+          </div>
+        </header>
+        <div class="card-body" id="summaryBody">
+          <dl id="summaryDl" class="kv"></dl>
+        </div>
       </section>
     </div>
 
@@ -97,7 +117,7 @@
   </main>
 
   <footer class="footer">
-    <p>看板只读 · 「停止本后台」关闭当前 serve · 「停止任务后台」终止 ai-auto3 编排子进程 · 项目列表来自 <code>_runtime/*/runtime.json</code></p>
+    <p>看板只读 · 「停止本后台」关闭当前 serve · 「停止任务后台」终止 ai-auto3 编排子进程 · 项目列表来自 <code>_projects/*/runtime.json</code></p>
   </footer>
 
   <script src="/assets/app.js"></script>

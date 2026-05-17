@@ -10,14 +10,26 @@ const {
   readRuntimeForProjectRoot,
 } = require('./runtime-bridge.cjs');
 
+function featureIndicatesFailure(f) {
+  if (f.current_stage_status === 'failed') return true;
+  const hints = f.hints || [];
+  return hints.some((h) =>
+    ['test_per_feature_failed', 'blocked_in_feature_list', 'project_stage_failed'].includes(h)
+  );
+}
+
 function deriveProjectOverall(summary, featureBoard) {
   if (summary.blockers && summary.blockers.some((b) => b.code === 'stage_failed')) return 'failed';
   if (summary.blockers && summary.blockers.length) return 'blocked';
   if (featureBoard.autorun_active || featureBoard.registry_run_active) return 'running';
   const feats = featureBoard.features || [];
-  if (feats.length && feats.every((f) => f.pipeline_status === 'completed')) return 'completed';
-  if (feats.some((f) => f.pipeline_status === 'in_progress')) return 'in_progress';
-  if (feats.some((f) => f.pipeline_status === 'failed')) return 'failed';
+  if (feats.length && feats.every((f) => (f.feature_status || f.pipeline_status) === 'completed')) {
+    return 'completed';
+  }
+  if (feats.some((f) => (f.feature_status || f.pipeline_status) === 'in_progress')) {
+    return 'in_progress';
+  }
+  if (feats.some(featureIndicatesFailure)) return 'failed';
   const rows = summary.rows || [];
   const anyStarted = rows.some((r) => r.status && r.status !== 'not_started' && r.status !== '—');
   if (!anyStarted) return 'idle';

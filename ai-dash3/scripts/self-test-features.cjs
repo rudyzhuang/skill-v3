@@ -58,8 +58,8 @@ const board = buildFeatureBoard(doc, root, runtime, { alive: true });
 const byId = Object.fromEntries(board.features.map((f) => [f.feature_id, f]));
 
 assert(
-  byId['F-A'].pipeline_status === 'pending',
-  `F-A expected pending (codegen done, test not run), got ${byId['F-A'].pipeline_status}`
+  byId['F-A'].feature_status === 'paused',
+  `F-A expected paused (codegen done, test not run), got ${byId['F-A'].feature_status}`
 );
 assert(
   byId['F-A'].pipeline_stage_label.includes('待 test'),
@@ -133,5 +133,45 @@ const boardDone = buildFeatureBoard(docTestPass, root, runtime, { alive: false }
 const fA = boardDone.features.find((f) => f.feature_id === 'F-A');
 assert(fA.pipeline_status === 'completed', `F-A with test pass expected completed, got ${fA.pipeline_status}`);
 assert(fA.pipeline_stage_label.includes('test'), `F-A completed label should mention test: ${fA.pipeline_stage_label}`);
+assert(fA.feature_status === 'completed', `F-A feature_status expected completed, got ${fA.feature_status}`);
+assert(fA.current_stage_status !== 'completed', 'current_stage_status must not be completed');
+assert(
+  Array.isArray(fA.completed_stages) && fA.completed_stages.includes('codegen'),
+  `F-A completed_stages should include codegen: ${fA.completed_stages}`
+);
+assert(byId['F-B'].feature_status === 'in_progress', `F-B feature_status expected in_progress, got ${byId['F-B'].feature_status}`);
+
+const docFailed = JSON.parse(JSON.stringify(doc));
+docFailed.stages.test = {
+  status: 'failed',
+  outputs: {
+    per_feature: [{ feature_id: 'F-A', result: 'failed', passed: false, finished_at: '2026-01-01T00:00:00.000Z' }],
+  },
+};
+const boardFail = buildFeatureBoard(docFailed, root, runtime, { alive: false });
+const fAFail = boardFail.features.find((f) => f.feature_id === 'F-A');
+assert(fAFail.current_stage === 'test', `F-A failed current_stage expected test, got ${fAFail.current_stage}`);
+assert(fAFail.current_stage_status === 'failed', `F-A failed current_stage_status expected failed, got ${fAFail.current_stage_status}`);
+assert(fAFail.feature_status === 'paused', `F-A failed feature_status expected paused, got ${fAFail.feature_status}`);
+assert(
+  fAFail.completed_stages.includes('codegen'),
+  `F-A failed should list codegen in completed_stages: ${fAFail.completed_stages}`
+);
+
+const docPrdPending = JSON.parse(JSON.stringify(doc));
+delete docPrdPending.stages.codegen;
+docPrdPending.stages.prd = { status: 'pending' };
+const boardPrd = buildFeatureBoard(docPrdPending, root, {}, { alive: false });
+const fBPrd = boardPrd.features.find((f) => f.feature_id === 'F-B');
+assert(fBPrd.feature_status === 'pending', `F-B before prd expected pending, got ${fBPrd.feature_status}`);
+
+const docPrdRun = JSON.parse(JSON.stringify(docPrdPending));
+docPrdRun.stages.prd = { status: 'running' };
+const boardPrdRun = buildFeatureBoard(docPrdRun, root, {}, { alive: false });
+const fBRun = boardPrdRun.features.find((f) => f.feature_id === 'F-B');
+assert(
+  fBRun.feature_status === 'in_progress',
+  `F-B while prd running expected in_progress, got ${fBRun.feature_status}`
+);
 
 console.log('ai-dash3 self-test-features: ok');

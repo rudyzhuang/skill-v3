@@ -17,6 +17,24 @@ const FEATURE_LABEL = {
   deferred: '延期',
 };
 
+/** 当前阶段后缀状态（不含「已完成」） */
+const CURRENT_STAGE_STATUS_LABEL = {
+  pending: '待处理',
+  running: '处理中',
+  failed: '失败',
+  deferred: '延期',
+};
+
+/** 整条 feature 状态 */
+const FEATURE_STATUS_LABEL = {
+  pending: '待处理',
+  in_progress: '处理中',
+  paused: '暂停中',
+  completed: '已完成',
+  failed: '失败',
+  deferred: '延期',
+};
+
 const STAGE_DISPLAY = {
   merge_push: 'merge-push',
 };
@@ -24,6 +42,22 @@ const STAGE_DISPLAY = {
 function displayStage(k) {
   if (STAGE_DISPLAY[k]) return STAGE_DISPLAY[k];
   return String(k || '').replace(/_/g, '-');
+}
+
+function featureMatchesFilter(f, filterStatus) {
+  if (filterStatus === 'all') return true;
+  const status = f.feature_status || f.pipeline_status;
+  if (filterStatus === 'failed') {
+    if (f.current_stage_status === 'failed') return true;
+    const hints = f.hints || [];
+    return hints.some((h) =>
+      ['test_per_feature_failed', 'blocked_in_feature_list', 'project_stage_failed'].includes(h)
+    );
+  }
+  if (filterStatus === 'deferred') {
+    return status === 'deferred' || (f.hints || []).includes('deferred_in_prd_review');
+  }
+  return status === filterStatus;
 }
 
 function $(id) {
@@ -35,6 +69,81 @@ let currentProjectRoot = '';
 let lastDashboard = null;
 let featureFilter = 'all';
 let timer = null;
+
+const COLLAPSE_STORAGE_KEY = 'ai-dash3.collapsedCards';
+
+function loadCollapsedState() {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSE_STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveCollapsedState(state) {
+  try {
+    localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
+function setCardCollapsed(card, collapsed, persist) {
+  card.classList.toggle('collapsed', collapsed);
+  const btn = card.querySelector('.card-toggle');
+  if (btn) btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (persist) {
+    const id = card.dataset.cardId;
+    if (!id) return;
+    const state = loadCollapsedState();
+    state[id] = collapsed;
+    saveCollapsedState(state);
+  }
+}
+
+function initCollapsibleCards() {
+  const state = loadCollapsedState();
+  for (const card of document.querySelectorAll('.card.collapsible')) {
+    const id = card.dataset.cardId;
+    setCardCollapsed(card, !!state[id], false);
+    const header = card.querySelector('.card-header');
+    const toggle = card.querySelector('.card-toggle');
+    const onToggle = (e) => {
+      e.preventDefault();
+      setCardCollapsed(card, !card.classList.contains('collapsed'), true);
+    };
+    if (toggle) toggle.addEventListener('click', onToggle);
+    if (header) {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.card-toggle')) return;
+        onToggle(e);
+      });
+    }
+  }
+}
+
+function runtimeCompactText(dash) {
+  const rt = dash.runtime || {};
+  const parts = [
+    `autorun ${dash.autorun_active ? '运行' : '空闲'}`,
+    rt.current_stage ? `stage ${displayStage(rt.current_stage)}` : null,
+    `进程 ${(dash.processes || []).length}`,
+  ];
+  if (dash.registry_stale_run) parts.push('⚠ 僵尸 run');
+  if (dash.registry_run_active && !dash.autorun_active) parts.push('未结束 run');
+  if (dash.active_codegen_feature_id) parts.push(`codegen ${dash.active_codegen_feature_id}`);
+  return parts.filter(Boolean).join(' · ');
+}
+
+function summaryCompactText(dash) {
+  const p = dash.summary?.pipeline || {};
+  const name = dash.project_name || dash.project_id || '—';
+  const stage = p.current_stage ? displayStage(p.current_stage) : '—';
+  const last = p.last_completed_stage ? displayStage(p.last_completed_stage) : '—';
+  const root = dash.project_root || '';
+  const shortRoot = root.length > 48 ? `…${root.slice(-46)}` : root;
+  return `${name} · ${stage}（上次 ${last}）${shortRoot ? ` · ${shortRoot}` : ''}`;
+}
 
 async function fetchJson(url, options) {
   const r = await fetch(url, { cache: 'no-store', ...options });
@@ -124,6 +233,8 @@ function fillKv(dl, pairs) {
 }
 
 function renderRuntime(dash) {
+  const compact = $('runtimeCompact');
+  if (compact) compact.textContent = runtimeCompactText(dash);
   const rt = dash.runtime || {};
   fillKv($('runtimeDl'), [
     ['autorun 活跃', dash.autorun_active ? '是' : '否'],
@@ -147,6 +258,8 @@ function renderRuntime(dash) {
 }
 
 function renderSummary(dash) {
+  const compact = $('summaryCompact');
+  if (compact) compact.textContent = summaryCompactText(dash);
   const s = dash.summary || {};
   const p = s.pipeline || {};
   fillKv($('summaryDl'), [
@@ -164,12 +277,11 @@ function renderFeatures(dash, filterStatus) {
   const board = $('featureBoard');
   const tabs = $('featureTabs');
   const feats = dash.features || [];
-  const statuses = ['all', 'in_progress', 'pending', 'completed', 'failed', 'deferred'];
+  const statuses = ['all', 'in_progress', 'paused', 'pending', 'completed', 'failed', 'deferred'];
 
   tabs.innerHTML = '';
   for (const st of statuses) {
-    const count =
-      st === 'all' ? feats.length : feats.filter((f) => f.pipeline_status === st).length;
+    const count = st === 'all' ? feats.length : feats.filter((f) => featureMatchesFilter(f, st)).length;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = `${st === 'all' ? '全部' : FEATURE_LABEL[st] || st} (${count})`;
@@ -180,7 +292,7 @@ function renderFeatures(dash, filterStatus) {
 
   board.innerHTML = '';
   const list =
-    featureFilter === 'all' ? feats : feats.filter((f) => f.pipeline_status === featureFilter);
+    featureFilter === 'all' ? feats : feats.filter((f) => featureMatchesFilter(f, featureFilter));
 
   if (!list.length) {
     board.innerHTML = '<p class="empty">暂无 feature（检查 prd_review.phase_plan）</p>';
@@ -190,17 +302,31 @@ function renderFeatures(dash, filterStatus) {
   for (const f of list) {
     const card = document.createElement('article');
     card.className = 'feature-card';
-    card.dataset.status = f.pipeline_status;
-    const stageLine = escapeHtml(f.pipeline_stage_label || displayStage(f.pipeline_stage) || '—');
+    const completedStages = escapeHtml(
+      f.completed_stages_label || (f.completed_stages || []).map((k) => displayStage(k)).join(', ') || '—'
+    );
+    const currentStageName = escapeHtml(
+      f.current_stage_label || displayStage(f.current_stage || f.pipeline_stage) || '—'
+    );
+    const stageStatusKey = f.current_stage_status || 'pending';
+    const stageStatusText = escapeHtml(
+      CURRENT_STAGE_STATUS_LABEL[stageStatusKey] || CURRENT_STAGE_STATUS_LABEL.pending
+    );
+    const currentStage = `${currentStageName}（${stageStatusText}）`;
+    const featureStatus = f.feature_status || f.pipeline_status || 'pending';
+    card.dataset.status = featureStatus;
+    const badgeClass = featureStatus === 'in_progress' ? 'in_progress' : featureStatus;
+    const badgeLabel = FEATURE_STATUS_LABEL[featureStatus] || featureStatus;
     const startedLine = escapeHtml(formatLocalTime(f.stage_started_at));
     const elapsedLine = escapeHtml(formatDuration(f.stage_elapsed_ms));
     card.innerHTML = `
       <div class="fid">${escapeHtml(f.feature_id)}</div>
       ${f.name ? `<div class="meta">${escapeHtml(f.name)}</div>` : ''}
       <div class="meta">phase: ${escapeHtml(f.phase)}${f.client_target ? ` · ${escapeHtml(f.client_target)}` : ''}${f.priority_tier != null ? ` · P${f.priority_tier}` : ''}</div>
-      <div class="meta feature-stage">阶段: <strong>${stageLine}</strong></div>
+      <div class="meta feature-stage">已完成阶段: <strong>${completedStages}</strong></div>
+      <div class="meta feature-stage">当前阶段: <strong>${currentStage}</strong></div>
       <div class="meta feature-timing">开始: ${startedLine} · 已运行: ${elapsedLine}</div>
-      <span class="badge badge-${f.pipeline_status}">${FEATURE_LABEL[f.pipeline_status] || f.pipeline_status}</span>
+      <span class="badge badge-${badgeClass}">${escapeHtml(badgeLabel)}</span>
     `;
     board.appendChild(card);
   }
@@ -500,6 +626,7 @@ async function init() {
   });
   $('autoRefresh').addEventListener('change', scheduleAutoRefresh);
 
+  initCollapsibleCards();
   scheduleAutoRefresh();
   await loadDashboard();
 }

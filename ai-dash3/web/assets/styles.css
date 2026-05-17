@@ -179,12 +179,94 @@ main {
 }
 
 .card h2 {
-  margin: 0 0 0.75rem;
+  margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.card.collapsible {
+  padding: 0;
+}
+
+.card.collapsible .card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.card.collapsible .card-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.card.collapsible .card-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.card.collapsible .card-compact {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.4;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  word-break: break-word;
+}
+
+.card.collapsible:not(.collapsed) .card-compact {
+  display: none;
+}
+
+.card.collapsible .card-body {
+  padding: 0 1rem 1rem;
+}
+
+.card.collapsible.collapsed .card-body {
+  display: none;
+}
+
+.card-toggle {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.card-toggle:hover {
+  color: var(--text);
+  filter: none;
+  background: #2d3d54;
+}
+
+.card-toggle .chevron {
+  display: block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+  margin-top: -0.15rem;
+}
+
+.card.collapsible.collapsed .card-toggle .chevron {
+  transform: rotate(-45deg);
+  margin-top: 0.1rem;
 }
 
 .card h3.sub {
@@ -256,6 +338,15 @@ main {
 
 .feature-card[data-status='deferred'] {
   border-left-color: var(--warn);
+}
+
+.feature-card[data-status='paused'] {
+  border-left-color: var(--warn);
+}
+
+.badge-paused {
+  background: rgba(240, 180, 41, 0.22);
+  color: #fbd38d;
 }
 
 .feature-card .fid {

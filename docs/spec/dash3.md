@@ -190,18 +190,28 @@
 | **`POST /api/stop-serve`** | 优雅关闭**当前** ai-dash3 **serve**（**`server.close` + `process.exit`**）；响应 **`ai-dash3.stop-serve.v1`**（含 **`pid` / `host` / `port`**）。**不**终止 ai-auto3 子进程。端口仍被其它陈旧进程占用时，用户可在终端执行 **`lsof -ti :<port> \| xargs kill`**。 |
 | **`POST /api/stop?project=<abs>`** | **「停止所有后台任务」**：调用 **ai-auto3** **`stop-pipeline.cjs`**，终止匹配进程，清理 **`pipeline.pid`**，更新 **runtime.json**（**`orchestration.active=false`**、**`processes` exited**）。响应 **`ai-dash3.stop.v1`**；仍有存活进程时 HTTP **207**。**不**关闭 ai-dash3 serve。 |
 
-**`features[].pipeline_status`** 枚举：**`pending` | `in_progress` | `completed` | `failed` | `deferred`**（启发式，见实现 **`lib/features.cjs`**）。
+**`features[].pipeline_status`**（与 **`feature_status`** 同值，供筛选/聚合）：**`pending` | `in_progress` | `paused` | `completed`**（见 **`lib/features.cjs`**）。**阶段失败**体现在 **`current_stage_status=failed`**，**不**再单独占用 **`pipeline_status=failed`**。
 
-**`pipeline_status` 判定（定稿，与 `lib/features.cjs` 一致）**：
+**`feature_status`（整条 feature，Web 底栏徽章）**：
 
 | 状态 | 条件（按优先级） |
 | --- | --- |
-| **`deferred`** | 在 **`prd_review.review.deferred_features`** 中 |
-| **`failed`** | **`feature_list`** 为 **`blocked`**；或项目存在 **`failed`** 阶段且该 feature 属于当前失败 phase / **`pending_features_json`** 队列 |
-| **`completed`** | **仅当** **`stages.test.outputs.per_feature[]`** 中该 **`feature_id`** 为 **passed/success**（或 **`passed: true`**）。**codegen 落盘不算「已完成」**；阶段文案为 **`test（本 feature 已通过）`** |
-| **`in_progress`** | **registry 存活**且为 **`pickActiveCodegenFeature`** 选中的当前 codegen feature；或 **codegen 已完成**且项目 **`stages.test.status=running`**（文案 **`test（进行中）`**） |
-| **`pending`** | 其余：含 **codegen 已完成、待 test**（文案 **`codegen（已完成，待 test）`**）；**autorun 排队**；**脚手架 worktree**。**禁止**将 health-full 脚手架或仅 codegen 工件标为 **`completed`** |
-| **（实现分离）** | **`isFeatureCodegenDone`**（**`lib/features.cjs`**）仅用于 **autorun** **`filterRemainingCodegenQueue`**，与看板 **`completed`** 判定**不同** |
+| **`completed`** | **`stages.test.outputs.per_feature[]`** 该 **`feature_id`** 通过（**唯一**「已完成」） |
+| **`in_progress`** | 与本 feature 相关的任一阶段 **`running`**（含 active codegen、test running、项目 prd running 等） |
+| **`pending`** | 项目 **`prd`** 尚未开始，且本 feature 未动工 |
+| **`paused`** | **`prd`** 已完成且项目 **`ui_e2e`** 未完成，且非 **`in_progress`**（含 codegen 完待 test、test 失败待处理、延期等） |
+
+**`current_stage` / `current_stage_status`（卡片「当前阶段」行）**：
+
+| 字段 | 说明 |
+| --- | --- |
+| **`completed_stages[]`** | 已完成阶段键名列表（展示为 **`prd, prd-review, …`**） |
+| **`current_stage`** | 当前阶段键名 |
+| **`current_stage_status`** | **`pending` | `running` | `failed` | `deferred`**（**无** `completed`；已完成阶段只出现在 **`completed_stages`**） |
+
+**内部启发式（`hints[]`）** 仍记录 **`test_per_feature_failed`**、**`blocked_in_feature_list`** 等；**「失败」筛选** 匹配 **`current_stage_status=failed`** 或上述 hints。
+
+**（实现分离）** **`isFeatureCodegenDone`** 仅用于 **autorun** **`filterRemainingCodegenQueue`**，与看板 **`completed`** 判定**不同**。
 
 **`orchestration.pending_features`**（**`runtime.json`**，原 registry **`pending_features_json`**）：表示**尚未完成 codegen 的排队列表**；**autorun** 在 codegen 波次中应随进度收缩，**不得**长期等于整期 **`phase_plan`** 全集否则看板会把全员标为处理中。
 
