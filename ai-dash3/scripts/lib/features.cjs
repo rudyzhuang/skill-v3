@@ -108,11 +108,12 @@ function featureStageStatus(doc, stageKey, featureId) {
   return row?.status ? String(row.status) : null;
 }
 
-/** 任一 stage 的 per_feature 为 running 时，返回最先匹配的阶段键 */
+/** 任一 stage 的 per_feature 为 running 时，返回最先匹配的阶段键（已完成阶段跳过） */
 function findFeatureRunningStage(doc, featureId) {
   const fid = String(featureId || '').trim();
   if (!fid || !featureStages) return null;
   for (const key of STAGE_KEYS) {
+    if (featureStages.isFeatureStageCompleted(doc, key, fid)) continue;
     if (featureStageStatus(doc, key, fid) === 'running') return key;
   }
   return null;
@@ -187,7 +188,8 @@ function isTestStageRunning(doc) {
 }
 
 /**
- * feature 级 codegen 是否完成（禁止将 health 脚手架误判为已完成）
+ * feature 级 codegen 是否完成。
+ * 真源：`stages.codegen.outputs.per_feature[]`（经 feature-stages）；worktree/git 仅作旧项目回退。
  * @param {string} projectRoot
  * @param {string} featureId
  * @param {object|null} [doc] stages.json
@@ -196,6 +198,10 @@ function isFeatureCodegenDone(projectRoot, featureId, doc) {
   const fid = String(featureId || '').trim();
   if (!fid) return false;
   const stages = loadStagesDoc(projectRoot, doc);
+
+  if (featureStages && featureStages.isFeatureStageCompleted(stages, 'codegen', fid)) {
+    return true;
+  }
 
   const wtRow = codegenWorktreeRecord(stages, fid);
   if (wtRow) {
@@ -281,6 +287,18 @@ function parsePendingFeatures(runtime) {
   } catch {
     return new Set();
   }
+}
+
+/** 从 runtime 排队列表中剔除已在 stages 标记 codegen 完成的 id（避免看板全员「处理中」） */
+function effectivePendingCodegenQueue(projectRoot, doc, runtime) {
+  const raw = parsePendingFeatures(runtime);
+  if (!raw.size) return raw;
+  const stages = loadStagesDoc(projectRoot, doc);
+  const out = new Set();
+  for (const fid of raw) {
+    if (!isFeatureCodegenDone(projectRoot, fid, stages)) out.add(fid);
+  }
+  return out;
 }
 
 /**
@@ -386,10 +404,9 @@ function displayStageKey(stageKey) {
 function pickActiveCodegenFeature(orderedIds, projectRoot, pendingQueue, doc) {
   const stages = loadStagesDoc(projectRoot, doc);
   for (const fid of orderedIds) {
-    if (!isFeatureCodegenDone(projectRoot, fid, stages)) {
-      if (pendingQueue.has(fid) || worktreeTimestamps(projectRoot, fid).exists) {
-        return fid;
-      }
+    if (isFeatureCodegenDone(projectRoot, fid, stages)) continue;
+    if (pendingQueue.has(fid) || worktreeTimestamps(projectRoot, fid).exists) {
+      return fid;
     }
   }
   return null;
@@ -439,13 +456,23 @@ function deriveFeatureStageFields(p) {
       stage_started_at = new Date(wtTimes.mtimeMs).toISOString();
     }
   } else if (codegenDone && !testPassed) {
-    pipeline_stage = testRunning ? 'test' : 'codegen';
-    pipeline_stage_label = testRunning ? 'test（进行中）' : 'codegen（已完成，待 test）';
-    stage_started_at = testRunning
-      ? globalStageStartedAt(doc, 'test')
-      : wtTimes.mtimeMs
-        ? new Date(wtTimes.mtimeMs).toISOString()
-        : globalStageStartedAt(doc, 'codegen');
+    const nextKey = testRunning
+      ? 'test'
+      : firstIncompleteStageFrom(doc, { ...p, fid, codegenDone, testPassed, testFailed, testRunning }, STAGE_KEYS.indexOf('codegen') + 1);
+    pipeline_stage = nextKey;
+    if (testRunning) {
+      pipeline_stage_label = 'test（进行中）';
+      stage_started_at = globalStageStartedAt(doc, 'test');
+    } else if (nextKey === 'typecheck') {
+      pipeline_stage_label = 'typecheck（待处理）';
+      stage_started_at = globalStageStartedAt(doc, 'typecheck');
+    } else if (nextKey === 'test') {
+      pipeline_stage_label = 'test（待处理）';
+      stage_started_at = globalStageStartedAt(doc, 'test');
+    } else {
+      pipeline_stage_label = `${displayStageKey(nextKey)}（待处理）`;
+      stage_started_at = globalStageStartedAt(doc, nextKey);
+    }
   } else if (pipeline_status === 'in_progress' && isActiveCodegen) {
     pipeline_stage = 'codegen';
     pipeline_stage_label = 'codegen（进行中）';
@@ -494,20 +521,27 @@ function deriveFeatureStageFields(p) {
   };
 }
 
+function firstIncompleteStageFrom(doc, ctx, startIdx) {
+  const from = Math.max(0, startIdx);
+  for (let i = from; i < STAGE_KEYS.length; i++) {
+    const key = STAGE_KEYS[i];
+    if (!isStageCompletedForFeature(doc, key, ctx)) return key;
+  }
+  return STAGE_KEYS[STAGE_KEYS.length - 1] || 'report';
+}
+
 function normalizeFeatureCurrentStageKey(pipelineStage, ctx, doc) {
   const k = String(pipelineStage || '').trim();
   if (ctx.testPassed && doc) {
-    const testIdx = STAGE_KEYS.indexOf('test');
-    for (let i = testIdx + 1; i < STAGE_KEYS.length; i++) {
-      const key = STAGE_KEYS[i];
-      if (!isStageCompletedForFeature(doc, key, ctx)) return key;
-    }
-    return STAGE_KEYS[STAGE_KEYS.length - 1] || 'ui_e2e';
+    return firstIncompleteStageFrom(doc, ctx, STAGE_KEYS.indexOf('test') + 1);
   }
   if (k && !['not_started', 'deferred', 'failed'].includes(k)) return k;
   if (ctx.pipeline_status === 'deferred') return 'deferred';
   if (ctx.testFailed) return 'test';
-  if (ctx.codegenDone && !ctx.testPassed) return ctx.testRunning ? 'test' : 'codegen';
+  if (ctx.codegenDone && !ctx.testPassed) {
+    if (ctx.testRunning) return 'test';
+    return firstIncompleteStageFrom(doc, ctx, STAGE_KEYS.indexOf('codegen') + 1);
+  }
   if (ctx.isActiveCodegen) return 'codegen';
   const proj = String(ctx.pipelineCurrentStage || '').trim();
   return proj || 'codegen';
@@ -543,9 +577,10 @@ function deriveCurrentStageStatus(doc, currentKey, ctx) {
   if (ctx.blockedInList) return 'failed';
   if (currentKey === 'deferred' || ctx.pipeline_status === 'deferred') return 'deferred';
   const fid = String(ctx.fid || '').trim();
+  if (currentKey === 'codegen' && ctx.codegenDone) return 'pending';
   if (fid && featureStages) {
     const explicit = featureStageStatus(doc, currentKey, fid);
-    if (explicit === 'running') return 'running';
+    if (explicit === 'running' && !(currentKey === 'codegen' && ctx.codegenDone)) return 'running';
     if (explicit === 'failed') return 'failed';
     if (explicit === 'deferred') return 'deferred';
     if (explicit === 'completed') return 'pending';
@@ -703,7 +738,7 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
   const deferred = collectDeferredIds(doc || {});
   const listMeta = doc ? parseFeatureLists(projectRoot, doc) : {};
   const worktrees = collectFeatureWorktreeIds(doc, projectRoot);
-  const pendingQueue = parsePendingFeatures(runtime);
+  const pendingQueue = effectivePendingCodegenQueue(projectRoot, doc, runtime);
   const projectFailed = doc ? projectHasFailedStage(doc) : false;
   const currentPhase = runtime?.current_phase ? String(runtime.current_phase) : '';
   const currentStage = runtime?.current_stage ? String(runtime.current_stage) : '';

@@ -44,15 +44,20 @@ function resolveFeatureIds(doc, options) {
   return ['default'];
 }
 
-function mapWorktreeRows(rows) {
-  return rows.map((r) => ({
-    ...r,
-    commit: '',
+function normalizeWorktreeRow(r) {
+  return {
     files_expected: [],
     files_changed: [],
     test_files_expected: [],
     test_files_changed: [],
-  }));
+    commit: '',
+    ...r,
+    files_expected: Array.isArray(r.files_expected) ? r.files_expected : [],
+    files_changed: Array.isArray(r.files_changed) ? r.files_changed : [],
+    test_files_expected: Array.isArray(r.test_files_expected) ? r.test_files_expected : [],
+    test_files_changed: Array.isArray(r.test_files_changed) ? r.test_files_changed : [],
+    commit: r.commit != null ? String(r.commit) : '',
+  };
 }
 
 /** Merge per-feature codegen runs so autorun coverage checks see the full phase set. */
@@ -60,11 +65,23 @@ function mergeCodegenWorktrees(existing, rows) {
   const byId = new Map();
   for (const r of existing || []) {
     const id = String(r?.feature_id || '').trim();
-    if (id) byId.set(id, r);
+    if (id) byId.set(id, normalizeWorktreeRow(r));
   }
-  for (const r of mapWorktreeRows(rows)) {
+  for (const r of rows || []) {
     const id = String(r?.feature_id || '').trim();
-    if (id) byId.set(id, { ...(byId.get(id) || {}), ...r });
+    if (!id) continue;
+    const prev = byId.get(id) || {};
+    const next = normalizeWorktreeRow({ ...prev, ...r });
+    if (!String(next.commit || '').trim() && String(prev.commit || '').trim()) {
+      next.commit = prev.commit;
+    }
+    if (!next.files_changed?.length && prev.files_changed?.length) {
+      next.files_changed = prev.files_changed;
+    }
+    if (!next.test_files_changed?.length && prev.test_files_changed?.length) {
+      next.test_files_changed = prev.test_files_changed;
+    }
+    byId.set(id, next);
   }
   return [...byId.values()].sort((a, b) =>
     String(a.feature_id || '').localeCompare(String(b.feature_id || ''))

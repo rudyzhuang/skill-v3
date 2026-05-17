@@ -327,8 +327,11 @@ function isFeatureStageRunning(doc, stageKey, featureId) {
 }
 
 function anyFeatureStageRunning(doc, featureId, stageKeys = STAGE_KEYS) {
+  const fid = String(featureId || '').trim();
+  if (!fid) return false;
   for (const key of stageKeys) {
-    if (isFeatureStageRunning(doc, key, featureId)) return true;
+    if (isFeatureStageCompleted(doc, key, fid)) continue;
+    if (isFeatureStageRunning(doc, key, fid)) return true;
   }
   return false;
 }

@@ -211,7 +211,7 @@
 
 **内部启发式（`hints[]`）** 仍记录 **`test_per_feature_failed`**、**`blocked_in_feature_list`** 等；**「失败」筛选** 匹配 **`current_stage_status=failed`** 或上述 hints。
 
-**（实现分离）** **`isFeatureCodegenDone`** 仅用于 **autorun** **`filterRemainingCodegenQueue`**，与看板 **`completed`** 判定**不同**。
+**`isFeatureCodegenDone`（codegen 完成）**：与 **autorun** **`filterRemainingCodegenQueue`**、看板 **`codegenDone` / `completed_stages`** 共用同一实现；**真源**为 **`stages.*.outputs.per_feature[]`**（**`feature-stages.cjs`**），**worktree / git** 仅作无 per_feature 时的回退。看板 **`feature_status=completed`** 仍以 **test + ui_e2e** 为准（上表）。
 
 **`orchestration.pending_features`**（**`runtime.json`**，原 registry **`pending_features_json`**）：表示**尚未完成 codegen 的排队列表**；**autorun** 在 codegen 波次中应随进度收缩，**不得**长期等于整期 **`phase_plan`** 全集否则看板会把全员标为处理中。
 

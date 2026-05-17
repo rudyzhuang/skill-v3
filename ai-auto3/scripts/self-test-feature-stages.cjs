@@ -79,4 +79,20 @@ assert(fs.existsSync(logPath), 'appendStageLog should create session log');
 const logText = fs.readFileSync(logPath, 'utf8');
 assert(logText.includes('日志可读性自检'), 'log should contain human message');
 
+doc = featureStages.markFeatureStage(doc, 'codegen', 'F-A', 'completed', { message: 'done' });
+doc = featureStages.upsertPerFeature(doc, 'typecheck', 'F-A', {
+  status: 'running',
+  started_at: new Date().toISOString(),
+  message: 'typecheck running',
+});
+assert(
+  featureStages.anyFeatureStageRunning(doc, 'F-A'),
+  'anyFeatureStageRunning should see typecheck running'
+);
+doc = featureStages.markFeatureStage(doc, 'typecheck', 'F-A', 'completed', { message: 'ok' });
+assert(
+  !featureStages.anyFeatureStageRunning(doc, 'F-A'),
+  'anyFeatureStageRunning must be false when all per-feature stages are completed'
+);
+
 console.log('self-test-feature-stages: OK');

@@ -62,8 +62,8 @@ assert(
   `F-A expected paused (codegen done, test not run), got ${byId['F-A'].feature_status}`
 );
 assert(
-  byId['F-A'].pipeline_stage_label.includes('待 test'),
-  `F-A label expected 待 test, got ${byId['F-A'].pipeline_stage_label}`
+  byId['F-A'].current_stage === 'typecheck' || byId['F-A'].pipeline_stage_label.includes('待'),
+  `F-A after codegen done expected typecheck or 待 label, got stage=${byId['F-A'].current_stage} label=${byId['F-A'].pipeline_stage_label}`
 );
 assert(byId['F-B'].pipeline_status === 'in_progress', `F-B expected in_progress (active codegen), got ${byId['F-B'].pipeline_status}`);
 assert(byId['F-B'].hints.includes('active_codegen_feature'), 'F-B should be active_codegen_feature');
@@ -209,6 +209,69 @@ assert(
 assert(
   fBDesign.feature_status === 'in_progress',
   `F-B design per_feature running expected in_progress, got ${fBDesign.feature_status}`
+);
+
+const docCodegenPerFeature = JSON.parse(JSON.stringify(doc));
+docCodegenPerFeature.stages.codegen = {
+  status: 'running',
+  outputs: {
+    worktrees: [
+      {
+        feature_id: 'F-A',
+        worktree_path: path.join(root, '.pipeline', 'worktrees', 'v3-fc-F-A'),
+        commit: '',
+        files_changed: [],
+      },
+      {
+        feature_id: 'F-B',
+        worktree_path: path.join(root, '.pipeline', 'worktrees', 'v3-fc-F-B'),
+        commit: '',
+        files_changed: [],
+      },
+    ],
+    per_feature: [
+      { feature_id: 'F-A', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
+      { feature_id: 'F-B', status: 'running', started_at: '2026-01-01T00:00:00.000Z' },
+    ],
+  },
+};
+const runtimeStalePending = {
+  ...runtime,
+  pending_features_json: JSON.stringify(['F-A', 'F-B']),
+};
+const boardCodegenPf = buildFeatureBoard(docCodegenPerFeature, root, runtimeStalePending, { alive: true });
+const fAPf = boardCodegenPf.features.find((f) => f.feature_id === 'F-A');
+const fBPf = boardCodegenPf.features.find((f) => f.feature_id === 'F-B');
+assert(fAPf.feature_status === 'paused', `F-A per_feature codegen done expected paused, got ${fAPf.feature_status}`);
+assert(
+  fAPf.current_stage_status === 'pending',
+  `F-A codegen done current_stage_status expected pending, got ${fAPf.current_stage_status}`
+);
+assert(
+  fAPf.completed_stages.includes('codegen'),
+  `F-A should list codegen in completed_stages: ${fAPf.completed_stages}`
+);
+assert(fBPf.feature_status === 'in_progress', `F-B active codegen expected in_progress, got ${fBPf.feature_status}`);
+assert(
+  fBPf.current_stage_status === 'running',
+  `F-B running codegen expected current_stage_status=running, got ${fBPf.current_stage_status}`
+);
+
+const docStaleRunning = JSON.parse(JSON.stringify(docCodegenPerFeature));
+docStaleRunning.stages.codegen.outputs.per_feature = [
+  { feature_id: 'F-A', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
+  { feature_id: 'F-B', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
+];
+const boardAllDone = buildFeatureBoard(docStaleRunning, root, runtimeStalePending, { alive: true });
+const fAStale = boardAllDone.features.find((f) => f.feature_id === 'F-A');
+const fBStale = boardAllDone.features.find((f) => f.feature_id === 'F-B');
+assert(
+  fAStale.feature_status === 'paused' && fBStale.feature_status === 'paused',
+  `all codegen done expected paused: F-A=${fAStale.feature_status} F-B=${fBStale.feature_status}`
+);
+assert(
+  boardAllDone.active_codegen_feature_id === null,
+  `no active codegen when all per_feature completed, got ${boardAllDone.active_codegen_feature_id}`
 );
 
 console.log('ai-dash3 self-test-features: ok');
