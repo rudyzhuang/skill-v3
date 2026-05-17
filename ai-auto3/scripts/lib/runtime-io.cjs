@@ -86,6 +86,57 @@ function runtimePathForDirName(dirName) {
   return path.join(runtimeDirForDirName(dirName), 'runtime.json');
 }
 
+/** skill 仓内 fixtures（如 ai-code3/fixtures/smoke-project）只写 _runtime，不进 _projects */
+function isSkillFixtureProjectRoot(projectRoot) {
+  const root = path.resolve(String(projectRoot || ''));
+  if (!root) return false;
+  const skillsRoot = path.resolve(skillsRootFromThisFile());
+  const rel = path.relative(skillsRoot, root);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  const norm = rel.split(path.sep).join('/');
+  return norm.includes('/fixtures/') || norm.endsWith('/fixtures') || norm.includes('fixtures/smoke-project');
+}
+
+/**
+ * @returns {{ kind: 'project'|'fixture', key: string, dir: string, filePath: string }}
+ */
+function getStorageForProjectRoot(projectRoot, stagesDoc) {
+  const rootPath = path.resolve(projectRoot);
+  if (isSkillFixtureProjectRoot(rootPath)) {
+    const cfg = readConfigDev(rootPath);
+    const projectId = String(
+      stagesDoc?.project?.project_id || cfg?.project?.project_id || 'smoke'
+    ).trim();
+    const key = sanitizeProjectId(projectId) || 'smoke';
+    const dir = path.join(skillsRuntimeRoot(), key);
+    return { kind: 'fixture', key, dir, filePath: path.join(dir, 'runtime.json') };
+  }
+  const { dirName } = resolveProjectDir(rootPath, stagesDoc);
+  return {
+    kind: 'project',
+    key: dirName,
+    dir: runtimeDirForDirName(dirName),
+    filePath: runtimePathForDirName(dirName),
+  };
+}
+
+function readRuntimeStorage(storage) {
+  if (!storage?.filePath || !fs.existsSync(storage.filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(storage.filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeRuntimeStorage(storage, doc) {
+  fs.mkdirSync(storage.dir, { recursive: true });
+  const tmp = `${storage.filePath}.tmp`;
+  doc.updated_at = doc.updated_at || new Date().toISOString();
+  fs.writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, storage.filePath);
+}
+
 function templatePath() {
   return path.join(skillsRootFromThisFile(), 'docs', 'templates', 'runtime.json');
 }
@@ -139,13 +190,15 @@ function writeRuntimeFileAtDir(dirName, doc) {
 }
 
 function readRuntimeForProjectRoot(projectRoot, stagesDoc) {
-  const { dirName } = resolveProjectDir(projectRoot, stagesDoc || readStagesQuick(projectRoot));
-  return readRuntimeFileAtDir(dirName);
+  const stages = stagesDoc || readStagesQuick(projectRoot);
+  const storage = getStorageForProjectRoot(projectRoot, stages);
+  return readRuntimeStorage(storage);
 }
 
 function writeRuntimeForProjectRoot(projectRoot, doc, stagesDoc) {
-  const { dirName } = resolveProjectDir(projectRoot, stagesDoc || readStagesQuick(projectRoot));
-  writeRuntimeFileAtDir(dirName, doc);
+  const stages = stagesDoc || readStagesQuick(projectRoot);
+  const storage = getStorageForProjectRoot(projectRoot, stages);
+  writeRuntimeStorage(storage, doc);
 }
 
 function readStagesQuick(projectRoot) {
@@ -158,18 +211,39 @@ function readStagesQuick(projectRoot) {
   }
 }
 
-function findDirNameByProjectId(projectId) {
+function findStorageByProjectId(projectId) {
   const id = String(projectId || '').trim();
   if (!id) return null;
   migrateLegacyRuntimeDirs();
-  const root = skillsProjectsRoot();
-  if (!fs.existsSync(root)) return null;
-  for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!ent.isDirectory()) continue;
-    const doc = readRuntimeFileAtDir(ent.name);
-    if (doc?.project?.project_id === id) return ent.name;
-  }
-  return null;
+  const scanDir = (base, kind) => {
+    if (!fs.existsSync(base)) return null;
+    for (const ent of fs.readdirSync(base, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const fp = path.join(base, ent.name, 'runtime.json');
+      if (!fs.existsSync(fp)) continue;
+      let doc;
+      try {
+        doc = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      } catch {
+        continue;
+      }
+      if (doc?.project?.project_id !== id) continue;
+      return {
+        kind,
+        key: ent.name,
+        dir: path.join(base, ent.name),
+        filePath: fp,
+      };
+    }
+    return null;
+  };
+  return scanDir(skillsProjectsRoot(), 'project') || scanDir(skillsRuntimeRoot(), 'fixture');
+}
+
+/** @returns {string|null} _projects 目录名；fixture 返回 _runtime 子目录名 */
+function findDirNameByProjectId(projectId) {
+  const s = findStorageByProjectId(projectId);
+  return s ? s.key : null;
 }
 
 /** @deprecated 按 project_id 查；优先 _projects */
@@ -222,8 +296,9 @@ function runtimeRowFromDoc(doc) {
 
 function ensureProjectFromStages(projectRoot, stagesDoc, updatedBy) {
   migrateLegacyRuntimeDirs();
-  const { dirName, projectName, projectId, rootPath } = resolveProjectDir(projectRoot, stagesDoc);
-  let doc = readRuntimeFileAtDir(dirName) || defaultRuntimeDoc();
+  const storage = getStorageForProjectRoot(projectRoot, stagesDoc);
+  const { projectName, projectId, rootPath } = resolveProjectDir(projectRoot, stagesDoc);
+  let doc = readRuntimeStorage(storage) || defaultRuntimeDoc();
   doc.project = {
     project_id: projectId,
     project_name: projectName,
@@ -232,29 +307,54 @@ function ensureProjectFromStages(projectRoot, stagesDoc, updatedBy) {
     display_name: projectName,
   };
   doc.updated_by = updatedBy || doc.updated_by || 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
-  return { projectId, dirName, projectName, doc };
+  writeRuntimeStorage(storage, doc);
+  return { projectId, dirName: storage.key, projectName, doc, storageKind: storage.kind };
 }
 
 function loadOrCreateByProjectId(projectId, projectRoot, stagesDoc) {
-  const dir = findDirNameByProjectId(projectId);
-  if (dir) return { dirName: dir, doc: readRuntimeFileAtDir(dir) || defaultRuntimeDoc() };
+  const existing = findStorageByProjectId(projectId);
+  if (existing) {
+    return {
+      storage: existing,
+      dirName: existing.key,
+      doc: readRuntimeStorage(existing) || defaultRuntimeDoc(),
+    };
+  }
   if (projectRoot) {
-    const resolved = resolveProjectDir(projectRoot, stagesDoc);
-    return { dirName: resolved.dirName, doc: readRuntimeFileAtDir(resolved.dirName) || defaultRuntimeDoc() };
+    const storage = getStorageForProjectRoot(projectRoot, stagesDoc);
+    return {
+      storage,
+      dirName: storage.key,
+      doc: readRuntimeStorage(storage) || defaultRuntimeDoc(),
+    };
   }
   const id = String(projectId || '').trim();
+  const key = sanitizeProjectId(id);
   return {
-    dirName: sanitizeProjectId(id),
+    storage: {
+      kind: 'project',
+      key,
+      dir: runtimeDirForDirName(key),
+      filePath: runtimePathForDirName(key),
+    },
+    dirName: key,
     doc: defaultRuntimeDoc(),
   };
+}
+
+function writeLoadedRuntime(loaded, doc) {
+  if (loaded.storage) {
+    writeRuntimeStorage(loaded.storage, doc);
+    return;
+  }
+  writeRuntimeFileAtDir(loaded.dirName, doc);
 }
 
 function updateProjectRuntimeState(projectId, patch, updatedBy, projectRoot, stagesDoc) {
   const id = String(projectId || '').trim();
   if (!id) return;
-  const { dirName, doc: base } = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
-  let doc = base;
+  const loaded = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
+  let doc = loaded.doc;
   if (projectRoot && stagesDoc) {
     const r = resolveProjectDir(projectRoot, stagesDoc);
     doc.project = {
@@ -283,14 +383,14 @@ function updateProjectRuntimeState(projectId, patch, updatedBy, projectRoot, sta
   };
   if (patch.active_run_id) doc.orchestration.active = true;
   doc.updated_by = updatedBy || 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
+  writeLoadedRuntime(loaded, doc);
 }
 
 function clearProjectRuntimeState(projectId, projectRoot, stagesDoc) {
   const id = String(projectId || '').trim();
   if (!id) return;
-  const { dirName } = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
-  const doc = readRuntimeFileAtDir(dirName);
+  const loaded = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
+  const doc = readRuntimeStorage(loaded.storage) || loaded.doc;
   if (!doc) return;
   doc.orchestration = {
     ...(doc.orchestration || {}),
@@ -302,14 +402,15 @@ function clearProjectRuntimeState(projectId, projectRoot, stagesDoc) {
     pending_features: [],
   };
   doc.updated_by = 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
+  writeLoadedRuntime(loaded, doc);
 }
 
 function startRun(projectId, sessionId, orchestrator, projectRoot, stagesDoc) {
   const id = String(projectId || '').trim();
   const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const now = new Date().toISOString();
-  const { dirName, doc } = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
+  const loaded = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
+  const doc = loaded.doc;
   if (projectRoot && stagesDoc) {
     const r = resolveProjectDir(projectRoot, stagesDoc);
     doc.project = {
@@ -340,16 +441,16 @@ function startRun(projectId, sessionId, orchestrator, projectRoot, stagesDoc) {
     started_at: now,
   };
   doc.updated_by = orchestrator || 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
+  writeLoadedRuntime(loaded, doc);
   return runId;
 }
 
 function finishActiveRuns(projectId, exitCode, stoppedAtStage) {
   const id = String(projectId || '').trim();
   if (!id) return [];
-  const dirName = findDirNameByProjectId(id);
-  if (!dirName) return [];
-  const doc = readRuntimeFileAtDir(dirName);
+  const storage = findStorageByProjectId(id);
+  if (!storage) return [];
+  const doc = readRuntimeStorage(storage);
   if (!doc) return [];
   const now = new Date().toISOString();
   const finished = [];
@@ -363,41 +464,52 @@ function finishActiveRuns(projectId, exitCode, stoppedAtStage) {
   }
   if (doc.orchestration?.active) doc.orchestration.active = false;
   doc.updated_by = 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
+  writeRuntimeStorage(storage, doc);
   return finished;
 }
 
 function finishRun(runId, exitCode, stoppedAt) {
   migrateLegacyRuntimeDirs();
-  const root = skillsProjectsRoot();
-  if (!fs.existsSync(root)) return;
   const now = new Date().toISOString();
-  for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!ent.isDirectory()) continue;
-    const fp = path.join(root, ent.name, 'runtime.json');
-    if (!fs.existsSync(fp)) continue;
-    let doc;
-    try {
-      doc = JSON.parse(fs.readFileSync(fp, 'utf8'));
-    } catch {
-      continue;
+  const tryRoot = (base, kind) => {
+    if (!fs.existsSync(base)) return false;
+    for (const ent of fs.readdirSync(base, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const fp = path.join(base, ent.name, 'runtime.json');
+      if (!fs.existsSync(fp)) continue;
+      let doc;
+      try {
+        doc = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      } catch {
+        continue;
+      }
+      const runs = doc.recent_runs || [];
+      const idx = runs.findIndex((r) => r.run_id === runId);
+      if (idx < 0) continue;
+      runs[idx] = { ...runs[idx], ended_at: now, exit_code: exitCode, stopped_at_stage: stoppedAt || '' };
+      doc.recent_runs = runs;
+      if (doc.orchestration?.active_run_id === runId) doc.orchestration.active = false;
+      doc.updated_by = 'ai-auto3';
+      const storage = {
+        kind,
+        key: ent.name,
+        dir: path.join(base, ent.name),
+        filePath: fp,
+      };
+      writeRuntimeStorage(storage, doc);
+      return true;
     }
-    const runs = doc.recent_runs || [];
-    const idx = runs.findIndex((r) => r.run_id === runId);
-    if (idx < 0) continue;
-    runs[idx] = { ...runs[idx], ended_at: now, exit_code: exitCode, stopped_at_stage: stoppedAt || '' };
-    doc.recent_runs = runs;
-    if (doc.orchestration?.active_run_id === runId) doc.orchestration.active = false;
-    doc.updated_by = 'ai-auto3';
-    writeRuntimeFileAtDir(ent.name, doc);
-    return;
-  }
+    return false;
+  };
+  if (tryRoot(skillsProjectsRoot(), 'project')) return;
+  tryRoot(skillsRuntimeRoot(), 'fixture');
 }
 
 function registerProcess(projectId, entry, projectRoot, stagesDoc) {
   const id = String(projectId || '').trim();
   if (!id) return;
-  const { dirName, doc } = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
+  const loaded = loadOrCreateByProjectId(id, projectRoot, stagesDoc);
+  const doc = loaded.doc;
   if (projectRoot && stagesDoc) {
     const r = resolveProjectDir(projectRoot, stagesDoc);
     doc.project = {
@@ -422,13 +534,13 @@ function registerProcess(projectId, entry, projectRoot, stagesDoc) {
   };
   doc.processes = [proc, ...(doc.processes || []).filter((p) => p.pid !== proc.pid)].slice(0, MAX_PROCESSES);
   doc.updated_by = entry.updated_by || 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
+  writeLoadedRuntime(loaded, doc);
 }
 
 function markProcessExited(projectId, pid, exitCode) {
-  const dirName = findDirNameByProjectId(projectId);
-  if (!dirName) return;
-  const doc = readRuntimeFileAtDir(dirName);
+  const storage = findStorageByProjectId(projectId);
+  if (!storage) return;
+  const doc = readRuntimeStorage(storage);
   if (!doc) return;
   const p = Number(pid);
   doc.processes = (doc.processes || []).map((proc) => {
@@ -438,7 +550,7 @@ function markProcessExited(projectId, pid, exitCode) {
     return proc;
   });
   doc.updated_by = 'ai-auto3';
-  writeRuntimeFileAtDir(dirName, doc);
+  writeRuntimeStorage(storage, doc);
 }
 
 function moveRuntimeFile(fromDir, toDir) {
@@ -456,8 +568,14 @@ function moveRuntimeFile(fromDir, toDir) {
   }
 }
 
-function migrateDocToProjectsDir(doc, fallbackDirName) {
+function migrateDocToStorage(doc, fallbackDirName) {
   const rootPath = doc?.project?.root_path;
+  if (rootPath && isSkillFixtureProjectRoot(rootPath)) {
+    const stages = fs.existsSync(rootPath) ? readStagesQuick(rootPath) : null;
+    const storage = getStorageForProjectRoot(rootPath, stages);
+    writeRuntimeStorage(storage, doc);
+    return storage.key;
+  }
   let targetDir = fallbackDirName;
   if (rootPath && fs.existsSync(rootPath)) {
     try {
@@ -476,7 +594,46 @@ function migrateDocToProjectsDir(doc, fallbackDirName) {
   return targetDir;
 }
 
-/** .pipeline/、_runtime/<id>/ → _projects/<project.name>/ */
+/** _projects 中误登记的 skill fixtures → _runtime/<project_id>/ */
+function relocateMisplacedFixtureRuntimes() {
+  const projectsRoot = skillsProjectsRoot();
+  if (!fs.existsSync(projectsRoot)) return;
+  for (const ent of fs.readdirSync(projectsRoot, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    const fp = path.join(projectsRoot, ent.name, 'runtime.json');
+    if (!fs.existsSync(fp)) continue;
+    let doc;
+    try {
+      doc = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    } catch {
+      continue;
+    }
+    const rootPath = doc?.project?.root_path;
+    if (!rootPath || !isSkillFixtureProjectRoot(rootPath)) continue;
+    const stages = fs.existsSync(rootPath) ? readStagesQuick(rootPath) : null;
+    const target = getStorageForProjectRoot(rootPath, stages);
+    const existing = readRuntimeStorage(target);
+    const pick =
+      !existing ||
+      String(doc.updated_at || '') >= String(existing.updated_at || '')
+        ? doc
+        : existing;
+    writeRuntimeStorage(target, pick);
+    try {
+      fs.unlinkSync(fp);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const left = path.join(projectsRoot, ent.name);
+      if (fs.readdirSync(left).length === 0) fs.rmdirSync(left);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** .pipeline/、_runtime/<id>/ → _projects/<project.name>/ 或 fixtures → _runtime/<project_id>/ */
 function migrateLegacyRuntimeDirs() {
   const skillsRoot = skillsRootFromThisFile();
   const legacyPipeline = path.join(skillsRoot, '.pipeline');
@@ -490,7 +647,7 @@ function migrateLegacyRuntimeDirs() {
     } catch {
       return;
     }
-    migrateDocToProjectsDir(doc, fallbackDir);
+    migrateDocToStorage(doc, fallbackDir);
     try {
       fs.unlinkSync(fromPath);
     } catch {
@@ -536,7 +693,7 @@ function migrateLegacyRuntimeDirs() {
         }
         continue;
       }
-      migrateDocToProjectsDir(doc, ent.name);
+      migrateDocToStorage(doc, ent.name);
       try {
         fs.unlinkSync(fp);
       } catch {
@@ -550,6 +707,8 @@ function migrateLegacyRuntimeDirs() {
       }
     }
   }
+
+  relocateMisplacedFixtureRuntimes();
 }
 
 /** ai-dash3 仅扫描 _projects */
@@ -678,4 +837,8 @@ module.exports = {
   buildRegistryExportShape,
   setDashServe,
   findDirNameByProjectId,
+  findStorageByProjectId,
+  isSkillFixtureProjectRoot,
+  getStorageForProjectRoot,
+  relocateMisplacedFixtureRuntimes,
 };
