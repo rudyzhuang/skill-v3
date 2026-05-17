@@ -320,7 +320,15 @@ async function run(ctx) {
   }
 
   const codegenMs = stageTimeoutMs(config, 'codegen_s', 1800);
-  const subMs = Math.max(60_000, Math.floor(codegenMs / 4));
+  const soakStrictCodegen =
+    process.env.AI_SOAK3_STRICT === '1' || process.env.AI_SOAK3_STRICT === 'true';
+  const envPhaseMs = Number(process.env.AI_CODE3_AGENT_PHASE_TIMEOUT_MS);
+  const subMs =
+    Number.isFinite(envPhaseMs) && envPhaseMs > 0
+      ? Math.floor(envPhaseMs)
+      : soakStrictCodegen
+        ? Math.max(120_000, Math.floor(codegenMs / 2))
+        : Math.max(60_000, Math.floor(codegenMs / 4));
   const sessionId = options.sessionId || '';
 
   const wtResult = worktreeLib.ensureAllFeatureWorktrees(projectRoot, featureIds, base);
