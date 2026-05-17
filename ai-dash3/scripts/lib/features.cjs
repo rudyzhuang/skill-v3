@@ -127,22 +127,25 @@ function isFeatureAgentRunning(doc, featureId) {
 /**
  * 仅统计 Agent running 时段：started_at / elapsed 来自 running 行的 features[]。
  * 暂停或非 running 时不展示计时。
+ * last_heartbeat_at：stage 脚本心跳写入，可用于检测 agent 是否卡死（>5 min 无心跳）。
  */
 function deriveAgentRunningTiming(doc, featureId) {
   const runningKey = findFeatureRunningStage(doc, featureId);
   if (!runningKey || !featureStages) {
-    return { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: null };
+    return { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: null, last_heartbeat_at: null };
   }
   const row = featureStages.getFeatureStageRow(doc, runningKey, featureId);
   const started = row?.started_at ? String(row.started_at).trim() : '';
+  const lastHb = row?.last_heartbeat_at ? String(row.last_heartbeat_at).trim() : null;
   if (!started) {
-    return { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: runningKey };
+    return { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: runningKey, last_heartbeat_at: lastHb };
   }
   const ms = Date.parse(started);
   return {
     stage_started_at: started,
     stage_elapsed_ms: Number.isFinite(ms) ? Math.max(0, Date.now() - ms) : null,
     agent_running_stage: runningKey,
+    last_heartbeat_at: lastHb,
   };
 }
 
@@ -904,6 +907,7 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
         stage_started_at: timing.stage_started_at,
         stage_elapsed_ms: timing.stage_elapsed_ms,
         agent_running_stage: timing.agent_running_stage,
+        last_heartbeat_at: timing.last_heartbeat_at,
       });
     }
   }

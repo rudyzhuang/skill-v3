@@ -469,7 +469,9 @@ ai-code3/
 
 - **配置键**：`docs/config.dev.json` → **`timeouts.stages.codegen_s`**、**`typecheck_s`**、**`test_s`**、**`code_review_s`**、**`merge_push_s`**、**`build_s`**（键名与 **`config.dev.json.template`** 一致）。  
 - **子命令超时**：`timeouts.subcommand.*`；不得超过当前阶段超时；超时 → **退出码 3**，并写 **`outputs.timed_out` / `duration_ms` / `timeout_reason`**（**附录 A · A.6**）。  
-- **心跳**：**codegen** / **test** / **build** / **merge_push** 长时阶段按 **`heartbeat_interval_s`** 写入 **`.agent-sessions/<session_id>.log`**（须传 **`--session-id=`**）。  
+- **心跳**：  
+  - **会话日志心跳**（已有）：**codegen** / **test** / **build** / **merge_push** 长时阶段按 **`heartbeat_interval_s`** 写入 **`.agent-sessions/<session_id>.log`**（须传 **`--session-id=`**）。  
+  - **per-feature 心跳**（新增 §15.1）：**codegen**（impl + test Agent）、**typecheck**（工具期间）、**test**（命令 + fix Agent 期间）在调用 agent/tool **之前** 启动 `setInterval(30s)`，通过 `featureStages.writeFeatureHeartbeat()` 将 **`last_heartbeat_at`**（ISO 时间戳）和 **`elapsed_ms`**（累计毫秒）写入 **`stages.json` → `stages.<stage>.features[].{last_heartbeat_at, elapsed_ms}`**；调用结束后立即 `clearInterval`。此机制使 **ai-dash3** 可以：①显示精准运行时长；②检测 agent 是否卡死（>5 min 无心跳）。  
 - **手工单跑**：受阶段超时约束；**不受** **`autorun_total_s`** 约束（无外层 autorun）。  
 - **日志与锁路径**：见 **附录 A · A.5**；**merge-push**、可选 **build** 锁 scope 与锁文件 JSON 行格式。
 
@@ -587,7 +589,7 @@ ai-code3/
 
 与本 skill 相关的默认阶段超时（秒）：**codegen 1800**；**typecheck 600**；**test 1800**；**code-review 600**；**merge-push 300**；**build 1800**（配置键见 **`config.dev.json.template`**）。  
 **软中断**：SIGTERM + **5s** 清理窗口 → SIGKILL。  
-**心跳**：长时阶段约 **30s** 一次写入会话日志。
+**心跳**：长时阶段约 **30s** 一次写入会话日志（§15）；同时写 **`stages.<stage>.features[].{last_heartbeat_at, elapsed_ms}`**（per-feature 心跳，§15.1）。
 
 ### A.7 阶段 I/O 总表摘录（§7，codegen～build）
 

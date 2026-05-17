@@ -176,10 +176,20 @@ async function run(ctx) {
         message: '执行测试命令',
       });
       stagesIo.writeStagesSync(projectRoot, doc);
+      const featureStartedAt =
+        featureStages.getFeatureStageRow(doc, 'test', row.feature_id)?.started_at ||
+        new Date().toISOString();
+      // 心跳：在测试命令 + fix agent 执行期间每 30 s 写 last_heartbeat_at + elapsed_ms
+      const featureHb = setInterval(
+        () => featureStages.writeFeatureHeartbeat(projectRoot, 'test', row.feature_id, featureStartedAt),
+        30_000
+      );
+      featureHb.unref();
       const cwd = row.worktree_path;
       if (!fs.existsSync(cwd)) {
         console.error(`failed_stage=test feature_id=${row.feature_id} missing worktree_path=${cwd}`);
         allPassed = false;
+        clearInterval(featureHb);
         perFeature.push({
           feature_id: row.feature_id,
           attempts: 0,
@@ -263,6 +273,7 @@ async function run(ctx) {
         : overallTimedOut || lastCode === 3 || failReason === 'test_level_gate'
           ? 'failed'
           : 'failed_max_attempts';
+      clearInterval(featureHb);
       doc = featureStages.markFeatureStage(doc, 'test', row.feature_id, passed ? 'completed' : 'failed', {
         message: passed ? '测试通过' : `测试失败 exit=${lastCode}`,
         extra: {

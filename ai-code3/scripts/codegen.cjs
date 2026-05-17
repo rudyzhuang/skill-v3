@@ -15,6 +15,25 @@ const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
+/**
+ * 在 agent 调用期间保持 per-feature 心跳（每 30 s 写 last_heartbeat_at + elapsed_ms）。
+ * 返回 asyncFn() 的 Promise；无论成功/失败/超时都会在 finally 中清除定时器。
+ * @param {string} projectRoot
+ * @param {string} stageKey
+ * @param {string} featureId
+ * @param {string} startedAt  ISO 时间戳
+ * @param {() => Promise<any>} asyncFn
+ */
+function wrapWithFeatureHeartbeat(projectRoot, stageKey, featureId, startedAt, asyncFn) {
+  featureStages.writeFeatureHeartbeat(projectRoot, stageKey, featureId, startedAt);
+  const interval = setInterval(
+    () => featureStages.writeFeatureHeartbeat(projectRoot, stageKey, featureId, startedAt),
+    30_000
+  );
+  interval.unref();
+  return asyncFn().finally(() => clearInterval(interval));
+}
+
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
   if (!fs.existsSync(p)) return {};
@@ -495,14 +514,24 @@ async function run(ctx) {
           featureId: row.feature_id,
           message: `开始 impl Agent（${featureNo}）`,
         });
-        const ir = await invokeCodegenAgent({
-          worktreePath: row.worktree_path,
+        const featureStartedAt =
+          featureStages.getFeatureStageRow(doc, 'codegen', row.feature_id)?.started_at ||
+          new Date().toISOString();
+        const ir = await wrapWithFeatureHeartbeat(
           projectRoot,
-          phase: 'impl',
-          timeoutMs: subMs,
-          featureId: row.feature_id,
-          sessionId,
-        });
+          'codegen',
+          row.feature_id,
+          featureStartedAt,
+          () =>
+            invokeCodegenAgent({
+              worktreePath: row.worktree_path,
+              projectRoot,
+              phase: 'impl',
+              timeoutMs: subMs,
+              featureId: row.feature_id,
+              sessionId,
+            })
+        );
         if (ir.skipped) {
           agentMeta = { ...agentMeta, skipped: true, skip_reason: ir.reason || 'no_agent_bin' };
           if (!allowNoAgent) {
@@ -627,14 +656,21 @@ async function run(ctx) {
           console.error(
             `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} test begin timeout_ms=${subMs}`
           );
-          const tr = await invokeCodegenAgent({
-            worktreePath: row.worktree_path,
+          const tr = await wrapWithFeatureHeartbeat(
             projectRoot,
-            phase: 'test',
-            timeoutMs: subMs,
-            featureId: row.feature_id,
-            sessionId,
-          });
+            'codegen',
+            row.feature_id,
+            featureStartedAt,
+            () =>
+              invokeCodegenAgent({
+                worktreePath: row.worktree_path,
+                projectRoot,
+                phase: 'test',
+                timeoutMs: subMs,
+                featureId: row.feature_id,
+                sessionId,
+              })
+          );
           if (!tr.ok && !tr.skipped) {
             testStatus = 'failed';
             const now = new Date().toISOString();

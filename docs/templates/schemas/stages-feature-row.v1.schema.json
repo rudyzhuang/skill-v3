@@ -43,6 +43,16 @@
     "passed": {
       "type": "boolean",
       "description": "test stage convenience mirror of test_result"
+    },
+    "last_heartbeat_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "由 stage 脚本在 agent/tool 执行期间每 30 s 写入，用于活跃性检测与精确计时"
+    },
+    "elapsed_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "最后一次心跳时累计运行毫秒数（基于 started_at 计算）；ai-dash3 优先动态计算，此字段可用于离线分析"
     }
   }
 }

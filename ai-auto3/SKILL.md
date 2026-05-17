@@ -101,7 +101,7 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 | --- | --- |
 | **编排层「已完成」捷径** | 对 **design / contract / design_review** 仅用 **`status===completed` + `validation.passed`** 跳过整段宏；**未**在编排层重算 **`inputs.summary_hash`**（子 skill 子命令内部仍会按自身规则跳过）。 |
 | **并行多路 ai-code3** | **`autorun.cjs`** 在 **`codegen`～`code-review`** 按 **auto3.md §5.7** 读 **`stages.contract` + `design_snapshot`** 分组，层内受 **`pipeline.autorun.feature_group_max_parallel`** 限制并行 spawn；**`merge-push` / `build`** 仍为**本轮 id 全集**单次调用。多进程写 **`stages.json`** 须遵守 **§5.6.2**（建议 **`feature_group_max_parallel: 1`** 直至 **ai-code3** 分片写回）。 |
-| **编排心跳 tee** | **§8.2** 30s 心跳未在编排 `spawn` 层实现；依赖各子 skill 自身日志。 |
+| **编排心跳 tee** | **§8.2** 30s 心跳未在编排 `spawn` 层实现；依赖各子 skill 自身日志（会话日志心跳）+ `feature-stages.cjs` **`writeFeatureHeartbeat`**（per-feature 心跳，写入 `stages.<stage>.features[].{last_heartbeat_at, elapsed_ms}`）。 |
 | **pipeline 锁预检提示** | `preflight-only` 与 run 前 checklist 对 `pipeline.pid` 仅提示；真正拦截由 `acquirePipelineLock` 原子执行，避免历史锁/竞态导致误阻断。 |
 | **deploy 前产物门闸** | **`deploy_smoke`** 前调用 **ai-publish-dev3** `preflight` 校验 **`(client_target, sub_platform)`** 与 **`stages.build.outputs.artifacts[]`**；若 **skip build** 后映射失败，自动 **`--force-rerun=build`** 重试一次（见 **`lib/deploy-preflight-gate.cjs`**）。 |
 

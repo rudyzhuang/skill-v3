@@ -243,6 +243,39 @@ function upsertFeature(doc, stageKey, featureId, patch) {
 /** @deprecated 使用 upsertFeature */
 const upsertPerFeature = upsertFeature;
 
+const STAGES_JSON_SUBPATH = path.join('.pipeline', 'stages.json');
+
+/**
+ * §15 per-feature 心跳：将 last_heartbeat_at + elapsed_ms 写入 feature row。
+ * 由各 stage 脚本在调用 agent / tool 前启动的 setInterval 中调用，每 30 s 一次。
+ * 写入失败不阻断主流程（静默忽略异常）。
+ * @param {string} projectRoot
+ * @param {string} stageKey
+ * @param {string} featureId
+ * @param {string} startedAt  ISO 时间戳（markFeatureStage 写入的 started_at）
+ */
+function writeFeatureHeartbeat(projectRoot, stageKey, featureId, startedAt) {
+  const fid = String(featureId || '').trim();
+  if (!fid || !projectRoot) return;
+  const p = path.join(projectRoot, STAGES_JSON_SUBPATH);
+  try {
+    if (!fs.existsSync(p)) return;
+    const doc = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const now = new Date().toISOString();
+    const startMs = startedAt ? Date.parse(String(startedAt)) : 0;
+    const elapsedMs = startMs > 0 ? Math.max(0, Date.now() - startMs) : 0;
+    const patchedDoc = upsertFeature(doc, stageKey, fid, {
+      last_heartbeat_at: now,
+      elapsed_ms: elapsedMs,
+    });
+    const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(patchedDoc, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, p);
+  } catch {
+    // 心跳失败不阻断主流程
+  }
+}
+
 /**
  * 为 phase_plan 内 feature 在各非 prd stage 确保存在 not_started 行（不覆盖已有状态）
  */
@@ -481,6 +514,7 @@ module.exports = {
   markFeaturesSkipped,
   upsertFeature,
   upsertPerFeature,
+  writeFeatureHeartbeat,
   appendStageLog,
   projectStageCompleted,
 };

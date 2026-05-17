@@ -118,6 +118,18 @@ async function run(ctx) {
     detail: `cwd=${cwd}`,
   });
 
+  // 获取各 feature 的 started_at 基准（markFeaturesRunning 刚写入）；统一取第一个，工具串行故同批开始时间一致
+  const tcStartedAt =
+    (tcIds.length > 0
+      ? featureStages.getFeatureStageRow(doc, 'typecheck', tcIds[0])?.started_at
+      : null) || new Date().toISOString();
+  // 心跳：tool 运行期间每 30 s 更新各 feature 的 last_heartbeat_at + elapsed_ms
+  const tcHb = setInterval(
+    () => tcIds.forEach((fid) => featureStages.writeFeatureHeartbeat(projectRoot, 'typecheck', fid, tcStartedAt)),
+    30_000
+  );
+  tcHb.unref();
+
   const toolsOut = [];
   let ran = 0;
   let anyFailed = false;
@@ -194,6 +206,9 @@ async function run(ctx) {
     feature_id: w.feature_id,
     worktree_path: w.worktree_path,
   }));
+
+  // 工具串行执行完毕，停止心跳
+  clearInterval(tcHb);
 
   const skipReason =
     ran === 0 ? 'no_tsc_eslint_mypy_pyright_detected_in_worktree' : '';
