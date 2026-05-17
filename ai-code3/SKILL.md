@@ -109,7 +109,7 @@ node ai-code3/scripts/smoke.cjs
 
 - 不修改契约产物目录（codegen 以 diff-guard 守护）。
 - 不隐式执行 deploy / smoke。
-- 不并行多进程抢写 **`stages.json`**（同 scope 锁见脚本实现）。
+- 不并行多进程盲写 **`stages.json`**；`codegen.cjs` 采用「写回前重新读盘 + 仅 upsert 本分组 feature 行」策略缓解竞态（对应 `docs/spec/auto3.md` §5.6.2 策略三：ai-code3 侧分片更新）；`merge-push` / `build` 前须汇合全部并行波次。
 - **`code-review` 不得**篡改 **`stages.test`** / **`typecheck`** / **`codegen`** 的通过性字段。
 - **`merge-push` 后源码落位必须合规**：源码文件需位于 `src/<client_target>/` 或共享目录（`src/shared|common|sdk`）；否则记为失败并阻断进入 build。
 

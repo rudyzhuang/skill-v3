@@ -613,6 +613,8 @@ async function run(ctx) {
           row.commit = commitResult.commit;
         }
         implStatus = 'completed';
+        // 重新读最新 doc，避免并行进程竞态覆盖其他 feature 的完成记录
+        try { doc = stagesIo.readStagesSync(projectRoot); } catch { /* 保持内存 doc */ }
         doc = featureStages.markFeatureStage(doc, 'codegen', row.feature_id, 'completed', {
           message: `impl 完成，commit=${commitResult.commit || 'unchanged'}`,
         });
@@ -696,6 +698,9 @@ async function run(ctx) {
       : !skipAgent &&
         implStatus === 'completed' &&
         testOk;
+
+  // 写最终结果前重新从磁盘读最新 doc，避免并行进程竞态覆盖其他 feature 的完成记录
+  try { doc = stagesIo.readStagesSync(projectRoot); } catch { /* 保持内存 doc */ }
 
   if (passed) {
     doc = featureStages.markFeaturesCompleted(doc, 'codegen', featureIds, {
