@@ -53,6 +53,7 @@ description: >-
 
 ```bash
 node ~/.cursor/skills/ai-soak3/scripts/ensure-agent-env.cjs --project=<PROJECT_ROOT>
+# bash / zsh 均可 source；或任意 shell: eval "$(node .../ensure-agent-env.cjs --print-shell)"
 source ~/.cursor/skills/ai-soak3/scripts/load-soak-env.sh <PROJECT_ROOT>
 echo "ensure-agent-env + load-soak-env done"
 ```
