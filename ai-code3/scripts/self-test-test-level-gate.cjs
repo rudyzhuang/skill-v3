@@ -309,7 +309,7 @@ function assertWarnModePasses() {
   assert.strictEqual(r.status, 0, `warn mode should pass, stderr=${r.stderr || ''}`);
   const doc = readStages(root);
   assert.strictEqual(doc.stages.test.validation.passed, true, 'warn mode validation.passed should be true');
-  const row = (doc.stages.test.outputs?.per_feature || [])[0] || {};
+  const row = (doc.stages.test.features || doc.stages.test.outputs?.per_feature || [])[0] || {};
   assert.ok(row.test_level_gate, 'warn mode should record test_level_gate detail');
   assert.deepStrictEqual(row.test_level_gate.required_levels, ['unit', 'integration']);
   assert.ok(
@@ -324,13 +324,17 @@ function assertEnforceModeFails() {
   assert.strictEqual(r.status, 4, `enforce mode should fail with exit 4, stderr=${r.stderr || ''}`);
   const doc = readStages(root);
   assert.strictEqual(doc.stages.test.validation.passed, false, 'enforce mode validation.passed should be false');
-  const row = (doc.stages.test.outputs?.per_feature || [])[0] || {};
+  const row = (doc.stages.test.features || doc.stages.test.outputs?.per_feature || [])[0] || {};
   assert.ok(row.test_level_gate, 'enforce mode should record test_level_gate detail');
   assert.ok(
     Array.isArray(row.test_level_gate.missing_levels) && row.test_level_gate.missing_levels.includes('integration'),
     'enforce mode should report missing integration level'
   );
-  assert.strictEqual(row.result, 'failed', 'enforce mode result should be failed, not failed_max_attempts');
+  assert.strictEqual(
+    row.test_result || row.result,
+    'failed',
+    'enforce mode test_result should be failed, not failed_max_attempts'
+  );
 }
 
 function assertOffModePassesWithoutGateFailure() {
@@ -346,7 +350,7 @@ function assertFallbackRequiredLevelsEnforced() {
   const r = runTestStage(root);
   assert.strictEqual(r.status, 4, `fallback enforce should fail, stderr=${r.stderr || ''}`);
   const doc = readStages(root);
-  const row = (doc.stages.test.outputs?.per_feature || [])[0] || {};
+  const row = (doc.stages.test.features || doc.stages.test.outputs?.per_feature || [])[0] || {};
   assert.ok(row.test_level_gate, 'fallback branch should record test_level_gate detail');
   assert.strictEqual(row.test_level_gate.source, 'config.fallback_required_test_levels');
   assert.ok(
@@ -360,7 +364,7 @@ function assertIntegrationTreeWithoutDotTestIsRecognized() {
   const r = runTestStage(root);
   assert.strictEqual(r.status, 0, `integration tree fixture should pass, stderr=${r.stderr || ''}`);
   const doc = readStages(root);
-  const row = (doc.stages.test.outputs?.per_feature || [])[0] || {};
+  const row = (doc.stages.test.features || doc.stages.test.outputs?.per_feature || [])[0] || {};
   assert.ok(row.test_level_gate, 'integration tree case should include test_level_gate info');
   assert.deepStrictEqual(row.test_level_gate.missing_levels, [], 'integration tree file should be recognized');
 }

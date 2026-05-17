@@ -138,6 +138,12 @@ async function runUiE2e(projectRoot, opts = {}) {
   const outDir = path.join(projectRoot, '.agent-sessions', 'ui-e2e', sessionId);
   fs.mkdirSync(outDir, { recursive: true });
 
+  updateStages(stPath, (doc) => {
+    featureStages.backfillFeatureStages(doc);
+    const ids = featureStages.collectPhaseFeatureIds(doc);
+    return featureStages.markFeaturesRunning(doc, 'ui_e2e', ids, { message: 'ui_e2e 场景执行中' });
+  });
+
   let fixAttempts = 0;
   let results = [];
   const timeoutMs = stageTimeoutS(config) * 1000;
@@ -202,6 +208,16 @@ async function runUiE2e(projectRoot, opts = {}) {
     doc.pipeline.last_completed_stage = allOk ? 'ui_e2e' : doc.pipeline.last_completed_stage;
     doc.pipeline.updated_at = new Date().toISOString();
     doc.pipeline.updated_by = 'ai-e2e3';
+    featureStages.backfillFeatureStages(doc);
+    const ids = featureStages.collectPhaseFeatureIds(doc);
+    if (allOk) {
+      featureStages.markFeaturesCompleted(doc, 'ui_e2e', ids, { message: 'ui_e2e passed' });
+    } else {
+      featureStages.markFeaturesFailed(doc, 'ui_e2e', ids, {
+        message: `ui_e2e failed (${failedN}/${results.length})`,
+      });
+    }
+    return doc;
   });
 
   const envBlocked = results.some((r) => r.unresolvable || r.step_failed === 'mobile_env_unsatisfied');

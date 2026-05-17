@@ -106,11 +106,13 @@ async function run(ctx) {
     message: 'typecheck 静态检查开始',
   });
   doc = begun.doc;
+  const tcIds = wtFeatureIds.length ? wtFeatureIds : featureStages.collectPhaseFeatureIds(doc);
+  doc = featureStages.markFeaturesRunning(doc, 'typecheck', tcIds, { message: 'typecheck 执行中' });
   stagesIo.writeStagesSync(projectRoot, doc);
   featureStages.appendStageLog(projectRoot, {
     skill: 'ai-code3',
     stageKey: 'typecheck',
-    message: `typecheck 处理中（${begun.marked.length} 个 feature）`,
+    message: `typecheck 处理中（${tcIds.length} 个 feature）`,
     detail: `cwd=${cwd}`,
   });
 
@@ -214,7 +216,6 @@ async function run(ctx) {
           errors: [],
         }));
 
-  const tcIds = wtFeatureIds.length ? wtFeatureIds : featureStages.collectPhaseFeatureIds(doc);
   if (passed) {
     doc = featureStages.markFeaturesCompleted(doc, 'typecheck', tcIds, { message: 'typecheck 通过' });
   } else {

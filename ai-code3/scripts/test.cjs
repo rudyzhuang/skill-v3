@@ -247,21 +247,26 @@ async function run(ctx) {
       }
 
       const passed = lastCode === 0 && !overallTimedOut;
-      doc = featureStages.markFeatureStage(
-        doc,
-        'test',
-        row.feature_id,
-        passed ? 'completed' : 'failed',
-        { message: passed ? '测试通过' : `测试失败 exit=${lastCode}` }
-      );
+      const testResult = passed
+        ? 'passed'
+        : overallTimedOut || lastCode === 3 || failReason === 'test_level_gate'
+          ? 'failed'
+          : 'failed_max_attempts';
+      doc = featureStages.markFeatureStage(doc, 'test', row.feature_id, passed ? 'completed' : 'failed', {
+        message: passed ? '测试通过' : `测试失败 exit=${lastCode}`,
+        extra: {
+          test_result: testResult,
+          passed,
+          attempts,
+          last_exit: lastCode,
+          fail_reason: failReason || null,
+          test_level_gate: levelGateInfo || null,
+        },
+      });
       perFeature.push({
         feature_id: row.feature_id,
         attempts,
-        result: passed
-          ? 'passed'
-          : overallTimedOut || lastCode === 3 || failReason === 'test_level_gate'
-            ? 'failed'
-            : 'failed_max_attempts',
+        result: testResult,
         last_exit: lastCode,
         fail_reason: failReason || null,
         test_level_gate: levelGateInfo || null,
@@ -306,7 +311,6 @@ async function run(ctx) {
       ...doc.stages?.test?.outputs,
       command: testCmd,
       attempts: perFeature.reduce((a, p) => a + p.attempts, 0),
-      per_feature: perFeature,
       test_level_gate: {
         mode: levelGateMode,
         fallback_required_test_levels: levelGateFallback,
@@ -315,7 +319,7 @@ async function run(ctx) {
       },
       result,
       log_path: '',
-      failure_summary: passed ? '' : `per_feature=${JSON.stringify(perFeature)}`,
+      failure_summary: passed ? '' : `features=${JSON.stringify(doc.stages?.test?.features || [])}`,
       duration_ms: 0,
       timed_out: overallTimedOut || lastCode === 3,
       timeout_reason: overallTimedOut || lastCode === 3 ? 'test_command' : null,
@@ -329,7 +333,7 @@ async function run(ctx) {
       ? null
       : {
           suggest_stage: 'codegen',
-          reason: 'test failures after max fix attempts (see outputs.failure_summary / per_feature)',
+          reason: 'test failures after max fix attempts (see stages.test.features[] / outputs.failure_summary)',
         },
   });
   stagesIo.writeStagesSync(projectRoot, doc);

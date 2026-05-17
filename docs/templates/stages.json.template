@@ -2,7 +2,8 @@
   "_schema": {
     "name": "skill-v3-stages",
     "version": 1,
-    "description": "Project-side pipeline state. This file is the recoverable source for local skill DB state."
+    "description": "Project-side pipeline state. This file is the recoverable source for local skill DB state.",
+    "feature_row_schema": "docs/templates/schemas/stages-feature-row.v1.schema.json"
   },
   "project": {
     "project_id": "",
@@ -134,7 +135,8 @@
         "design_inputs_ready": false,
         "config_secret_scan_passed": false,
         "warnings": []
-      }
+      },
+      "features": []
     },
     "design": {
       "status": "not_started",
@@ -150,7 +152,6 @@
       },
       "outputs": {
         "design_specs": [],
-        "per_feature": [],
         "summary": "",
         "needs_human_review": false,
         "duration_ms": null,
@@ -164,7 +165,8 @@
         "missing_required_fields": [],
         "warnings": []
       },
-      "blocking_issues": []
+      "blocking_issues": [],
+      "features": []
     },
     "contract": {
       "status": "not_started",
@@ -192,7 +194,6 @@
           "approved_at": null,
           "notes": ""
         },
-        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null
@@ -230,7 +231,8 @@
         ],
         "warnings": []
       },
-      "blocking_issues": []
+      "blocking_issues": [],
+      "features": []
     },
     "design_review": {
       "status": "not_started",
@@ -257,7 +259,8 @@
         "summary": "",
         "blocking_gaps_count": 0,
         "warnings": []
-      }
+      },
+      "features": []
     },
     "codegen": {
       "status": "not_started",
@@ -283,7 +286,6 @@
         ],
         "impl_codegen_status": "pending",
         "test_codegen_status": "pending",
-        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null,
@@ -301,7 +303,8 @@
         "contract_diff_guard_passed": false,
         "warnings": []
       },
-      "error": ""
+      "error": "",
+      "features": []
     },
     "typecheck": {
       "status": "not_started",
@@ -337,7 +340,6 @@
           }
         ],
         "skip_reason": "",
-        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null
@@ -347,7 +349,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "test": {
       "status": "not_started",
@@ -366,7 +369,6 @@
         "log_path": "",
         "failure_summary": "",
         "bug_signature": "",
-        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null
@@ -377,7 +379,8 @@
         "summary": "",
         "warnings": []
       },
-      "rollback_to": null
+      "rollback_to": null,
+      "features": []
     },
     "code_review": {
       "status": "not_started",
@@ -444,7 +447,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "merge_push": {
       "status": "not_started",
@@ -473,7 +477,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "build": {
       "status": "not_started",
@@ -506,7 +511,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "deploy": {
       "status": "not_started",
@@ -547,7 +553,8 @@
         "config_valid": false,
         "credentials_available": false,
         "warnings": []
-      }
+      },
+      "features": []
     },
     "smoke": {
       "status": "not_started",
@@ -583,7 +590,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "ui_e2e": {
       "status": "not_started",
@@ -621,7 +629,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "report": {
       "status": "not_started",
@@ -647,7 +656,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     }
   },
   "logs": {

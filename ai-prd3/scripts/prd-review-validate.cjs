@@ -8,6 +8,7 @@ const { stableStringify } = require('./lib/json-stable.cjs');
 const { scanJsonSecrets } = require('./lib/secret-scan.cjs');
 const { markPrdReviewFailed } = require('./lib/stage-status.cjs');
 const { writeImplementationReport } = require('./prd-implementation-report.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function safeMarkPrdReviewFailed(root, summary) {
   try {
@@ -217,6 +218,18 @@ function main() {
   stages.stages.prd_review.validation.config_secret_scan_passed = true;
   stages.stages.prd_review.validation.blocking_issues_count = 0;
   stages.stages.prd_review.validation.conditions_resolved = true;
+
+  stages = featureStages.backfillFeatureStages(stages);
+  const phaseIds = featureStages.collectPhaseFeatureIds(stages);
+  const deferredIds = [...featureStages.collectDeferredFeatureIds(stages)];
+  stages = featureStages.markFeaturesCompleted(stages, 'prd_review', phaseIds, {
+    message: 'prd_review 终检通过',
+  });
+  if (deferredIds.length) {
+    stages = featureStages.markFeaturesSkipped(stages, 'prd_review', deferredIds, {
+      message: 'deferred_features',
+    });
+  }
 
   stages.pipeline = stages.pipeline || {};
   stages.pipeline.updated_at = now;

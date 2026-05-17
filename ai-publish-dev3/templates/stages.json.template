@@ -134,7 +134,8 @@
         "design_inputs_ready": false,
         "config_secret_scan_passed": false,
         "warnings": []
-      }
+      },
+      "features": []
     },
     "design": {
       "status": "not_started",
@@ -163,7 +164,8 @@
         "missing_required_fields": [],
         "warnings": []
       },
-      "blocking_issues": []
+      "blocking_issues": [],
+      "features": []
     },
     "contract": {
       "status": "not_started",
@@ -228,7 +230,8 @@
         ],
         "warnings": []
       },
-      "blocking_issues": []
+      "blocking_issues": [],
+      "features": []
     },
     "design_review": {
       "status": "not_started",
@@ -255,7 +258,8 @@
         "summary": "",
         "blocking_gaps_count": 0,
         "warnings": []
-      }
+      },
+      "features": []
     },
     "codegen": {
       "status": "not_started",
@@ -292,7 +296,8 @@
         "contract_diff_guard_passed": false,
         "warnings": []
       },
-      "error": ""
+      "error": "",
+      "features": []
     },
     "typecheck": {
       "status": "not_started",
@@ -337,7 +342,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "test": {
       "status": "not_started",
@@ -366,7 +372,8 @@
         "summary": "",
         "warnings": []
       },
-      "rollback_to": null
+      "rollback_to": null,
+      "features": []
     },
     "code_review": {
       "status": "not_started",
@@ -433,7 +440,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "merge_push": {
       "status": "not_started",
@@ -462,7 +470,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "build": {
       "status": "not_started",
@@ -495,7 +504,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "deploy": {
       "status": "not_started",
@@ -536,7 +546,8 @@
         "config_valid": false,
         "credentials_available": false,
         "warnings": []
-      }
+      },
+      "features": []
     },
     "smoke": {
       "status": "not_started",
@@ -572,7 +583,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     },
     "report": {
       "status": "not_started",
@@ -598,7 +610,8 @@
         "checked_at": null,
         "summary": "",
         "warnings": []
-      }
+      },
+      "features": []
     }
   },
   "logs": {

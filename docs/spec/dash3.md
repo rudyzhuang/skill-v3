@@ -196,7 +196,7 @@
 
 | 状态 | 条件（按优先级） |
 | --- | --- |
-| **`completed`** | **`stages.test.outputs.per_feature[]`** 该 **`feature_id`** 通过 **且** 项目 **`stages.ui_e2e.status=completed`**（**唯一**「已完成」） |
+| **`completed`** | **`stages.test.features[]`** 该 **`feature_id`** 的 **`feature.status=completed`**（且 test 产物校验通过）**且** 项目 **`stages.ui_e2e.status=completed`**（**唯一**「已完成」） |
 | **`in_progress`** | 与本 feature 相关的任一阶段 **`running`**（含 active codegen、test running、项目 prd running 等） |
 | **`pending`** | 项目 **`prd`** 尚未开始，且本 feature 未动工 |
 | **`paused`** | **`prd`** 已完成且项目 **`ui_e2e`** 未完成，且非 **`in_progress`**（含 codegen 完待 test、test 失败待处理、延期等） |
@@ -211,7 +211,9 @@
 
 **内部启发式（`hints[]`）** 仍记录 **`test_per_feature_failed`**、**`blocked_in_feature_list`** 等；**「失败」筛选** 匹配 **`current_stage_status=failed`** 或上述 hints。
 
-**`isFeatureCodegenDone`（codegen 完成）**：与 **autorun** **`filterRemainingCodegenQueue`**、看板 **`codegenDone` / `completed_stages`** 共用同一实现；**真源**为 **`stages.*.outputs.per_feature[]`**（**`feature-stages.cjs`**），**worktree / git** 仅作无 per_feature 时的回退。看板 **`feature_status=completed`** 仍以 **test + ui_e2e** 为准（上表）。
+**`isFeatureCodegenDone`（codegen 完成）**：与 **autorun** **`filterRemainingCodegenQueue`**、看板 **`codegenDone` / `completed_stages`** 共用同一实现；**真源**为 **`stages.<stage>.features[].status`**（**`feature-stages.cjs`**），**worktree / git** 仅作无 **`features[]`** 时的回退。看板 **`current_stage` / `current_stage_status`** 优先读当前阶段的 **`features[]`** 行；**`feature_status=completed`** 仍以 **test + ui_e2e** 为准（上表）。
+
+**`features[].stage_feature_status`**（API **`ai-dash3.dashboard.v1`**）：`Record<stage_key, feature.status>`，自 **`stages.<stage>.features[]`** 投影，供矩阵/筛选；键名为下划线 stage（`prd_review`、`merge_push` 等）。
 
 **`orchestration.pending_features`**（**`runtime.json`**，原 registry **`pending_features_json`**）：表示**尚未完成 codegen 的排队列表**；**autorun** 在 codegen 波次中应随进度收缩，**不得**长期等于整期 **`phase_plan`** 全集否则看板会把全员标为处理中。
 

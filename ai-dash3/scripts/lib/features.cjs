@@ -108,7 +108,7 @@ function featureStageStatus(doc, stageKey, featureId) {
   return row?.status ? String(row.status) : null;
 }
 
-/** 任一 stage 的 per_feature 为 running 时，返回最先匹配的阶段键（已完成阶段跳过） */
+/** 任一 stage 的 features[].status 为 running 时，返回最先匹配的阶段键（已完成阶段跳过） */
 function findFeatureRunningStage(doc, featureId) {
   const fid = String(featureId || '').trim();
   if (!fid || !featureStages) return null;
@@ -156,24 +156,36 @@ function isScaffoldOnlyWorktree(projectRoot, featureId) {
   }
 }
 
-function testPerFeatureRow(doc, featureId) {
+function testFeatureRow(doc, featureId) {
   const fid = String(featureId || '').trim();
-  const rows = doc?.stages?.test?.outputs?.per_feature || [];
+  const rows = doc?.stages?.test?.features || doc?.stages?.test?.outputs?.per_feature || [];
   return rows.find((r) => String(r?.feature_id || '').trim() === fid);
 }
 
+/** @deprecated */
+const testPerFeatureRow = testFeatureRow;
+
 function testPerFeaturePassed(doc, featureId) {
-  const row = testPerFeatureRow(doc, featureId);
+  if (featureStages?.isFeatureStageCompleted(doc, 'test', featureId)) return true;
+  const row = testFeatureRow(doc, featureId);
   if (!row) return false;
-  const result = String(row.result || row.status || '').toLowerCase();
+  const st = featureStages ? featureStages.normalizeFeatureStatus(row.status) : String(row.status || '');
+  if (st === 'completed') return true;
+  const result = String(row.test_result || row.result || '').toLowerCase();
   if (row.passed === true || result === 'passed' || result === 'success') return true;
   return false;
 }
 
 function testPerFeatureFailed(doc, featureId) {
-  const row = testPerFeatureRow(doc, featureId);
+  if (featureStages) {
+    const row = featureStages.getFeatureStageRow(doc, 'test', featureId);
+    if (featureStages.normalizeFeatureStatus(row?.status) === 'failed') return true;
+  }
+  const row = testFeatureRow(doc, featureId);
   if (!row) return false;
-  const result = String(row.result || row.status || '').toLowerCase();
+  const st = featureStages ? featureStages.normalizeFeatureStatus(row.status) : String(row.status || '');
+  if (st === 'failed') return true;
+  const result = String(row.test_result || row.result || '').toLowerCase();
   if (row.passed === false || result === 'failed' || result === 'failure') return true;
   return false;
 }
@@ -189,7 +201,7 @@ function isTestStageRunning(doc) {
 
 /**
  * feature 级 codegen 是否完成。
- * 真源：`stages.codegen.outputs.per_feature[]`（经 feature-stages）；worktree/git 仅作旧项目回退。
+ * 真源：`stages.codegen.features[].status`（经 feature-stages）；worktree/git 仅作旧项目回退。
  * @param {string} projectRoot
  * @param {string} featureId
  * @param {object|null} [doc] stages.json
@@ -548,6 +560,14 @@ function normalizeFeatureCurrentStageKey(pipelineStage, ctx, doc) {
 }
 
 function isStageCompletedForFeature(doc, key, ctx) {
+  const fid = String(ctx.fid || '').trim();
+  if (fid && featureStages) {
+    if (featureStages.isFeatureStageCompleted(doc, key, fid)) return true;
+    const st = featureStages.normalizeFeatureStatus(
+      featureStages.getFeatureStageRow(doc, key, fid)?.status
+    );
+    if (st === 'failed' || st === 'skipped') return false;
+  }
   const row = stageRow(doc, key);
   const keyIdx = STAGE_KEYS.indexOf(key);
   const codegenIdx = STAGE_KEYS.indexOf('codegen');
@@ -555,14 +575,19 @@ function isStageCompletedForFeature(doc, key, ctx) {
   if (key === 'codegen') return ctx.codegenDone;
   if (key === 'test') return ctx.testPassed;
   if (keyIdx >= 0 && keyIdx < codegenIdx) {
+    if (fid && featureStages) {
+      return featureStages.isFeatureStageCompleted(doc, key, fid);
+    }
     return row.status === 'completed' && row.validation_passed !== false;
   }
   if (key === 'typecheck' || key === 'code_review') {
     if (!ctx.codegenDone) return false;
+    if (fid && featureStages) return featureStages.isFeatureStageCompleted(doc, key, fid);
     return row.status === 'completed';
   }
   if (keyIdx > testIdx) {
     if (!ctx.testPassed) return false;
+    if (fid && featureStages) return featureStages.isFeatureStageCompleted(doc, key, fid);
     return row.status === 'completed';
   }
   return false;
@@ -580,10 +605,12 @@ function deriveCurrentStageStatus(doc, currentKey, ctx) {
   if (currentKey === 'codegen' && ctx.codegenDone) return 'pending';
   if (fid && featureStages) {
     const explicit = featureStageStatus(doc, currentKey, fid);
-    if (explicit === 'running' && !(currentKey === 'codegen' && ctx.codegenDone)) return 'running';
-    if (explicit === 'failed') return 'failed';
-    if (explicit === 'deferred') return 'deferred';
-    if (explicit === 'completed') return 'pending';
+    const norm = explicit ? featureStages.normalizeFeatureStatus(explicit) : '';
+    if (norm === 'running' && !(currentKey === 'codegen' && ctx.codegenDone)) return 'running';
+    if (norm === 'failed') return 'failed';
+    if (norm === 'skipped') return 'deferred';
+    if (norm === 'completed') return 'pending';
+    if (norm === 'not_started') return 'pending';
   }
   if (currentKey === 'codegen') {
     if (ctx.isActiveCodegen) return 'running';
@@ -672,6 +699,20 @@ function deriveFeatureOverallStatus(doc, ctx, currentStageStatus) {
     return { feature_status: 'paused', feature_status_reason: 'awaiting_ui_e2e' };
   }
   return { feature_status: 'paused', feature_status_reason: 'mid_pipeline' };
+}
+
+/** 各 pipeline stage 的 feature.status 快照（供看板矩阵展示） */
+function buildFeatureStageStatusMap(doc, featureId) {
+  const out = {};
+  if (!featureStages) return out;
+  const fid = String(featureId || '').trim();
+  if (!fid) return out;
+  for (const key of STAGE_KEYS) {
+    if (key === 'prd') continue;
+    const row = featureStages.getFeatureStageRow(doc, key, fid);
+    out[key] = row?.status ? featureStages.normalizeFeatureStatus(row.status) : 'not_started';
+  }
+  return out;
 }
 
 function computeStageProgress(completedStages) {
@@ -855,6 +896,7 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
         priority_tier: tierById.get(fid) ?? 3,
         pipeline_status: feature_status,
         feature_status,
+        stage_feature_status: buildFeatureStageStatusMap(doc, fid),
         hints,
         ...stageFields,
         ...stageProgress,

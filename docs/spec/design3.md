@@ -64,6 +64,7 @@
 | **主要输出** | 每 feature 一份**可机读、可版本管理**的设计规格（见 §5.1），并在 `stages.design.outputs.design_specs[]` 中登记：`feature_id`、`client_target`、**产物路径**、`status`（如 `draft` / `approved` 等，若模板未锁枚举则与实现一致即可）、`shared_changes[]`（跨端共享层变更，见 [`input-spec.md`](../input-spec.md) §8 阶段 3）。 |
 | **禁止** | 本阶段**不**生成五种契约终稿（`types` / `api` / `schema` / `test_spec` / `design_snapshot` 文件）；不直接写实现代码。 |
 | **完成条件** | `stages.design.status === "completed"` 且 `stages.design.validation.passed === true`；且本期每个目标 feature 在 `design_specs[]` 中均有通过校验的条目。 |
+| **`feature.status`** | 经 **`feature-stages.cjs`** 写入 **`stages.design.features[]`**；**仅**在处理该 `feature_id` 时更新（见 [`input-spec.md`](../input-spec.md) §7.1.1）。 |
 
 ### 3.2 contract
 
@@ -74,6 +75,7 @@
 | **机器校验** | 写入 `stages.contract.validation.checks[]`：`types` / `api` / `schema` / `test_spec` / `design_snapshot`；`validation.checks[].status` 遵守模板枚举（`pending` / `passed` / `failed` / `skipped`）。 |
 | **人工审批** | `stages.contract.outputs.human_approval.status`：`pending` →（仅人工或显式子命令）`approved` / `rejected` / `not_required`。**ai-auto3 不得在 `pending` 时自动批准**；应把 `stages.contract.status` 置为 `blocked` 并停自动序列（见 [`input-spec.md`](../input-spec.md) §8 阶段 4）。 |
 | **完成条件** | `stages.contract.status === "completed"` 且 `validation.passed === true` 且 `human_approval.status === "approved"`（或规则允许的 `not_required`）。 |
+| **`feature.status`** | **`stages.contract.features[]`** 按 feature 记录契约阶段进度；**`human_approval`** 仍为整段 stage 单一对象（不按 feature 审批）。 |
 
 ### 3.3 design-review
 

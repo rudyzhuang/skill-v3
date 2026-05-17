@@ -48,11 +48,16 @@ const begun = featureStages.beginStageForFeatures(doc, {
   message: 'test contract begin',
 });
 doc = begun.doc;
-assert(begun.marked.includes('F-A'), 'F-A should enter contract (design done)');
-assert(begun.skipped.includes('F-B'), 'F-B should skip contract until design done');
+assert(begun.marked.length === 0, 'beginStage must not auto-mark feature.status');
+assert(!featureStages.isFeatureStageRunning(doc, 'contract', 'F-A'), 'F-A must not be running before explicit mark');
 
+doc = featureStages.markFeatureStage(doc, 'contract', 'F-A', 'running', { message: 'test contract begin' });
 const runA = featureStages.getFeatureStageRow(doc, 'contract', 'F-A');
 assert(runA?.status === 'running', `F-A contract expected running, got ${runA?.status}`);
+assert(
+  Array.isArray(doc.stages.contract.features) && doc.stages.contract.features.some((r) => r.feature_id === 'F-A'),
+  'contract.features[] must contain F-A'
+);
 
 doc = featureStages.markFeatureStage(doc, 'contract', 'F-A', 'completed', { message: 'ok' });
 assert(
@@ -60,13 +65,10 @@ assert(
   'F-A contract should be completed'
 );
 
-const begun2 = featureStages.beginStageForFeatures(doc, {
-  stageKey: 'contract',
-  featureIds: ['F-B'],
-  skill: 'ai-design3',
-});
-doc = begun2.doc;
-assert(begun2.marked.includes('F-B') === false, 'F-B still blocked without design');
+assert(
+  !featureStages.isPreviousStageDoneForFeature(doc, 'contract', 'F-B'),
+  'F-B contract blocked until design completed'
+);
 
 featureStages.appendStageLog(tmp, {
   skill: 'test',
@@ -80,9 +82,7 @@ const logText = fs.readFileSync(logPath, 'utf8');
 assert(logText.includes('日志可读性自检'), 'log should contain human message');
 
 doc = featureStages.markFeatureStage(doc, 'codegen', 'F-A', 'completed', { message: 'done' });
-doc = featureStages.upsertPerFeature(doc, 'typecheck', 'F-A', {
-  status: 'running',
-  started_at: new Date().toISOString(),
+doc = featureStages.markFeatureStage(doc, 'typecheck', 'F-A', 'running', {
   message: 'typecheck running',
 });
 assert(
@@ -92,7 +92,10 @@ assert(
 doc = featureStages.markFeatureStage(doc, 'typecheck', 'F-A', 'completed', { message: 'ok' });
 assert(
   !featureStages.anyFeatureStageRunning(doc, 'F-A'),
-  'anyFeatureStageRunning must be false when all per-feature stages are completed'
+  'anyFeatureStageRunning must be false when all feature stages are completed'
 );
+
+const norm = featureStages.normalizeFeatureStatus('complete');
+assert(norm === 'completed', `normalize complete -> completed, got ${norm}`);
 
 console.log('self-test-feature-stages: OK');

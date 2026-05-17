@@ -40,23 +40,31 @@ const REQUIRES_STAGE = {
   report: null,
 };
 
-/** 上一阶段完成态以项目级 status 为准（非 per_feature） */
-const PROJECT_GATE_STAGES = new Set([
-  'prd',
-  'prd_review',
-  'design_review',
-  'merge_push',
-  'build',
-  'deploy',
-  'smoke',
-  'ui_e2e',
-  'report',
-]);
+/** feature.status 终态（与 input-spec §7.1.1 一致） */
+const TERMINAL_FEATURE = new Set(['completed', 'failed', 'skipped']);
 
-const TERMINAL_FEATURE = new Set(['completed', 'failed', 'skipped', 'deferred']);
+/** @type {Set<string>} */
+const FEATURE_STATUS_ENUM = new Set(['not_started', 'running', 'completed', 'failed', 'skipped']);
 
 function isoNow() {
   return new Date().toISOString();
+}
+
+/**
+ * 归一化 feature.status（读路径兼容 complete / pending / deferred）
+ * @param {string} raw
+ * @returns {string}
+ */
+function normalizeFeatureStatus(raw) {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!s) return 'not_started';
+  if (s === 'complete') return 'completed';
+  if (s === 'pending') return 'not_started';
+  if (s === 'deferred') return 'skipped';
+  if (FEATURE_STATUS_ENUM.has(s)) return s;
+  return 'not_started';
 }
 
 function collectPhaseFeatureIds(doc) {
@@ -70,6 +78,16 @@ function collectPhaseFeatureIds(doc) {
       seen.add(id);
       out.push(id);
     }
+  }
+  return out;
+}
+
+function collectDeferredFeatureIds(doc) {
+  const raw = doc?.stages?.prd_review?.review?.deferred_features || [];
+  const out = new Set();
+  for (const row of raw) {
+    const id = String(row?.feature_id || row?.id || row || '').trim();
+    if (id) out.add(id);
   }
   return out;
 }
@@ -89,20 +107,32 @@ function projectStageCompleted(doc, stageKey) {
   return false;
 }
 
-function perFeatureArray(doc, stageKey) {
+/** @deprecated 读路径：outputs.per_feature */
+function legacyPerFeatureArray(doc, stageKey) {
   const outs = stageBlock(doc, stageKey).outputs || {};
   if (Array.isArray(outs.per_feature)) return outs.per_feature;
   return null;
 }
 
-function findPerFeatureRow(doc, stageKey, featureId) {
+function featuresArray(doc, stageKey) {
+  const block = stageBlock(doc, stageKey);
+  if (Array.isArray(block.features)) return block.features;
+  const legacy = legacyPerFeatureArray(doc, stageKey);
+  if (legacy) return legacy;
+  return null;
+}
+
+function findFeatureRow(doc, stageKey, featureId) {
   const fid = String(featureId || '').trim();
-  const arr = perFeatureArray(doc, stageKey);
+  const arr = featuresArray(doc, stageKey);
   if (!arr || !fid) return null;
   return arr.find((r) => String(r?.feature_id || '').trim() === fid) || null;
 }
 
-/** 从既有 outputs 结构推断 feature 行（旧项目无 per_feature 时） */
+/** @deprecated */
+const findPerFeatureRow = findFeatureRow;
+
+/** 从既有 outputs 结构推断 feature 行（只读；不写回） */
 function legacyFeatureRow(doc, stageKey, featureId) {
   const fid = String(featureId || '').trim();
   if (!fid) return null;
@@ -113,8 +143,8 @@ function legacyFeatureRow(doc, stageKey, featureId) {
     if (!spec) return null;
     const st = String(spec.status || '').toLowerCase();
     if (st === 'approved' || st === 'completed') return { feature_id: fid, status: 'completed' };
-    if (st === 'draft') return { feature_id: fid, status: 'pending' };
-    return { feature_id: fid, status: 'pending' };
+    if (st === 'draft') return { feature_id: fid, status: 'not_started' };
+    return { feature_id: fid, status: 'not_started' };
   }
 
   if (stageKey === 'contract') {
@@ -123,7 +153,7 @@ function legacyFeatureRow(doc, stageKey, featureId) {
     const filled = ['types', 'api', 'schema', 'test_spec', 'design_snapshot'].every(
       (k) => typeof art[k] === 'string' && art[k].trim()
     );
-    return { feature_id: fid, status: filled ? 'completed' : 'pending' };
+    return { feature_id: fid, status: filled ? 'completed' : 'not_started' };
   }
 
   if (stageKey === 'codegen') {
@@ -137,7 +167,8 @@ function legacyFeatureRow(doc, stageKey, featureId) {
   }
 
   if (stageKey === 'test') {
-    const row = (outs.per_feature || []).find((r) => String(r?.feature_id || '').trim() === fid);
+    const legacyPf = legacyPerFeatureArray(doc, stageKey) || [];
+    const row = legacyPf.find((r) => String(r?.feature_id || '').trim() === fid);
     if (!row) return null;
     const result = String(row.result || row.status || '').toLowerCase();
     if (row.passed === true || result === 'passed' || result === 'success') {
@@ -146,7 +177,7 @@ function legacyFeatureRow(doc, stageKey, featureId) {
     if (row.passed === false || result === 'failed' || result === 'failure') {
       return { feature_id: fid, status: 'failed', ...row };
     }
-    return { feature_id: fid, status: 'pending', ...row };
+    return { feature_id: fid, status: 'not_started', ...row };
   }
 
   return null;
@@ -156,49 +187,90 @@ function legacyFeatureRow(doc, stageKey, featureId) {
  * @returns {{ feature_id: string, status: string, started_at?: string|null, completed_at?: string|null, message?: string }|null}
  */
 function getFeatureStageRow(doc, stageKey, featureId) {
-  const direct = findPerFeatureRow(doc, stageKey, featureId);
-  if (direct?.status) return direct;
-  return legacyFeatureRow(doc, stageKey, featureId);
+  const direct = findFeatureRow(doc, stageKey, featureId);
+  const legacy = legacyFeatureRow(doc, stageKey, featureId);
+  if (direct?.status) {
+    const norm = normalizeFeatureStatus(direct.status);
+    if (norm !== 'not_started') return { ...direct, status: norm };
+    if (legacy?.status) {
+      const ln = normalizeFeatureStatus(legacy.status);
+      if (ln !== 'not_started') return { ...legacy, status: ln };
+    }
+    return { ...direct, status: norm };
+  }
+  if (legacy?.status) {
+    return { ...legacy, status: normalizeFeatureStatus(legacy.status) };
+  }
+  return null;
 }
 
 function isFeatureStageCompleted(doc, stageKey, featureId) {
   const row = getFeatureStageRow(doc, stageKey, featureId);
-  if (row?.status === 'completed' || row?.status === 'skipped') return true;
-  if (PROJECT_GATE_STAGES.has(stageKey) && projectStageCompleted(doc, stageKey)) return true;
-  return false;
+  const st = normalizeFeatureStatus(row?.status);
+  return st === 'completed' || st === 'skipped';
 }
 
 function isPreviousStageDoneForFeature(doc, stageKey, featureId) {
   const prev = REQUIRES_STAGE[stageKey];
   if (!prev) return true;
-  if (PROJECT_GATE_STAGES.has(prev)) return projectStageCompleted(doc, prev);
+  if (prev === 'prd') return projectStageCompleted(doc, 'prd');
   return isFeatureStageCompleted(doc, prev, featureId);
 }
 
-function ensureOutputs(doc, stageKey) {
+function ensureStageBlock(doc, stageKey) {
   if (!doc.stages) doc.stages = {};
   if (!doc.stages[stageKey]) doc.stages[stageKey] = {};
-  if (!doc.stages[stageKey].outputs) doc.stages[stageKey].outputs = {};
-  if (!Array.isArray(doc.stages[stageKey].outputs.per_feature)) {
-    doc.stages[stageKey].outputs.per_feature = [];
+  if (!Array.isArray(doc.stages[stageKey].features)) {
+    doc.stages[stageKey].features = [];
   }
-  return doc.stages[stageKey].outputs.per_feature;
+  return doc.stages[stageKey].features;
 }
 
-function upsertPerFeature(doc, stageKey, featureId, patch) {
+function upsertFeature(doc, stageKey, featureId, patch) {
   const fid = String(featureId || '').trim();
   if (!fid) return doc;
-  const arr = ensureOutputs(doc, stageKey);
+  const arr = ensureStageBlock(doc, stageKey);
   const idx = arr.findIndex((r) => String(r?.feature_id || '').trim() === fid);
   const prev = idx >= 0 ? arr[idx] : { feature_id: fid, status: 'not_started' };
-  const next = { ...prev, feature_id: fid, ...patch };
+  const nextStatus = patch.status != null ? normalizeFeatureStatus(patch.status) : prev.status;
+  const next = { ...prev, feature_id: fid, ...patch, status: nextStatus };
   if (idx >= 0) arr[idx] = next;
   else arr.push(next);
   return doc;
 }
 
+/** @deprecated 使用 upsertFeature */
+const upsertPerFeature = upsertFeature;
+
 /**
- * 旧项目：从 legacy 结构补齐 outputs.per_feature[]（仅补缺，不覆盖已有行）
+ * 为 phase_plan 内 feature 在各非 prd stage 确保存在 not_started 行（不覆盖已有状态）
+ */
+function ensureFeatureRowsForPhasePlan(doc) {
+  if (!doc || typeof doc !== 'object') return doc;
+  const ids = collectPhaseFeatureIds(doc);
+  if (!ids.length) return doc;
+
+  for (const stageKey of STAGE_KEYS) {
+    if (stageKey === 'prd') continue;
+    const arr = ensureStageBlock(doc, stageKey);
+    const have = new Set(arr.map((r) => String(r?.feature_id || '').trim()).filter(Boolean));
+    for (const fid of ids) {
+      if (have.has(fid)) continue;
+      arr.push({
+        feature_id: fid,
+        status: 'not_started',
+        started_at: null,
+        completed_at: null,
+        message: '',
+      });
+      have.add(fid);
+    }
+  }
+  return doc;
+}
+
+/**
+ * 旧项目：从 legacy 结构只读推断后补齐 features[]（仅补缺，不覆盖已有行）
  */
 function backfillFeatureStages(doc) {
   if (!doc || typeof doc !== 'object') return doc;
@@ -206,8 +278,8 @@ function backfillFeatureStages(doc) {
   if (!ids.length) return doc;
 
   for (const stageKey of STAGE_KEYS) {
-    if (stageKey === 'prd' || stageKey === 'report') continue;
-    const arr = ensureOutputs(doc, stageKey);
+    if (stageKey === 'prd') continue;
+    const arr = ensureStageBlock(doc, stageKey);
     const have = new Set(arr.map((r) => String(r?.feature_id || '').trim()).filter(Boolean));
     for (const fid of ids) {
       if (have.has(fid)) continue;
@@ -215,7 +287,7 @@ function backfillFeatureStages(doc) {
       if (legacy) {
         arr.push({
           feature_id: fid,
-          status: legacy.status || 'not_started',
+          status: normalizeFeatureStatus(legacy.status) || 'not_started',
           started_at: legacy.started_at || null,
           completed_at: legacy.completed_at || null,
           message: legacy.message || 'backfill_from_legacy_outputs',
@@ -223,8 +295,21 @@ function backfillFeatureStages(doc) {
         have.add(fid);
       }
     }
+    const legacyPf = legacyPerFeatureArray(doc, stageKey);
+    if (legacyPf) {
+      for (const row of legacyPf) {
+        const fid = String(row?.feature_id || '').trim();
+        if (!fid || have.has(fid)) continue;
+        arr.push({
+          ...row,
+          feature_id: fid,
+          status: normalizeFeatureStatus(row.status),
+        });
+        have.add(fid);
+      }
+    }
   }
-  return doc;
+  return ensureFeatureRowsForPhasePlan(doc);
 }
 
 function markStageRunning(doc, stageKey, updatedBy) {
@@ -241,9 +326,7 @@ function markStageRunning(doc, stageKey, updatedBy) {
 }
 
 /**
- * 阶段脚本开跑：上一阶段已完成 → 将本 stage 内 feature 标为 running
- * @param {object} doc
- * @param {{ stageKey: string, featureIds?: string[], skill?: string, message?: string }} opts
+ * 阶段开跑：仅标 stage 为 running + 确保 features[] 行存在；**不**批量改 feature.status（§1.3）
  */
 function beginStageForFeatures(doc, opts) {
   const stageKey = opts.stageKey;
@@ -254,53 +337,34 @@ function beginStageForFeatures(doc, opts) {
   doc = backfillFeatureStages(doc);
   doc = markStageRunning(doc, stageKey, skill);
 
-  const now = isoNow();
-  const marked = [];
-  const skipped = [];
-
-  for (const fid of ids) {
-    if (!isPreviousStageDoneForFeature(doc, stageKey, fid)) {
-      skipped.push(fid);
-      continue;
-    }
-    const cur = getFeatureStageRow(doc, stageKey, fid);
-    if (cur?.status === 'running') {
-      marked.push(fid);
-      continue;
-    }
-    if (TERMINAL_FEATURE.has(String(cur?.status || ''))) {
-      skipped.push(fid);
-      continue;
-    }
-    doc = upsertPerFeature(doc, stageKey, fid, {
-      status: 'running',
-      started_at: now,
-      completed_at: null,
-      message: opts.message || `${stageKey} 处理中`,
-    });
-    marked.push(fid);
-  }
-
-  return { doc, marked, skipped, featureIds: ids };
+  return { doc, marked: [], skipped: ids, featureIds: ids };
 }
 
 function markFeatureStage(doc, stageKey, featureId, status, meta = {}) {
   const now = isoNow();
+  const norm = normalizeFeatureStatus(status);
   const patch = {
-    status,
-    message: meta.message || '',
+    status: norm,
+    message: meta.message != null ? String(meta.message) : '',
   };
-  if (status === 'running') {
+  if (norm === 'running') {
     patch.started_at = meta.started_at || now;
     patch.completed_at = null;
   }
-  if (TERMINAL_FEATURE.has(status)) {
+  if (TERMINAL_FEATURE.has(norm)) {
     patch.completed_at = meta.completed_at || now;
   }
   if (meta.extra && typeof meta.extra === 'object') {
     Object.assign(patch, meta.extra);
   }
-  return upsertPerFeature(doc, stageKey, featureId, patch);
+  return upsertFeature(doc, stageKey, featureId, patch);
+}
+
+function markFeaturesRunning(doc, stageKey, featureIds, meta = {}) {
+  for (const fid of featureIds || []) {
+    doc = markFeatureStage(doc, stageKey, fid, 'running', meta);
+  }
+  return doc;
 }
 
 function markFeaturesCompleted(doc, stageKey, featureIds, meta = {}) {
@@ -317,13 +381,16 @@ function markFeaturesFailed(doc, stageKey, featureIds, meta = {}) {
   return doc;
 }
 
+function markFeaturesSkipped(doc, stageKey, featureIds, meta = {}) {
+  for (const fid of featureIds || []) {
+    doc = markFeatureStage(doc, stageKey, fid, 'skipped', meta);
+  }
+  return doc;
+}
+
 function isFeatureStageRunning(doc, stageKey, featureId) {
   const row = getFeatureStageRow(doc, stageKey, featureId);
-  if (String(row?.status || '') === 'running') return true;
-  if (PROJECT_GATE_STAGES.has(stageKey) && String(stageBlock(doc, stageKey).status || '') === 'running') {
-    return true;
-  }
-  return false;
+  return normalizeFeatureStatus(row?.status) === 'running';
 }
 
 function anyFeatureStageRunning(doc, featureId, stageKeys = STAGE_KEYS) {
@@ -373,20 +440,28 @@ function appendStageLog(projectRoot, rec) {
 module.exports = {
   STAGE_KEYS,
   REQUIRES_STAGE,
-  PROJECT_GATE_STAGES,
+  FEATURE_STATUS_ENUM,
+  TERMINAL_FEATURE,
+  normalizeFeatureStatus,
   collectPhaseFeatureIds,
+  collectDeferredFeatureIds,
   getFeatureStageRow,
+  findFeatureRow,
   findPerFeatureRow,
   isFeatureStageCompleted,
   isFeatureStageRunning,
   isPreviousStageDoneForFeature,
   anyFeatureStageRunning,
+  ensureFeatureRowsForPhasePlan,
   backfillFeatureStages,
   beginStageForFeatures,
   markStageRunning,
   markFeatureStage,
+  markFeaturesRunning,
   markFeaturesCompleted,
   markFeaturesFailed,
+  markFeaturesSkipped,
+  upsertFeature,
   upsertPerFeature,
   appendStageLog,
   projectStageCompleted,

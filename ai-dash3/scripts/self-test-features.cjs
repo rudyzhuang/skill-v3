@@ -125,9 +125,15 @@ const docTestPass = JSON.parse(JSON.stringify(doc));
 docTestPass.stages.codegen.status = 'completed';
 docTestPass.stages.test = {
   status: 'completed',
-  outputs: {
-    per_feature: [{ feature_id: 'F-A', result: 'passed', passed: true, finished_at: '2026-01-01T00:00:00.000Z' }],
-  },
+  features: [
+    {
+      feature_id: 'F-A',
+      status: 'completed',
+      test_result: 'passed',
+      passed: true,
+      completed_at: '2026-01-01T00:00:00.000Z',
+    },
+  ],
 };
 const boardTestOnly = buildFeatureBoard(docTestPass, root, runtime, { alive: false });
 const fATestOnly = boardTestOnly.features.find((f) => f.feature_id === 'F-A');
@@ -163,9 +169,15 @@ assert(
 const docFailed = JSON.parse(JSON.stringify(doc));
 docFailed.stages.test = {
   status: 'failed',
-  outputs: {
-    per_feature: [{ feature_id: 'F-A', result: 'failed', passed: false, finished_at: '2026-01-01T00:00:00.000Z' }],
-  },
+  features: [
+    {
+      feature_id: 'F-A',
+      status: 'failed',
+      test_result: 'failed',
+      passed: false,
+      completed_at: '2026-01-01T00:00:00.000Z',
+    },
+  ],
 };
 const boardFail = buildFeatureBoard(docFailed, root, runtime, { alive: false });
 const fAFail = boardFail.features.find((f) => f.feature_id === 'F-A');
@@ -196,19 +208,17 @@ assert(
 const docDesignRun = JSON.parse(JSON.stringify(doc));
 docDesignRun.stages.design = {
   status: 'running',
-  outputs: {
-    per_feature: [{ feature_id: 'F-B', status: 'running', started_at: '2026-01-01T00:00:00.000Z' }],
-  },
+  features: [{ feature_id: 'F-B', status: 'running', started_at: '2026-01-01T00:00:00.000Z' }],
 };
 const boardDesign = buildFeatureBoard(docDesignRun, root, {}, { alive: false });
 const fBDesign = boardDesign.features.find((f) => f.feature_id === 'F-B');
 assert(
   fBDesign.current_stage_status === 'running',
-  `F-B design per_feature running expected current_stage_status=running, got ${fBDesign.current_stage_status}`
+  `F-B design features running expected current_stage_status=running, got ${fBDesign.current_stage_status}`
 );
 assert(
   fBDesign.feature_status === 'in_progress',
-  `F-B design per_feature running expected in_progress, got ${fBDesign.feature_status}`
+  `F-B design features running expected in_progress, got ${fBDesign.feature_status}`
 );
 
 const docCodegenPerFeature = JSON.parse(JSON.stringify(doc));
@@ -229,11 +239,11 @@ docCodegenPerFeature.stages.codegen = {
         files_changed: [],
       },
     ],
-    per_feature: [
-      { feature_id: 'F-A', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
-      { feature_id: 'F-B', status: 'running', started_at: '2026-01-01T00:00:00.000Z' },
-    ],
   },
+  features: [
+    { feature_id: 'F-A', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
+    { feature_id: 'F-B', status: 'running', started_at: '2026-01-01T00:00:00.000Z' },
+  ],
 };
 const runtimeStalePending = {
   ...runtime,
@@ -242,7 +252,11 @@ const runtimeStalePending = {
 const boardCodegenPf = buildFeatureBoard(docCodegenPerFeature, root, runtimeStalePending, { alive: true });
 const fAPf = boardCodegenPf.features.find((f) => f.feature_id === 'F-A');
 const fBPf = boardCodegenPf.features.find((f) => f.feature_id === 'F-B');
-assert(fAPf.feature_status === 'paused', `F-A per_feature codegen done expected paused, got ${fAPf.feature_status}`);
+assert(fAPf.feature_status === 'paused', `F-A features codegen done expected paused, got ${fAPf.feature_status}`);
+assert(
+  fAPf.stage_feature_status?.codegen === 'completed',
+  `F-A stage_feature_status.codegen expected completed, got ${fAPf.stage_feature_status?.codegen}`
+);
 assert(
   fAPf.current_stage_status === 'pending',
   `F-A codegen done current_stage_status expected pending, got ${fAPf.current_stage_status}`
@@ -258,7 +272,7 @@ assert(
 );
 
 const docStaleRunning = JSON.parse(JSON.stringify(docCodegenPerFeature));
-docStaleRunning.stages.codegen.outputs.per_feature = [
+docStaleRunning.stages.codegen.features = [
   { feature_id: 'F-A', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
   { feature_id: 'F-B', status: 'completed', completed_at: '2026-01-01T00:00:00.000Z' },
 ];
@@ -271,7 +285,7 @@ assert(
 );
 assert(
   boardAllDone.active_codegen_feature_id === null,
-  `no active codegen when all per_feature completed, got ${boardAllDone.active_codegen_feature_id}`
+  `no active codegen when all features completed, got ${boardAllDone.active_codegen_feature_id}`
 );
 
 console.log('ai-dash3 self-test-features: ok');

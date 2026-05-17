@@ -400,6 +400,10 @@ async function run(ctx) {
       message: `merge-push 处理中，目标分支 ${targetBranch}`,
       detail: mpIds.join(','),
     });
+    doc = featureStages.markFeaturesRunning(doc, 'merge_push', mpIds, {
+      message: `merge-push 合并到 ${targetBranch}`,
+    });
+    stagesIo.writeStagesSync(projectRoot, doc);
 
     let mergeResult;
     if (featureBranches.length === 0) {
@@ -458,6 +462,9 @@ async function run(ctx) {
           passed: false,
           summary: mergeResult.stderr || 'merge_push failed',
         },
+      });
+      doc = featureStages.markFeaturesFailed(doc, 'merge_push', mpIds, {
+        message: mergeResult.stderr || 'merge_push failed',
       });
       stagesIo.writeStagesSync(projectRoot, doc);
       if (exit === 6) console.error('failed_stage=merge_push merge conflict');
@@ -626,6 +633,9 @@ async function run(ctx) {
         passed: true,
         summary: 'ai-code3/scripts/merge-push.cjs (git merge)',
       },
+    });
+    doc = featureStages.markFeaturesCompleted(doc, 'merge_push', mpIds, {
+      message: `merge-push 完成 commit=${mergeCommit}`,
     });
     stagesIo.writeStagesSync(projectRoot, doc);
     return 0;

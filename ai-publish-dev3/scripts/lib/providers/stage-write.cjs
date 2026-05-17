@@ -1,6 +1,7 @@
 'use strict';
 
 const { updateStages } = require('../stages-io.cjs');
+const featureStages = require('../../../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 /**
  * @param {object[]} consumed
@@ -68,6 +69,9 @@ function finalizeDeploySuccess(stPath, t0, summaryHash, consumed, p) {
         summary: validationSummary,
       },
     };
+    featureStages.backfillFeatureStages(doc);
+    const ids = featureStages.collectPhaseFeatureIds(doc);
+    return featureStages.markFeaturesCompleted(doc, 'deploy', ids, { message: validationSummary });
   });
 }
 
@@ -115,6 +119,9 @@ function finalizeDeployFailure(stPath, t0, summaryHash, consumed, p) {
         summary: validationSummary,
       },
     };
+    featureStages.backfillFeatureStages(doc);
+    const ids = featureStages.collectPhaseFeatureIds(doc);
+    return featureStages.markFeaturesFailed(doc, 'deploy', ids, { message: msg || validationSummary });
   });
 }
 

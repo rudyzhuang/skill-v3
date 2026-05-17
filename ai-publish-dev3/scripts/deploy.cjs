@@ -199,7 +199,9 @@ async function runDeploy(projectRoot, opts = {}) {
       skill: 'ai-publish-dev3',
       message: `dev 部署开始（provider=${providerRaw}）`,
     });
-    return begun.doc;
+    return featureStages.markFeaturesRunning(begun.doc, 'deploy', ids, {
+      message: `dev 部署中（provider=${providerRaw}）`,
+    });
   });
   featureStages.appendStageLog(projectRoot, {
     skill: 'ai-publish-dev3',

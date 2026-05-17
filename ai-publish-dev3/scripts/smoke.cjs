@@ -6,6 +6,17 @@ const { stagesPath } = require('./lib/paths.cjs');
 const { updateStages } = require('./lib/stages-io.cjs');
 const { sha256Stable, smokeSummaryInput } = require('./lib/summary-hash.cjs');
 const { runHttpSmokeChecks, needsResponseBody } = require('./lib/http-smoke.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+
+function applySmokeFeatures(doc, outcome, message) {
+  featureStages.backfillFeatureStages(doc);
+  const ids = featureStages.collectPhaseFeatureIds(doc);
+  if (!ids.length) return doc;
+  if (outcome === 'running') return featureStages.markFeaturesRunning(doc, 'smoke', ids, { message });
+  if (outcome === 'skipped') return featureStages.markFeaturesSkipped(doc, 'smoke', ids, { message });
+  if (outcome === 'completed') return featureStages.markFeaturesCompleted(doc, 'smoke', ids, { message });
+  return featureStages.markFeaturesFailed(doc, 'smoke', ids, { message });
+}
 
 function isSoakStrict() {
   return process.env.AI_SOAK3_STRICT === '1' || process.env.AI_SOAK3_STRICT === 'true';
@@ -128,6 +139,7 @@ function writeSmokeSkipped(stPath, summaryHash, reason, checksSource) {
         summary: 'smoke skipped（非失败）',
       },
     };
+    return applySmokeFeatures(doc, 'skipped', reason || 'smoke skipped');
   });
 }
 
@@ -298,6 +310,8 @@ async function runSmoke(projectRoot, opts = {}) {
 
   log(`smoke start checks=${effectiveChecks.length} session=${sessionId || 'none'} safe_only=${safeOnly}`);
 
+  updateStages(stPath, (doc) => applySmokeFeatures(doc, 'running', 'HTTP smoke 执行中'));
+
   const timeoutMs = stageTimeoutSeconds(config, 'smoke_s') * 1000;
   const hbMs = heartbeatIntervalMs(config);
 
@@ -414,6 +428,7 @@ async function runSmoke(projectRoot, opts = {}) {
             summary: 'HTTP smoke 未通过',
           },
         };
+        return applySmokeFeatures(doc, 'failed', 'HTTP smoke 未通过');
       });
       return {
         code: 4,
@@ -461,6 +476,7 @@ async function runSmoke(projectRoot, opts = {}) {
           summary: 'HTTP smoke 通过',
         },
       };
+      return applySmokeFeatures(doc, 'completed', 'HTTP smoke 通过');
     });
     log('smoke end ok');
     return { code: 0, message: 'smoke 完成（GET/HEAD 或 safe POST）' };

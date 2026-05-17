@@ -27,7 +27,7 @@
 | `preflight`：根、`config.dev.json`、**`stages.json`**、schema、**config.* secret-scan** | §4.1、附录 B | **是** | **§7.2** 上游门闸：默认**不**跑；设 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 时与 **`lib/codegen-gates.cjs`** 对齐预检 |
 | `codegen`：§7.2 门闸 + 主仓 **diff-guard** + per-feature **worktree** + worktree 内契约 **二次 diff-guard** + 外部 Agent 钩子 | §7.2–§7.12（**§7.4** 为扩展目标总述；**§7.7–§7.9** 为 worktree/Agent/分相） | **是**（脚本核） / **部分**（§7.8–§7.12 编排细项） | **核**：**`lib/codegen-worktree.cjs`** / **`codegen-scaffold`** / **`invoke-ai-code3-agent`**（**`AI_CODE3_FEATURE_ID`**）、**`outputs.agent`**、**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_ALLOW_NO_AGENT_PASS`**；**细项**：**§7.8–§7.12** 与上表 **§16** 用例；矩阵级对齐以 **§0.1**「部分」列与 **§16.1** 门禁为准 |
 | `typecheck` | §8 | **是** | 含 T1 全 skip→0 |
-| `test` | §9 | **是** | 按 **`codegen.outputs.worktrees[]`**（可 **`--feature`** 过滤）逐 feature **cwd**；**`test_fix`** + **`AI_CODE3_PHASE=test_fix`** 外部 Agent；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_SKIP_TEST_FIX_AGENT`**；**`outputs.per_feature[]`** |
+| `test` | §9 | **是** | 按 **`codegen.outputs.worktrees[]`**（可 **`--feature`** 过滤）逐 feature **cwd**；**`test_fix`** + **`AI_CODE3_PHASE=test_fix`** 外部 Agent；**`AI_CODE3_SKIP_AGENT`** / **`AI_CODE3_SKIP_TEST_FIX_AGENT`**；**`stages.test.features[]`**（含 **`test_result`** 等扩展字段） |
 | `code-review` | §10 | **是** | 优先级：**`AI_CODE3_CODE_REVIEW_JSON`** → 外部 Agent（**`AI_CODE3_PHASE=code_review`**，写 **`AI_CODE3_CODE_REVIEW_OUTPUT`**）+ **Ajv** 校验 **`templates/schemas/code-review-output.v3.schema.json`** → 人工预填 / stub |
 | `merge-push` | §11、§11.4 | **是** | stub 路径除外；**`--session-id`** 心跳；**拒绝**根级 `backend/`、`website/`、`apps/` 等 V2 端目录落盘 |
 | `build` | §12 | **是** | **`client_targets`×`sub_platforms`** 矩阵；逐条超时；**`artifacts[]`** 仍偏 CLI 路径汇总（与 §12.3 字段级对齐可继续收紧） |
@@ -128,7 +128,7 @@ ai-code3/
 | `preflight.cjs` | 校验项目根、**`docs/config.dev.json`** 存在且可读、**`.pipeline/stages.json`** 可读及 **`_schema.version`**；对 **`config.dev.json` / `config.release.json`（若存在）** 执行 **附录 B** 式 **secret-scan**；可选 **`AI_CODE3_PREFLIGHT_UPSTREAM_GATES=yes`** 调用 **`lib/codegen-gates.cjs`** 预检 **§7.2**；失败 **退出码 1** |
 | `codegen.cjs` | **§7.2** 门闸；主仓 + 各 feature **worktree** 契约路径 **diff-guard**；**`lib/codegen-scaffold.cjs`**；**`lib/invoke-ai-code3-agent.cjs`**（可 **`AI_CODE3_SKIP_AGENT`**）；回写 **`stages.codegen.outputs.worktrees[]`**、**`outputs.agent`**；详见 **§0.1** 与 **§7.8–§7.12** 细项验收 |
 | `typecheck.cjs` | 静态检查探测与执行；回写 **`stages.typecheck`** |
-| `test.cjs` | **§9**：按 **feature worktree** 跑 **`build.commands.test`**；**`test_fix`** + **`test_fix` Agent**（**`AI_CODE3_PHASE=test_fix`**）；回写 **`stages.test`**（含 **`outputs.per_feature[]`**）、**`rollback_to`** |
+| `test.cjs` | **§9**：按 **feature worktree** 跑 **`build.commands.test`**；**`test_fix`** + **`test_fix` Agent**（**`AI_CODE3_PHASE=test_fix`**）；回写 **`stages.test.features[]`** 与阶段 **`outputs`**、**`rollback_to`** |
 | `code-review.cjs` | **`AI_CODE3_CODE_REVIEW_JSON`** 优先；否则 **外部 Agent** 写 **`AI_CODE3_CODE_REVIEW_OUTPUT`** + **Ajv** 与 **`templates/schemas/code-review-output.v3.schema.json`**；**`passed_with_warnings`** → **4**；再否则人工预填 / **`--stub-remaining`** |
 | `merge-push.cjs` | **`lib/merge-git.cjs`** 组合 **`git merge --no-ff` / `git push`**、锁；**`--session-id`** 心跳；**`--stub-remaining`** 占位；回写 **`stages.merge_push`**（细节 **§11.4**） |
 | `build.cjs` | 按 **§12.2** **`client_targets`×`sub_platforms`** 矩阵执行 **`build.commands.build`** 与各条 **`sub_platforms[].build`** / per-target **`build`**；**`--session-id`** 心跳；回写 **`stages.build.outputs.artifacts[]`** |
@@ -278,7 +278,7 @@ ai-code3/
 | **Agent 提示** | 须含：**Read existing files first; apply minimal diff; do not replace unrelated features** |
 | **评审 1** | **增量评审 ×2**：仅针对「本轮 req 引入的变更」的 checklist（实现 backlog：`codegen-delta-review.cjs` 或 Agent 两轮 sign-off） |
 | **评审 2** | **全量 feature 评审 ×1**：对该 **`feature_id`** 再跑 **`code-review.cjs`**（含契约、单测、ui 场景回归） |
-| **写回** | `outputs.per_feature[]` 须记录 **`codegen_mode: incremental`**、**`delta_review_passed: true`**（两轮）、**`full_feature_review_passed: true`** 后方可 merge-push |
+| **写回** | **`stages.codegen.features[]`** / 行内扩展字段须记录 **`codegen_mode: incremental`**、**`delta_review_passed: true`**（两轮）、**`full_feature_review_passed: true`** 后方可 merge-push |
 
 **正交新 feature（O/N）**：不得修改**其他** `feature_id` 的 worktree；**不得**在 merge-push 中带入无关 feature 的半成品 worktree。
 - **日志**：每次 Agent 调用将 **request id / session 片段 / 失败摘要** 写入 **`.agent-sessions/`**；stdout/stderr 须含 **`failed_stage=codegen`** 与 **`feature_id=`**（多 feature 时）。

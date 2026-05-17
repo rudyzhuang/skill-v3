@@ -1,0 +1,48 @@
+{
+  "$id": "https://skill-v3.local/schemas/stages-feature-row.v1.schema.json",
+  "title": "Skill V3 stages.json feature row",
+  "description": "One element of stages.<stage>.features[] in .pipeline/stages.json. See docs/input-spec.md §7.1.1.",
+  "type": "object",
+  "required": ["feature_id", "status"],
+  "additionalProperties": true,
+  "properties": {
+    "feature_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.-]+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["not_started", "running", "completed", "failed", "skipped"]
+    },
+    "started_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "message": {
+      "type": "string"
+    },
+    "test_result": {
+      "type": "string",
+      "description": "test stage only: passed | failed | failed_max_attempts | …"
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_exit": {
+      "type": "integer"
+    },
+    "fail_reason": {
+      "type": ["string", "null"]
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "test stage convenience mirror of test_result"
+    }
+  }
+}
