@@ -255,9 +255,10 @@ function resolveFeatureLog(projectRoot, featureId, ctx) {
  * @param {object[]} features from buildFeatureBoard
  */
 function buildInProgressFeatureLogs(projectRoot, features) {
-  const inProgress = (features || []).filter(
-    (f) => (f.feature_status || f.pipeline_status) === 'in_progress'
-  );
+  const inProgress = (features || []).filter((f) => {
+    const st = f.feature_status || f.pipeline_status;
+    return st === 'running' || st === 'in_progress';
+  });
   if (!inProgress.length) return [];
 
   const autorunLog = findLatestAutorunLog(projectRoot);

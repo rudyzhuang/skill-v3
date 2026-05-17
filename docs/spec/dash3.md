@@ -190,16 +190,18 @@
 | **`POST /api/stop-serve`** | 优雅关闭**当前** ai-dash3 **serve**（**`server.close` + `process.exit`**）；响应 **`ai-dash3.stop-serve.v1`**（含 **`pid` / `host` / `port`**）。**不**终止 ai-auto3 子进程。端口仍被其它陈旧进程占用时，用户可在终端执行 **`lsof -ti :<port> \| xargs kill`**。 |
 | **`POST /api/stop?project=<abs>`** | **「停止所有后台任务」**：调用 **ai-auto3** **`stop-pipeline.cjs`**，终止匹配进程，清理 **`pipeline.pid`**，更新 **runtime.json**（**`orchestration.active=false`**、**`processes` exited**）。响应 **`ai-dash3.stop.v1`**；仍有存活进程时 HTTP **207**。**不**关闭 ai-dash3 serve。 |
 
-**`features[].pipeline_status`**（与 **`feature_status`** 同值，供筛选/聚合）：**`pending` | `in_progress` | `paused` | `completed`**（见 **`lib/features.cjs`**）。**阶段失败**体现在 **`current_stage_status=failed`**，**不**再单独占用 **`pipeline_status=failed`**。
+**`features[].pipeline_status`**（与 **`feature_status`** 同值，供筛选/聚合）：**`pending` | `running` | `paused` | `completed`**（见 **`lib/features.cjs`**）。**阶段失败**体现在 **`current_stage_status=failed`**，**不**再单独占用 **`pipeline_status=failed`**。
 
 **`feature_status`（整条 feature，Web 底栏徽章）**：
 
 | 状态 | 条件（按优先级） |
 | --- | --- |
 | **`completed`** | **`stages.test.features[]`** 该 **`feature_id`** 的 **`feature.status=completed`**（且 test 产物校验通过）**且** 项目 **`stages.ui_e2e.status=completed`**（**唯一**「已完成」） |
-| **`in_progress`** | 与本 feature 相关的任一阶段 **`running`**（含 active codegen、test running、项目 prd running 等） |
+| **`running`** | 任一 **`stages.<stage>.features[]`** 行该 **`feature_id`** 的 **`status=running`**（Agent 处理中，如 codegen、design、prd_review 等） |
 | **`pending`** | 项目 **`prd`** 尚未开始，且本 feature 未动工 |
-| **`paused`** | **`prd`** 已完成且项目 **`ui_e2e`** 未完成，且非 **`in_progress`**（含 codegen 完待 test、test 失败待处理、延期等） |
+| **`paused`** | 非 **`running`** / **`completed`** / **`pending`**（含排队 codegen、待 test、项目阶段 running 但未标 per-feature running、延期等） |
+
+**`stage_started_at` / `stage_elapsed_ms`**：仅 **`feature_status=running`** 时取自对应 **`features[].started_at`**；暂停或非 Agent running 时为 **`null`**（Web 展示 **`--`**）。
 
 **`current_stage` / `current_stage_status`（卡片「当前阶段」行）**：
 

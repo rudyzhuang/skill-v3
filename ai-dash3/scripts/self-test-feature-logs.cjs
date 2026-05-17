@@ -46,7 +46,7 @@ assert(log.lines.length >= 2, 'expected tail lines');
 assert(log.log_path.includes('logs/features/F-X.log'), 'expected feature log path');
 
 const boardLogs = buildInProgressFeatureLogs(root, [
-  { feature_id: 'F-X', feature_status: 'in_progress', current_stage_label: 'codegen' },
+  { feature_id: 'F-X', feature_status: 'running', current_stage_label: 'codegen' },
   { feature_id: 'F-Y', feature_status: 'pending' },
 ]);
 assert(boardLogs.length === 1, `expected 1 in_progress log entry, got ${boardLogs.length}`);

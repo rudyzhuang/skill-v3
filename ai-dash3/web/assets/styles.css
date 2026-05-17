@@ -324,6 +324,7 @@ main {
   border-left: 3px solid var(--idle);
 }
 
+.feature-card[data-status='running'],
 .feature-card[data-status='in_progress'] {
   border-left-color: var(--run);
 }

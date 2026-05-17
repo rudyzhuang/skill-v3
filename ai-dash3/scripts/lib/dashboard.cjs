@@ -27,7 +27,12 @@ function deriveProjectOverall(summary, featureBoard) {
   if (feats.length && feats.every((f) => (f.feature_status || f.pipeline_status) === 'completed')) {
     return 'completed';
   }
-  if (feats.some((f) => (f.feature_status || f.pipeline_status) === 'in_progress')) {
+  if (
+    feats.some((f) => {
+      const st = f.feature_status || f.pipeline_status;
+      return st === 'running' || st === 'in_progress';
+    })
+  ) {
     return 'in_progress';
   }
   if (feats.some(featureIndicatesFailure)) return 'failed';

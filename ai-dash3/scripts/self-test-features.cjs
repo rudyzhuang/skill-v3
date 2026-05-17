@@ -65,7 +65,10 @@ assert(
   byId['F-A'].current_stage === 'typecheck' || byId['F-A'].pipeline_stage_label.includes('待'),
   `F-A after codegen done expected typecheck or 待 label, got stage=${byId['F-A'].current_stage} label=${byId['F-A'].pipeline_stage_label}`
 );
-assert(byId['F-B'].pipeline_status === 'in_progress', `F-B expected in_progress (active codegen), got ${byId['F-B'].pipeline_status}`);
+assert(
+  byId['F-B'].feature_status === 'paused',
+  `F-B without features[].running expected paused (queued codegen), got ${byId['F-B'].feature_status}`
+);
 assert(byId['F-B'].hints.includes('active_codegen_feature'), 'F-B should be active_codegen_feature');
 assert(byId['F-B'].pipeline_stage_label, 'F-B should have pipeline_stage_label');
 assert(typeof byId['F-B'].stage_elapsed_ms === 'number' || byId['F-B'].stage_elapsed_ms === null);
@@ -160,7 +163,7 @@ assert(
   Array.isArray(fA.completed_stages) && fA.completed_stages.includes('codegen'),
   `F-A completed_stages should include codegen: ${fA.completed_stages}`
 );
-assert(byId['F-B'].feature_status === 'in_progress', `F-B feature_status expected in_progress, got ${byId['F-B'].feature_status}`);
+assert(byId['F-B'].feature_status === 'paused', `F-B feature_status expected paused, got ${byId['F-B'].feature_status}`);
 assert(
   byId['F-A'].stage_progress_pct >= 0 && byId['F-A'].stage_total_count === 15,
   `F-A stage progress fields: pct=${byId['F-A'].stage_progress_pct} total=${byId['F-A'].stage_total_count}`
@@ -201,8 +204,8 @@ docPrdRun.stages.prd = { status: 'running' };
 const boardPrdRun = buildFeatureBoard(docPrdRun, root, {}, { alive: false });
 const fBRun = boardPrdRun.features.find((f) => f.feature_id === 'F-B');
 assert(
-  fBRun.feature_status === 'in_progress',
-  `F-B while prd running expected in_progress, got ${fBRun.feature_status}`
+  fBRun.feature_status === 'paused',
+  `F-B while prd running without per-feature row expected paused, got ${fBRun.feature_status}`
 );
 
 const docDesignRun = JSON.parse(JSON.stringify(doc));
@@ -217,8 +220,16 @@ assert(
   `F-B design features running expected current_stage_status=running, got ${fBDesign.current_stage_status}`
 );
 assert(
-  fBDesign.feature_status === 'in_progress',
-  `F-B design features running expected in_progress, got ${fBDesign.feature_status}`
+  fBDesign.feature_status === 'running',
+  `F-B design features running expected running, got ${fBDesign.feature_status}`
+);
+assert(
+  typeof fBDesign.stage_elapsed_ms === 'number' && fBDesign.stage_elapsed_ms > 0,
+  `F-B design running expected stage_elapsed_ms, got ${fBDesign.stage_elapsed_ms}`
+);
+assert(
+  fBDesign.stage_started_at === '2026-01-01T00:00:00.000Z',
+  `F-B design running expected stage_started_at from features[], got ${fBDesign.stage_started_at}`
 );
 
 const docCodegenPerFeature = JSON.parse(JSON.stringify(doc));
@@ -265,7 +276,15 @@ assert(
   fAPf.completed_stages.includes('codegen'),
   `F-A should list codegen in completed_stages: ${fAPf.completed_stages}`
 );
-assert(fBPf.feature_status === 'in_progress', `F-B active codegen expected in_progress, got ${fBPf.feature_status}`);
+assert(fBPf.feature_status === 'running', `F-B active codegen expected running, got ${fBPf.feature_status}`);
+assert(
+  fBPf.stage_started_at === '2026-01-01T00:00:00.000Z',
+  `F-B codegen running expected stage_started_at, got ${fBPf.stage_started_at}`
+);
+assert(
+  fAPf.stage_elapsed_ms == null && fAPf.stage_started_at == null,
+  `F-A paused should not accumulate agent timing`
+);
 assert(
   fBPf.current_stage_status === 'running',
   `F-B running codegen expected current_stage_status=running, got ${fBPf.current_stage_status}`

@@ -11,6 +11,7 @@ const OVERALL_LABEL = {
 
 const FEATURE_LABEL = {
   pending: '待处理',
+  running: '处理中',
   in_progress: '处理中',
   completed: '已完成',
   failed: '失败',
@@ -28,6 +29,7 @@ const CURRENT_STAGE_STATUS_LABEL = {
 /** 整条 feature 状态 */
 const FEATURE_STATUS_LABEL = {
   pending: '待处理',
+  running: '处理中',
   in_progress: '处理中',
   paused: '暂停中',
   completed: '已完成',
@@ -62,6 +64,9 @@ function featureMatchesFilter(f, filterStatus) {
   }
   if (filterStatus === 'deferred') {
     return status === 'deferred' || (f.hints || []).includes('deferred_in_prd_review');
+  }
+  if (filterStatus === 'running') {
+    return status === 'running' || status === 'in_progress';
   }
   return status === filterStatus;
 }
@@ -297,7 +302,7 @@ function renderFeatures(dash, filterStatus) {
   const board = $('featureBoard');
   const tabs = $('featureTabs');
   const feats = dash.features || [];
-  const statuses = ['all', 'in_progress', 'paused', 'pending', 'completed', 'failed', 'deferred'];
+  const statuses = ['all', 'running', 'paused', 'pending', 'completed', 'failed', 'deferred'];
 
   tabs.innerHTML = '';
   for (const st of statuses) {
@@ -335,7 +340,8 @@ function renderFeatures(dash, filterStatus) {
     const currentStage = `${currentStageName}（${stageStatusText}）`;
     const featureStatus = f.feature_status || f.pipeline_status || 'pending';
     card.dataset.status = featureStatus;
-    const badgeClass = featureStatus === 'in_progress' ? 'in_progress' : featureStatus;
+    const badgeClass =
+      featureStatus === 'running' || featureStatus === 'in_progress' ? 'in_progress' : featureStatus;
     const badgeLabel = FEATURE_STATUS_LABEL[featureStatus] || featureStatus;
     const progressPct = f.stage_progress_pct != null ? f.stage_progress_pct : 0;
     const progressFill = stageProgressWidth(progressPct);

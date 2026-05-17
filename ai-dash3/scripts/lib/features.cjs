@@ -119,6 +119,33 @@ function findFeatureRunningStage(doc, featureId) {
   return null;
 }
 
+/** Agent 正在处理该 feature（仅 features[].status=running，不含排队/worktree 启发式） */
+function isFeatureAgentRunning(doc, featureId) {
+  return !!findFeatureRunningStage(doc, featureId);
+}
+
+/**
+ * 仅统计 Agent running 时段：started_at / elapsed 来自 running 行的 features[]。
+ * 暂停或非 running 时不展示计时。
+ */
+function deriveAgentRunningTiming(doc, featureId) {
+  const runningKey = findFeatureRunningStage(doc, featureId);
+  if (!runningKey || !featureStages) {
+    return { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: null };
+  }
+  const row = featureStages.getFeatureStageRow(doc, runningKey, featureId);
+  const started = row?.started_at ? String(row.started_at).trim() : '';
+  if (!started) {
+    return { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: runningKey };
+  }
+  const ms = Date.parse(started);
+  return {
+    stage_started_at: started,
+    stage_elapsed_ms: Number.isFinite(ms) ? Math.max(0, Date.now() - ms) : null,
+    agent_running_stage: runningKey,
+  };
+}
+
 /** @returns {object|undefined} */
 function codegenWorktreeRecord(doc, featureId) {
   const fid = String(featureId || '').trim();
@@ -593,10 +620,6 @@ function isStageCompletedForFeature(doc, key, ctx) {
   return false;
 }
 
-function projectStageIsRunning(doc, key) {
-  return String(doc?.stages?.[key]?.status || '') === 'running';
-}
-
 /** 当前阶段状态：仅 pending | running | failed | deferred（不含 completed） */
 function deriveCurrentStageStatus(doc, currentKey, ctx) {
   if (ctx.blockedInList) return 'failed';
@@ -613,26 +636,21 @@ function deriveCurrentStageStatus(doc, currentKey, ctx) {
     if (norm === 'not_started') return 'pending';
   }
   if (currentKey === 'codegen') {
-    if (ctx.isActiveCodegen) return 'running';
     if (ctx.codegenDone) return 'pending';
     if (ctx.pipeline_status === 'failed' && !ctx.testFailed) return 'failed';
     const st = String(doc?.stages?.codegen?.status || '');
-    if (st === 'running' && (ctx.hasWorktree || ctx.pendingInQueue)) return 'running';
     if (st === 'failed') return 'failed';
     return 'pending';
   }
   if (currentKey === 'test') {
     if (ctx.testFailed) return 'failed';
     if (ctx.pipeline_status === 'failed' && ctx.testFailed !== false) return 'failed';
-    if (ctx.testRunning) return 'running';
     const st = String(doc?.stages?.test?.status || '');
-    if (st === 'running') return 'running';
     if (st === 'failed') return 'failed';
     return 'pending';
   }
   const row = stageRow(doc, currentKey);
   if (row.status === 'failed') return 'failed';
-  if (row.status === 'running') return 'running';
   if (ctx.pipeline_status === 'failed') return 'failed';
   return 'pending';
 }
@@ -652,45 +670,23 @@ function isFeaturePrdNotStarted(doc, ctx) {
   return true;
 }
 
-function isAnyStageRunningForFeature(doc, ctx, currentStageStatus) {
-  if (ctx.isActiveCodegen) return true;
-  if (ctx.testRunning && ctx.codegenDone && !ctx.testPassed) return true;
-  if (currentStageStatus === 'running') return true;
-  const fid = String(ctx.fid || '').trim();
-  if (fid && featureStages && featureStages.anyFeatureStageRunning(doc, fid)) return true;
-  for (const key of STAGE_KEYS) {
-    if (!projectStageIsRunning(doc, key)) continue;
-    if (key === 'codegen') {
-      if (ctx.isActiveCodegen) return true;
-      if (ctx.hasWorktree && !ctx.codegenDone) return true;
-      if (ctx.pendingInQueue && !ctx.codegenDone) return true;
-      continue;
-    }
-    if (key === 'test') {
-      if (ctx.codegenDone && !ctx.testPassed && projectStageIsRunning(doc, 'test')) return true;
-      continue;
-    }
-    return true;
-  }
-  return false;
-}
-
 /**
- * 整条 feature 状态：completed | pending | in_progress | paused
+ * 整条 feature 状态：completed | pending | running | paused
  * - 已完成：per-feature test 通过且项目 ui_e2e 已完成
  * - 待处理：prd 尚未开始且本 feature 未动工
- * - 处理中：任一相关阶段 running
- * - 暂停中：prd 已完成后、ui_e2e 完成前（含 test 已通过待 ui_e2e），且非处理中
+ * - running：stages.*.features[] 该 feature 的 status=running（Agent 处理中）
+ * - 暂停中：其余（含排队、待测、项目阶段 running 但未标 feature running）
  */
-function deriveFeatureOverallStatus(doc, ctx, currentStageStatus) {
+function deriveFeatureOverallStatus(doc, ctx) {
   if (ctx.pipeline_status === 'deferred') {
     return { feature_status: 'paused', feature_status_reason: 'deferred' };
   }
   if (ctx.testPassed && isProjectUiE2eDone(doc)) {
     return { feature_status: 'completed', feature_status_reason: 'test_and_ui_e2e_done' };
   }
-  if (isAnyStageRunningForFeature(doc, ctx, currentStageStatus)) {
-    return { feature_status: 'in_progress', feature_status_reason: 'stage_running' };
+  const fid = String(ctx.fid || '').trim();
+  if (fid && isFeatureAgentRunning(doc, fid)) {
+    return { feature_status: 'running', feature_status_reason: 'agent_running' };
   }
   if (isFeaturePrdNotStarted(doc, ctx)) {
     return { feature_status: 'pending', feature_status_reason: 'prd_not_started' };
@@ -755,7 +751,7 @@ function deriveFeatureStageProgress(doc, fid, stageFields, ctx) {
     if (isStageCompletedForFeature(doc, key, ctx)) completed.push(key);
   }
   const current_stage_status = deriveCurrentStageStatus(doc, currentKey, ctx);
-  const overall = deriveFeatureOverallStatus(doc, ctx, current_stage_status);
+  const overall = deriveFeatureOverallStatus(doc, ctx);
   return {
     completed_stages: completed,
     completed_stages_label:
@@ -886,6 +882,11 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
       });
       const stageProgress = deriveFeatureStageProgress(doc, fid, stageFields, stageCtx);
       const feature_status = stageProgress.feature_status || pipeline_status;
+      const agentTiming = deriveAgentRunningTiming(doc, fid);
+      const timing =
+        feature_status === 'running'
+          ? agentTiming
+          : { stage_started_at: null, stage_elapsed_ms: null, agent_running_stage: null };
 
       features.push({
         feature_id: fid,
@@ -900,6 +901,9 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
         hints,
         ...stageFields,
         ...stageProgress,
+        stage_started_at: timing.stage_started_at,
+        stage_elapsed_ms: timing.stage_elapsed_ms,
+        agent_running_stage: timing.agent_running_stage,
       });
     }
   }
