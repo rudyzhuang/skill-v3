@@ -80,8 +80,7 @@ function parseAutorunLog(logPath) {
     m = line.match(/spawn\s+ai-code3\s+codegen\s+.*?session=(\S+)/);
     if (m) {
       const sid = m[1];
-      const fMatch = line.match(/(?:group=|--feature=)([\w-]+)/);
-      spawned[sid] = { feature: fMatch ? fMatch[1] : 'unknown', spawnLine: line };
+      spawned[sid] = { feature: parseFeatureFromSpawnLine(line), spawnLine: line };
     }
 
     // ── 新格式: "[ai-auto3] code3 codegen group N begin feature=F session=S"
@@ -119,9 +118,26 @@ function parseAutorunLog(logPath) {
         }
       }
     }
+
+    // ── exec end 含 session-id（最可靠）
+    m = line.match(
+      /\[ai-auto3\]\s+exec\s+end:.*?--session-id=(\S+?)(?:\s|\.\.\.).*?exit=(\d+)/
+    );
+    if (m) {
+      m[2] === '0' ? completed.add(m[1]) : failed.add(m[1]);
+    }
   }
 
   return { spawned, completed, failed };
+}
+
+/** 从 spawn 行解析 feature_id；禁止把 group=N/M 里的 N 当成 feature */
+function parseFeatureFromSpawnLine(line) {
+  const explicit = line.match(/--feature=([\w-]+)/);
+  if (explicit) return explicit[1];
+  const afterGroup = line.match(/group=\d+\/\d+\s+([\w-]+)/);
+  if (afterGroup) return afterGroup[1];
+  return 'unknown';
 }
 
 /**
@@ -138,9 +154,15 @@ function checkSessionLog(sessionId) {
   if (!lines.length) return { status: 'empty', lastTime: null, ageMs: null, lastEntry: null };
 
   const lastLine = lines[lines.length - 1];
+  const tail = lines.slice(-20).join('\n');
 
-  // 已完成的标志
-  if (/codegen end passed=/.test(lastLine) || /codegen end:/.test(lastLine)) {
+  // 已完成的标志（会话日志或 autorun 主日志中的 codegen 结束）
+  if (
+    /codegen end passed=/.test(tail) ||
+    /codegen end:/.test(tail) ||
+    /codegen feature \d+\/\d+ feature_id=\S+ test completed/.test(tail) ||
+    /cursor-agent end phase=test feature_id=\S+ ok=1/.test(tail)
+  ) {
     return { status: 'completed', lastTime: null, ageMs: null, lastEntry: lastLine };
   }
   // 失败标志
