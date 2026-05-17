@@ -74,8 +74,24 @@ ai-soak3/
 
 ## 5. 执行状态机
 
+### 5.0 Soak 严格模式（`AI_SOAK3_STRICT=1`）
+
+**ai-soak3 在 Round 开始前**须对当前 shell 及子进程导出：
+
+```bash
+export AI_SOAK3_STRICT=1
+```
+
+| 约束 | 说明 |
+| --- | --- |
+| **子 skill 只读** | ai-auto3 / ai-code3 / ai-e2e3 / ai-publish-dev3 **不得**在 `AI_SOAK3_STRICT=1` 时用「阶段已完成 + summary_hash 未变」跳过 **codegen、build、deploy、smoke、ui_e2e** |
+| **autorun 参数** | 须传 **`--force-rerun=codegen,build,deploy,smoke,ui_e2e`**（或以 env 由 autorun 等价实现，见 **`docs/spec/auto3.md` §6.4**） |
+| **Agent 门闸** | 子 skill 脚本尚未实现 strict 行为时，Agent **必须**执行 **§8 手工门闸**；任一失败 → Round 失败，**不得** overall success |
+| **规范来源** | 完整动机与追溯矩阵见 **`docs/spec/rfc-soak3-req-fidelity.md`** |
+
 ```
 Round N:
+  export AI_SOAK3_STRICT=1
   prereq-check (ensure-req.cjs exit=0)
     ↓
   A: ai-prd3  (bootstrap → validate-prd → write-prd → finalize-prd-review)
@@ -131,6 +147,18 @@ Round N:
 - `stages.build` 对应 website `completed`。
 - deploy URL 可访问，或 dev server 本机可访问。
 
+#### 6.2.1 响应体内容指纹（**必须**，非仅 HTTP 状态码）
+
+在 **`AI_SOAK3_STRICT=1`** 或常规 soak 轮次中，对 **生产/dev 部署 URL**（来自 `stages.deploy.outputs` 或 `config.*.json` + `inputs/req.md`）执行：
+
+1. `GET <website_base>/`（或 req 声明路径，如 `/website/`）须 **HTTP 2xx/3xx**。
+2. 响应体须满足 **至少一条**（由 Agent 从 `docs/prd-spec.md` / `inputs/req.md` 推导，并写入当轮 checkpoint）：
+   - **`body_contains`**：如 `我的笔记`、`笔记`（与 website `index.html` 或 prd 标题一致）；
+   - **`body_not_contains`**：已知错站特征（如 `TiddlyWiki`、`version.title` 等占位列表可维护于 `config.dev.json` → `soak.content_guards.website`）。
+3. 本地 `dist/website/**/index.html` 与线上 body 关键子串 **一致**（防止「本地对、线上错」仍 pass）。
+
+**失败**：进入 §5.1；**禁止**仅引用 `stages.smoke` 的 status code 通过作为 §6 依据。
+
 ### 6.3 Mobile（若声明了 mobile 端）
 
 1. **build 成功**：`stages.build` 对应 mobile `completed`，或 `flutter build apk/ios --simulator` 返回 0。
@@ -141,14 +169,33 @@ Round N:
 4. 若有 `integration_test/`：`flutter test integration_test/ -d <emulator_id>` 通过。
 5. 崩溃或测试失败 → §5.1 处理（非立即阻塞）。
 
+#### 6.3.1 应用身份门闸（**必须**）
+
+从 **`inputs/req.md`** 解析应用显示名（如「真实笔记」/ `RealNotes`），并写入 `config.dev.json` → `ui_e2e.mobile.expected_display_names`（实现 backlog）或当轮 checkpoint。
+
+| 检查 | Android | iOS |
+| --- | --- | --- |
+| 显示名 | `aapt dump badging` 或 `adb shell dumpsys` 含 **中文名** 或 **RealNotes** | `Info.plist` → `CFBundleDisplayName` |
+| **禁止** | 仍为 `Health Mobile`、`health_mobile`、`Health Multi-Page Demo` 等模板名 | 同上 |
+| 包名/Bundle Id | 与 `ui_e2e.mobile.*.bundle_id` 或 `pubspec.yaml` `name` 一致，**不得**与无关历史 App 混用 |
+
+**与 ui_e2e 关系**：`stages.ui_e2e` 为 completed 但 **§6.3.1 失败** → 整轮 **失败**（ui_e2e 门闸误绿）。
+
+#### 6.3.2 功能 UI（笔记 CRUD）
+
+mobile 须实现 req 声明的 **列表 / 创建 / 编辑 / 详情**（见 prd-spec mobile 节）。仅 Health API 探活页 **不满足** §6。
+
 ---
 
 ## 7. 最终成功判定
 
-1. **A**：prd + prd_review `passed`，≥20 feature，`client_targets` 与 `inputs/req.md` 一致。
-2. **B**：autorun 全链路成功，report 无阻塞，stages 与 report 一致。
-3. **§6**：所有声明端验证通过（backend deploy 可达，website 可访问，mobile 编译+模拟器冒烟通过），或有合理跳过记录。
-4. 以上**连续 2 轮**（A→B→§6）均通过。
+1. **A**：prd + prd_review `passed`，**`decision=passed`**；`client_targets` 与 `inputs/req.md` 一致；**`docs/prd-spec.md` §6 须覆盖 req 功能节每一条**（含品牌名、图标/启动图等，见 **`docs/spec/rfc-soak3-req-fidelity.md` §4**）。
+2. **B**：autorun 全链路成功，report 无阻塞，stages 与 report 一致；**且** `stages.codegen.outputs.agent.skipped !== true`（strict 下禁止 skip agent 伪完成）。
+3. **§6**：所有声明端验证通过（含 **§6.2.1 内容指纹**、**§6.3.1 应用身份**、mobile 笔记 UI），或有合理跳过记录（须写明原因，**不得**对 website/mobile 静默跳过）。
+4. **证据包**：须附 **req→feature_id→端** 矩阵（可从 `.pipeline/reports/prd-implementation-summary.md` 摘录）。
+5. 以上**连续 2 轮**（A→B→§6）均通过。
+
+**禁止**：在 P1–P4（RFC §1）任一未解决时输出 **SKILL.md §9 最终证据包**或宣称 soak 成功。
 
 ---
 
@@ -217,9 +264,39 @@ bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh <PROJECT_ROOT> [CHEC
 
 ---
 
-## 10. 版本历史
+## 10. Agent 手工门闸（脚本未落地 strict 前 **强制**）
+
+每轮 B 之后、§6 之前，Agent **必须**执行并记录输出（写入 Round checkpoint）：
+
+| # | 命令/检查 | 通过条件 |
+| --- | --- | --- |
+| H1 | `validate-prd` JSON 中 `requires_agent` | 为 false，或已完成 prd-spec 更新 + `write-prd` |
+| H2 | `curl` website 部署 URL body | 含 prd 声明标题子串；**不含** `TiddlyWiki` |
+| H3 | `curl` admin URL body | 含「管理」或 prd 声明关键词 |
+| H4 | `grep -r` mobile `Info.plist` / `AndroidManifest.xml` | 显示名为 req 品牌名，非 Health |
+| H5 | `test -f` mobile 图标路径 | `android/app/src/main/res/mipmap-*` 与 iOS `AppIcon` 存在（若 req 要求图标） |
+| H6 | 读 `stages.codegen.outputs.agent` | `skipped` 不为 true（strict） |
+| H7 | 读最新 ui_e2e report | 每场景 `run_mode` 为 `agent` 或 `integration_test`，**非**「无 agent 自动 pass」|
+
+任一失败 → §5.1，不得进入 Round N+1 的成功结论。
+
+---
+
+## 11. §4.A 与 req 漂移（ai-prd3 衔接）
+
+当 `validate-prd` / `detect-raw-input` 输出 **`requires_agent: true`** 或 **`functional_requirements_changed: true`** 时：
+
+1. Agent **必须**按 `prompts/raw-input-impact.md` 更新 `docs/prd-spec.md` 与各端 `feature_list.md`。
+2. **必须**为 req 中的 **应用显示名/英文名**、**图标与启动图** 增加或更新 feature（语义 ID 见 **`ai-prd3/docs/spec/prd3.md` §1.4**）。
+3. 运行 `apply-raw-input-config` → `write-prd`（必要时 `--force`）→ `finalize-prd-review`。
+4. **禁止**在仅执行 `validate-prd-review` 且 prd-spec 未更新时进入 B 阶段。
+
+---
+
+## 12. 版本历史
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | 0.1.0 | 2026-05-16 | 从 `inputs/agent-prompt.md` 迁出，提升为正式 skill |
 | 0.2.0 | 2026-05-16 | 新增：退出条件重新定义（成功=真正跑通）、不可解阻塞 §5.2、部署与端完整验证 §6、skill 评估步骤、mobile 模拟器安装冒烟要求 |
+| 0.3.0 | 2026-05-17 | RFC soak3-req-fidelity：§5.0 strict、§6.2.1/§6.3.1、§7、§10 手工门闸、§11 req 漂移 |

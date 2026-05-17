@@ -33,6 +33,23 @@
 
 功能变更须 Agent 更新 `prd-spec.md` 后 `validate-prd` / `write-prd`；域名/URL 可由 `apply-raw-input-config` 自动同步 config。
 
+### 1.4 req 功能条目的 feature 抽取（**ai-soak3 强制**）
+
+当 **`inputs/req.md`「功能需求」** 出现下列语义时，**必须**在 `docs/prd-spec.md` §6 增加独立 `feature_id`（编号由项目递增，语义优先）：
+
+| req 语义（示例） | 建议 feature_id 模式 | 涉及端 | 验收摘要 |
+| --- | --- | --- | --- |
+| 应用中文名 / 英文名 | `MOB-BRAND-*` 或 `APP-BRAND-*` | mobile（可含 website title） | 显示名与 req 一致 |
+| 图标与启动图 | `APP-ICON-*` / `MOB-SPLASH-*` | mobile | 非默认 Flutter 占位图标 |
+| 笔记 CRUD / 各端页面 | 现有 `NOTE-*` / `WEB-*` / `ADMIN-*` | 按端 | 与 req 端描述一致 |
+
+**门闸**（`validate-prd` 实现 backlog；文档阶段由 Agent 自检）：
+
+- `detect-raw-input` 输出 **`functional_requirements_changed: true`** → **`write-prd` 前** prd-spec §6 须已更新且 `phase_plan` 覆盖新 ID。
+- **`requires_agent: true`** 时 **禁止** `finalize-prd-review` 直至 Agent 确认已改 prd-spec（**ai-soak3** 见 `soak3.md` §11）。
+
+**禁止**：仅 `apply-raw-input-config` 改 URL 而不增 feature 即视为 PRD 完成。
+
 ## 2. 子命令（节选）
 
 | 子命令 | 说明 |

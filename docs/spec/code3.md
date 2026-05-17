@@ -264,6 +264,7 @@ ai-code3/
 - **Cursor Agent CLI 非交互约束**：若调用的是 **`cursor-agent`** 可执行文件，必须使用非交互参数（至少含 **`--print`** 与显式 prompt；可附带 **`--trust`**），禁止“无参数启动”导致会话阻塞。  
 - **超时**：单相 Agent 调用须有**子超时**（环境变量或 `config.dev.json` 的 **`timeouts.subcommand.*`**）；**所有**子调用累计须在 **`timeouts.stages.codegen_s`** 内结束，否则 **退出码 3**，并写 **`outputs.timed_out=true`**。  
 - **跳过 Agent**：**`AI_CODE3_SKIP_AGENT=1`**（或兼容 **`AI_CODEGEN_SKIP_AGENT=1`**）时**不得**调用外部 Agent；仅执行 worktree + 骨架（若启用）；**`outputs.agent.skipped=true`** 与 **`skip_reason`** 写入 **`stages.json`**（见模板）；**`impl_codegen_status` / `test_codegen_status`** 不得假装 **`success`**——应 **`failed`** 或 **`skipped`**（与 **`input-spec.md` §7.1** 枚举一致），除非团队显式允许「骨架即完成」（须在 **`SKILL.md`** 声明为实验模式）。  
+- **`AI_SOAK3_STRICT=1`**：**禁止**设置 **`AI_CODE3_SKIP_AGENT=1`** 完成 soak；若 agent 被跳过 → **autorun/codegen 退出 4**，**`stages.codegen.validation.passed=false`**（见 **`docs/spec/auto3.md` §6.4**、**`rfc-soak3-req-fidelity.md`**）。
 - **日志**：每次 Agent 调用将 **request id / session 片段 / 失败摘要** 写入 **`.agent-sessions/`**；stdout/stderr 须含 **`failed_stage=codegen`** 与 **`feature_id=`**（多 feature 时）。
 
 ### 7.9 分相流程（推荐实现顺序）
@@ -381,6 +382,7 @@ ai-code3/
 - **推送**：**`git.allow_push=true`** 时执行 **`git push <remote> <target_branch>`**（**`git.remote`**，默认 **`origin`**）；未配置 remote → **退出 7**；push 非零退出 → **7**；子进程超时下限由 **`timeouts.stages.merge_push_s`** 推导为单次 git 调用的超时毫秒数（见 **`scripts/lib/merge-git.cjs`**）。**`--stub-remaining`** 仍为占位合并，不执行真实 git。  
 - **源码目录落位门闸**：合并成功后，脚本会检查本次合并引入的源码文件路径。源码文件必须位于 **`src/<client_target>/`**（`website/admin/backend/mobile/desktop/miniapp/agent`）或共享目录 **`src/shared/`**、**`src/common/`**、**`src/sdk/`**。若命中如 `legacy/*.ts`、根级 **`backend/server.cjs`**、**`website/*.html`**、**`apps/mobile/**`**（V2 端目录）或 `src/<unknown>/` 等不合规路径，则 `merge_push` 标记 **failed**、记录 `outputs.source_layout_violations[]`，并以 **退出码 1** 阻断进入 build。**豁免**（非端实现源码）：`docs/`、`.pipeline/`、`.agent-sessions/`、**`scripts/`**（项目级构建脚本）。
 - **无 Agent 健康脚手架**：**`AI_CODE3_SKIP_AGENT=1`** 且 **`AI_CODE3_ALLOW_NO_AGENT_PASS=yes`** 时，**`lib/codegen-health-full-scaffold.cjs`** 向 **feature worktree** 的 **`src/<client_target>/`** 落盘；非 feature 工具链写入 **`.pipeline/ai-code3/`**（**`package.json`**、**`scripts/build.cjs`**），**不得**写在业务项目根或 worktree 根。`build` 通过 **`npm run build --prefix .pipeline/ai-code3`** 且 **`AI_CODE3_WORKTREE_ROOT`** 指向含 `src/` 的目录；`test` 默认 **`node src/backend/tests/health.test.cjs`**（在 worktree cwd 执行）。  
+- **与业务 PRD 互斥（ai-soak3）**：当 **`docs/prd-spec.md`** / **`inputs/req.md`** 声明 **笔记 / RealNotes / 非 Health 演示** 时，**禁止**对 **`client_target=mobile`** 落盘 Health 脚手架（`HealthApp`、`health_mobile`、`Health Mobile` 等）。**`AI_SOAK3_STRICT=1`** 下若检测到上述模板残留 → **codegen 退出 4**，**不得** `validation.passed=true`。
 - **实现文件**：**`merge-push.cjs`** + **`lib/merge-git.cjs`**；合并自测 **`scripts/self-test-merge-push.cjs`**。
 
 ---

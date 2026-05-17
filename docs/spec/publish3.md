@@ -246,6 +246,20 @@ ai-publish-dev3/
 - 默认仅 **GET/HEAD**；非 GET/HEAD 须在 OpenAPI 扩展中显式声明可冒烟（**`input-spec.md` §8.13** YAML 示例为 **`safe: true`**；若仓库其它处出现 `safe_post` 等别名，以契约文件与 contract 阶段实际写入的字段为准，**smoke 实现须与契约一致**）。  
 - **禁止**在 `stages.json` 或日志中保存完整鉴权头、密钥、完整响应体。
 
+### 7.4 响应体内容检查（**ai-soak3 强制**，实现 backlog）
+
+除 **`expected_status`** 外，`smoke.checks[]` **应支持**（模板 additive）：
+
+| 字段 | 说明 |
+| --- | --- |
+| **`body_contains`** | 响应体须包含子串（如 `我的笔记`）；用于 website/admin HTML |
+| **`body_not_contains`** | 响应体**不得**包含（如 `TiddlyWiki`），防止错站仍 200 |
+| **`title_contains`** | 解析 HTML `<title>` 后匹配（可选实现） |
+
+**`AI_SOAK3_STRICT=1`** 时：凡 **`client_target`** 为 **website** / **admin** 的 check，**至少一条**须含 **`body_contains`** 或 **`body_not_contains`**；仅 status code **不算** smoke 通过。
+
+**deploy 产物指纹（建议）**：deploy 写回 **`outputs.services[].artifact_digest`**（本地 `dist/` 目录哈希）；smoke 前比对远程 body 与本地 `index.html` 关键子串一致（**ai-soak3** §6.2.1）。
+
 ---
 
 ## 8. 与契约 `x-smoke` 的衔接

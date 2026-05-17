@@ -311,6 +311,19 @@ ai-auto3/
 
 **`merge-push` / `deploy`** 在重跑语义上为 **destructive**（**`input-spec.md` §7.2**）。**ai-auto3** 对 **dev deploy** 的自动授权键**固定**为 **`docs/config.dev.json.pipeline.autorun.allow_destructive_deploy`**（**`true`** 才允许 **autorun** spawn **deploy**；与 **`docs/spec/publish3.md` §5.1.1** 一致）。**`merge-push`** 在 autorun 内的确认策略（配置键或交互）若与 **ai-code3** 另有约定，须在 **`SKILL.md`** 与 **code3 规格**中交叉写明；缺失即 **退出码 1**，不得静默执行 destructive 步骤。
 
+### 6.4 `AI_SOAK3_STRICT=1`（ai-soak3 调用）
+
+当环境变量 **`AI_SOAK3_STRICT=1`**（由 **ai-soak3** 在 spawn autorun 前设置）：
+
+| 规则 | 说明 |
+| --- | --- |
+| **禁止跳过** | 不得对 **`codegen`、`build`、`deploy`、`smoke`、`ui_e2e`** 应用 §6.1「已完成」跳过，**即使** `summary_hash` 未变 |
+| **等价 CLI** | 须与 **`--force-rerun=codegen,build,deploy,smoke,ui_e2e`** 行为一致（实现可二选一：读 env 或要求 soak 显式传参） |
+| **codegen 与 agent** | 若 **`AI_CODE3_SKIP_AGENT=1`** 或 **`stages.codegen.outputs.agent.skipped===true`** → **autorun 退出码 4**（或 **1**），**不得** `overall_result=success` |
+| **report** | **`gen-report.cjs`** 须在正文列出「strict 重跑阶段」与 **req 追溯矩阵**引用（见 **`docs/spec/rfc-soak3-req-fidelity.md`**） |
+
+**动机**：避免「上一轮 ui_e2e/deploy 已完成」掩盖 req 变更后的错站、错 App、假 PASS。
+
 ---
 
 ## 7. 退出码（编排层契约）
