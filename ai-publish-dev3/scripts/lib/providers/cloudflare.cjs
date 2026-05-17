@@ -195,11 +195,19 @@ async function ensureDnsRecord(zoneInfo, fqdn, recordType, content, token, proxi
   }
   const want = String(content).replace(/\.$/, '').toLowerCase();
   if (recs.length) {
-    const existing = String(recs[0].content || '')
+    const rec = recs[0];
+    const existing = String(rec.content || '')
       .replace(/\.$/, '')
       .toLowerCase();
     if (existing === want) return true;
-    return false;
+    const { statusCode, json } = await cfApi('PATCH', `/zones/${zoneId}/dns_records/${rec.id}`, token, {
+      type: recordType,
+      name: short,
+      content,
+      proxied: !!proxied,
+      ttl: proxied ? 1 : 3600,
+    });
+    return statusCode === 200 && json && json.success;
   }
   const body = { type: recordType, name: short, content, proxied: !!proxied, ttl: proxied ? 1 : 3600 };
   const { statusCode, json } = await cfApi('POST', `/zones/${zoneId}/dns_records`, token, body);
@@ -274,17 +282,30 @@ async function workersAttachCustomHostname(hostname, scriptName, zoneId, token, 
   return false;
 }
 
-async function setupWorkerCustomHost(serviceName, customHost, token, accountId) {
+function workerRoutePattern(svc, customHost) {
+  const rc = svc.resource_config && typeof svc.resource_config === 'object' ? svc.resource_config : {};
+  const fromCfg = rc.route_pattern && String(rc.route_pattern).trim();
+  if (fromCfg) return fromCfg;
+  return `${customHost}/api*`;
+}
+
+async function setupWorkerCustomHost(serviceName, customHost, token, accountId, svc) {
+  const routePattern = workerRoutePattern(svc || {}, customHost);
+  const pathOnly = routePattern.includes('/') && !routePattern.startsWith('http');
   const zi = await getZoneInfo(customHost, token, accountId);
   const target = await fetchWorkersDevCnameTarget(serviceName, token, accountId);
-  if (zi && (await workersAttachCustomHostname(customHost, serviceName, zi.id, token, accountId))) return;
+  if (zi && !pathOnly && (await workersAttachCustomHostname(customHost, serviceName, zi.id, token, accountId))) {
+    return;
+  }
   if (zi) {
-    await ensureDnsRecord(zi, customHost, 'CNAME', target, token, true);
+    if (!pathOnly) {
+      await ensureDnsRecord(zi, customHost, 'CNAME', target, token, true);
+    }
     const { statusCode, json } = await cfApi(
       'POST',
       `/zones/${zi.id}/workers/routes`,
       token,
-      { pattern: `${customHost}/*`, script: serviceName }
+      { pattern: routePattern, script: serviceName }
     );
     if (statusCode === 200 && json && json.success) return;
     if (json && Array.isArray(json.errors) && json.errors.some((e) => e.code === 10020)) return;
@@ -410,7 +431,7 @@ async function runCloudflareDeploy(projectRoot, deploy, buildArtifacts, log) {
       const target = await fetchWorkersDevCnameTarget(serviceName, token, accountId);
       let publicUrl = `https://${target}`;
       if (customHost && !isEdgeHostname(customHost)) {
-        await setupWorkerCustomHost(serviceName, customHost, token, accountId);
+        await setupWorkerCustomHost(serviceName, customHost, token, accountId, svc);
         publicUrl = `https://${customHost}`;
       }
       if (!deployUrl) deployUrl = publicUrl.replace(/\/$/, '');
