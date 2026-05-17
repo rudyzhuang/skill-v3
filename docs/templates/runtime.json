@@ -2,7 +2,7 @@
   "_schema": {
     "name": "skill-v3-runtime",
     "version": 1,
-    "description": "Per-project background orchestration snapshot under <skills_root>/.pipeline/<project_id>/runtime.json. Recoverable from project stages.json; not committed to business repos."
+    "description": "Per-project background snapshot under <skills_root>/_runtime/<project_id>/runtime.json (not skills repo .pipeline/). Recoverable from business stages.json."
   },
   "project": {
     "project_id": "",

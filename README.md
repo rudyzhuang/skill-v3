@@ -73,10 +73,10 @@ foreach ($d in "ai-prd3","ai-design3","ai-code3","ai-dash3","ai-auto3","ai-publi
 
 ### 3. 安装各 skill 的 Node 依赖
 
-在**每个带有 `package.json` 的 skill 子目录**内执行一次依赖安装（本仓当前为：`ai-prd3`、`ai-design3`、`ai-code3`、`ai-auto3`、`ai-publish-dev3`；**`ai-dash3` 无依赖，可跳过 `npm install`**）：
+在**每个带有 npm 依赖的 skill 子目录**内执行一次依赖安装（本仓当前为：`ai-prd3`、`ai-design3`、`ai-code3`、`ai-publish-dev3`；**`ai-auto3` / `ai-dash3` 无 npm 依赖，可跳过**）：
 
 ```bash
-for d in ai-prd3 ai-design3 ai-code3 ai-auto3 ai-publish-dev3; do
+for d in ai-prd3 ai-design3 ai-code3 ai-publish-dev3; do
   (cd "<REPO>/$d" && npm install)
 done
 ```
@@ -87,7 +87,6 @@ done
 
 **macOS / Linux**
 
-- **`ai-auto3` 依赖 `better-sqlite3`（原生模块）**：多数平台有预编译包；若安装失败，需本机 **C/C++ 构建链**（如 Xcode Command Line Tools、或 `build-essential` + `python3`），再重试 `npm install`。
 - 编排脚本示例（在**业务项目根**执行）：
 
   ```bash
@@ -101,8 +100,6 @@ done
   ```powershell
   node $env:USERPROFILE\.cursor\skills\ai-auto3\scripts\autorun.cjs --project=(Get-Location).Path
   ```
-
-- 若 **`better-sqlite3` 安装失败**，通常需要安装 **Visual Studio Build Tools**（含 “使用 C++ 的桌面开发” 工作负载）后，在 `ai-auto3` 目录重新执行 `npm install`。
 
 ### 5. 在 Cursor 里怎么用
 
@@ -124,7 +121,7 @@ done
    - `ai-codegen2`、`ai-typecheck2`、`ai-test2`、`ai-code-review2`、`ai-git2`、`ai-build2`
    - `ai-deploy2`、`ai-smoke2`、`ai-dash2`
    - 以及 **`auto-build-pro`**、**`auto-build-project-with-prd`** 等旧编排/并行 skill（若曾安装）。
-3. **（可选）** 若希望清零本机运行态：删除 **`~/.cursor/skills/.pipeline/`**（各项目 **`runtime.json`**）；业务仓 **`stages.json`** 不受影响。已废弃的 **`_registry/registry.sqlite`** 亦可删除（见 **`docs/spec/runtime-pipeline.md` §5**）。
+3. **（可选）** 若希望清零本机运行态：删除 **`~/.cursor/skills/_runtime/`**（各项目 **`runtime.json`**）；业务仓 **`stages.json`** 不受影响。旧目录 **`_registry/`**、skill 仓根下误写的 **`.pipeline/`** 亦可删除（见 **`docs/spec/runtime-pipeline.md` §5**）。
 4. 按上文 **「按操作系统安装与使用」** 安装本仓的 **`ai-*3`**；若有老仓迁移需求，一并链接 **`migrate-v2-to-v3`**。
 5. **业务项目**：V3 **不会**读取旧版 `stages.json`、各端 `deployment_plan.json`、业务仓内旧 `scripts/config.env` 等；老项目需按 `docs/input-spec.md` 第九节做一次迁移或重建配置，再跑 V3。
 

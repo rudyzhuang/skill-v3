@@ -113,14 +113,14 @@
 
 **路径（定稿）**：
 
-- **`<skills_root>/.pipeline/<project_id>/runtime.json`**
+- **`<skills_root>/_runtime/<project_id>/runtime.json`**
 - **`<project_id>`** 与 **`<project_root>/.pipeline/stages.json` → `project.project_id`** 一致，目录名经文件系统安全化（见 **`docs/spec/runtime-pipeline.md` §1**）。
 - 字段真源模板：**`docs/templates/runtime.json`**；规格 SSOT：**`docs/spec/runtime-pipeline.md`**。
 
 **与 `stages.json` 的关系（避免双真源冲突）**：
 
 - **项目仓库内的权威**：以 **`<project_root>/.pipeline/stages.json`** 为**可恢复、可核对**的编排门闸真源（阶段 status、validation、outputs）。
-- **skill 目录 runtime**：**本机后台与运行态索引**；须支持删除整个 **`<skills_root>/.pipeline/`** 后，仅依据业务仓 **`stages.json`** 在下次 **autorun / soak** 时重建 **`project`** 与空 **`orchestration`**，**不应**出现「runtime 丢了就无法开跑」的情况。
+- **skill 目录 runtime**：**本机后台与运行态索引**；须支持删除整个 **`<skills_root>/_runtime/`** 后，仅依据业务仓 **`stages.json`** 在下次 **autorun / soak** 时重建 **`project`** 与空 **`orchestration`**，**不应**出现「runtime 丢了就无法开跑」的情况。
 
 **读写分工（摘要）**：
 
@@ -131,12 +131,12 @@
 | **ai-code3** | 长时 codegen / agent **`processes[]`** |
 | **ai-dash3** | 仅 **`services.dash_serve`**（可选）；**禁止**写阶段门闸 |
 
-**`registry.sqlite`（已废弃）**：
+**`registry.sqlite`（已移除）**：
 
-- 原 **`~/.cursor/skills/_registry/registry.sqlite`** 不再作为规范真源；**ai-dash3** **不**维护、**不**读取 SQLite。
-- 实现迁移期可保留只写兼容；新代码以 **runtime.json** 为准。详见 **`runtime-pipeline.md` §5**。
+- 不再使用 **`~/.cursor/skills/_registry/registry.sqlite`**；**ai-auto3** **无** `better-sqlite3` 依赖。
+- 本机运行态仅 **`<skills_root>/_runtime/<project_id>/runtime.json`**。详见 **`runtime-pipeline.md` §5**。
 
-**小结**：**skill 侧**——脚本在 skill 安装目录，**本机运行态**在 **`<skills_root>/.pipeline/<project_id>/runtime.json`**；**项目侧**——**`docs/config.*.json`** + **`<project_root>/.pipeline/stages.json`**。编排 **ai-auto3** 与各 **ai-*3** 在解析到业务项目根路径后，应能稳定定位上述文件，并把「缺文件 / 缺键 / 敏感项误入 JSON / `stages.json` 与文档不一致」等情况纳入前置校验与给人看的报错说明。
+**小结**：**skill 侧**——脚本在 skill 安装目录，**本机运行态**在 **`<skills_root>/_runtime/<project_id>/runtime.json`**；**项目侧**——**`docs/config.*.json`** + **`<project_root>/.pipeline/stages.json`**。编排 **ai-auto3** 与各 **ai-*3** 在解析到业务项目根路径后，应能稳定定位上述文件，并把「缺文件 / 缺键 / 敏感项误入 JSON / `stages.json` 与文档不一致」等情况纳入前置校验与给人看的报错说明。
 
 ### 3.3 实现分层：cjs 脚本与 skill prompt 的分工
 
@@ -196,7 +196,7 @@
 | **ai-publish-dev3** | deploy（**dev** 环境），smoke |
 | **ai-e2e3** | **ui_e2e**（**website/admin** Browser MCP；**mobile** android/ios Dart MCP + integration_test）；见 **`docs/spec/e2e3.md`** |
 | **ai-publish-release3** | deploy（**release** 环境），smoke；以及上一版中常见的 **release**（版本、变更日志、打标、托管发布等）类职责 |
-| **ai-dash3** | **无**独占 stage（**只读**看板）：读 **`<skills_root>/.pipeline/<project_id>/runtime.json`** + 业务仓 **`.pipeline/stages.json`**、**`reports/`**、Feature 流水线；CLI 或 **`serve`** 本地 Web；**不** spawn 子 skill、**不**写 **`stages.*`**、**不**自动推进（见 **`docs/spec/dash3.md`**） |
+| **ai-dash3** | **无**独占 stage（**只读**看板）：读 **`<skills_root>/_runtime/<project_id>/runtime.json`** + 业务仓 **`.pipeline/stages.json`**、**`reports/`**、Feature 流水线；CLI 或 **`serve`** 本地 Web；**不** spawn 子 skill、**不**写 **`stages.*`**、**不**自动推进（见 **`docs/spec/dash3.md`**） |
 
 **report** 不单独拆 skill：本版定为 **ai-auto3 的末尾职责**。当自动序列跑完 dev deploy + smoke + **ui_e2e**（若 `ui_e2e.enabled`）后，由 **ai-auto3** 读取 **`.pipeline/stages.json`** 与关键日志生成最终汇总。
 
@@ -224,7 +224,7 @@
 | **是否 spawn 子 skill** | **否** | **是**（按 §4.1 链路与 **`docs/spec/auto3.md`**） |
 | **是否写 `.pipeline/stages.json`** | **否**（只读；**禁止**为「展示美观」回写任何 stage 字段） | **否**业务字段；仅允许编排契约已载明的 **`pipeline.*` / 停跑时 `contract` blocked 等**（见 **`docs/spec/auto3.md`**） |
 | **PID 锁** | **不**申请、**不**释放；可**只读检测** `.agent-sessions/locks/pipeline.pid` 给人提示 | **必须**按 §6 管理 |
-| **`<skills_root>/.pipeline/<project_id>/runtime.json`** | **只读**（ **`serve`** 可写 **`services.dash_serve`**）；项目列表来自扫描 **`.pipeline/*/runtime.json`** | **ai-auto3** 主写 **`orchestration` / `recent_runs`**；**ai-soak3**、**ai-code3** 写 **`processes`**（见 **`runtime-pipeline.md`**） |
+| **`<skills_root>/_runtime/<project_id>/runtime.json`** | **只读**（ **`serve`** 可写 **`services.dash_serve`**）；项目列表来自扫描 **`<skills_root>/_runtime/*/runtime.json`** | **ai-auto3** 主写 **`orchestration` / `recent_runs`**；**ai-soak3**、**ai-code3** 写 **`processes`**（见 **`runtime-pipeline.md`**） |
 | **典型用途** | 会话开场快照、PR 描述贴进度、人工判断「卡在哪」；**`serve`** 本地 Web 看板跟踪多项目与 Feature 流水线 | 从 **design**（默认）起自动跑到 **report** |
 | **本地 Web** | **`run.cjs serve`** → **`http://127.0.0.1:9473/`**（只读；见 **`docs/spec/dash3.md` §3.4、§7.1**） | — |
 

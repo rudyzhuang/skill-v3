@@ -33,6 +33,11 @@ AUTORUN_SCRIPT="$HOME/.cursor/skills/ai-auto3/scripts/autorun.cjs"
 HEALTH_SCRIPT="$SKILL_DIR/scripts/check-session-health.cjs"
 DIAGNOSE_SCRIPT="$SKILL_DIR/scripts/diagnose-run.cjs"
 
+# ──────────────────── Soak 严格模式（prompts/invoke-soak3.md）────
+export AI_SOAK3_STRICT=1
+unset AI_CODE3_SKIP_AGENT 2>/dev/null || true
+unset AI_CODEGEN_SKIP_AGENT 2>/dev/null || true
+
 # ──────────────────── 代理（soak3 §4.1）────────────────────────
 if [[ -z "${http_proxy:-}" ]]; then
   export http_proxy="${http_proxy:-http://127.0.0.1:1087}"

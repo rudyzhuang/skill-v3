@@ -9,7 +9,7 @@ const {
 } = require('../../../ai-auto3/scripts/lib/runtime-io.cjs');
 
 /**
- * 只读：扫描 skills_root/.pipeline 下各项目 runtime.json（dash3 不读 SQLite）
+ * 只读：扫描 skills_root/_runtime 下各项目 runtime.json（dash3 不读 SQLite）
  * @returns {{ ok: boolean, data?: object, error?: string }}
  */
 function fetchRuntimeExport() {

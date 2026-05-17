@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * 登记后台进程到 <skills_root>/.pipeline/<project_id>/runtime.json
+ * 登记后台进程到 <skills_root>/_runtime/<project_id>/runtime.json
  * 用法: node register-runtime-process.cjs --project=<abs> --kind=... --pid=... [--command=] [--log-path=]
  */
 

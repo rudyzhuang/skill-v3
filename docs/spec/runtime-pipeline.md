@@ -6,7 +6,7 @@
 | --- | --- |
 | **唯一实现参考源** | 编写 **`runtime.json` 读写**、**ai-dash3 多项目列表**、**ai-auto3 / ai-soak3 / ai-code3 后台进程登记** 时，**以本文为规范来源**。 |
 | **与 `docs/input-spec.md` 的关系** | §3.2 总纲已改为 **runtime.json** 为本机多项目运行态真源；本文展开字段、路径、读写边界与迁移。 |
-| **与业务仓 `.pipeline/` 的关系** | **业务项目**内 **`<project_root>/.pipeline/stages.json`** 仍是**可恢复、可提交（可选）**的编排门闸真源；**skill 仓**内 **`<skills_root>/.pipeline/<project_id>/runtime.json`** 仅描述**本机后台进程与跨会话运行态**，**不**替代 `stages.json`。 |
+| **与业务仓 `.pipeline/` 的关系** | **业务项目**内 **`<project_root>/.pipeline/stages.json`** 仍是**可恢复、可提交（可选）**的编排门闸真源；**skill 仓**内 **`<skills_root>/_runtime/<project_id>/runtime.json`** 仅描述**本机后台进程与跨会话运行态**，**不**替代 `stages.json`。 |
 
 **维护流程**：先改 **`docs/templates/runtime.json.template`**（即 `docs/templates/runtime.json`）→ 本文 → **`input-spec.md` / `dash3.md` / `auto3.md`** → 各 skill 实现。
 
@@ -17,10 +17,10 @@
 | 项 | 约定 |
 | --- | --- |
 | **`<skills_root>`** | skill 安装根，例如 **`~/.cursor/skills`**（与 `input-spec.md` §3 一致）。 |
-| **目录** | **`<skills_root>/.pipeline/<project_id>/`** — 每个业务项目一条；**`<project_id>`** 与 **`stages.json` → `project.project_id`** 一致，经 **文件系统安全化**（仅保留 `[a-zA-Z0-9._-]`，其余替换为 `_`）。 |
-| **文件** | **`<skills_root>/.pipeline/<project_id>/runtime.json`** |
+| **目录** | **`<skills_root>/_runtime/<project_id>/`** — 每个业务项目一条；**`<project_id>`** 与 **`stages.json` → `project.project_id`** 一致，经 **文件系统安全化**（仅保留 `[a-zA-Z0-9._-]`，其余替换为 `_`）。 |
+| **文件** | **`<skills_root>/_runtime/<project_id>/runtime.json`** |
 | **禁止** | 把 runtime 写入业务仓、或依赖 `process.cwd()` 推断 `<skills_root>`；脚本须解析 skill 安装目录（与现有 `skillsRootFrom*` 模式一致）。 |
-| **git** | **`<skills_root>/.pipeline/`** 为**本机运行态**，默认 **`.gitignore`**（不提交敏感路径与 PID）；模板 **`docs/templates/runtime.json`** 可提交。 |
+| **git** | **`<skills_root>/_runtime/`** 为**本机运行态**，默认 **`.gitignore`**（不提交敏感路径与 PID）；模板 **`docs/templates/runtime.json`** 可提交。 |
 
 **`project_name` 口语**：文档与 UI 中的「项目名」默认指 **`project_id`**；可选 **`project.display_name`** 仅用于展示，**不**参与目录名。
 
@@ -104,7 +104,7 @@
 
 ## 4. ai-dash3 数据流（只读 + 项目深读）
 
-1. **枚举项目**：扫描 **`<skills_root>/.pipeline/*/runtime.json`**，收集 **`project.project_id`**、**`root_path`**、**`orchestration.active`**、**`updated_at`**；无文件的项目**不**出现在列表（除非 URL 带 **`?project=`** 直链）。
+1. **枚举项目**：扫描 **`<skills_root>/_runtime/*/runtime.json`**，收集 **`project.project_id`**、**`root_path`**、**`orchestration.active`**、**`updated_at`**；无文件的项目**不**出现在列表（除非 URL 带 **`?project=`** 直链）。
 2. **选中项目**：读取对应 **`runtime.json`** → 得到 **`root_path`**。
 3. **深读业务仓**（与现实现一致，路径相对 **`root_path`**）：
    - **`.pipeline/stages.json`** — 阶段表、Feature 板、阻塞；
@@ -114,15 +114,16 @@
 
 ---
 
-## 5. 与 `registry.sqlite` 的迁移
+## 5. 路径与旧数据清理
 
-| 阶段 | 行为 |
+| 项 | 说明 |
 | --- | --- |
-| **文档期（当前）** | 规格以 **runtime.json** 为准；实现可仍读 SQLite（兼容）。 |
-| **实现期** | **ai-auto3** 写 **runtime.json** 为**主**；**`registry.sqlite`** 标记 **deprecated**，**不再**要求 **`npm install better-sqlite3`** 供 **dash**。 |
-| **清理期（可选）** | 删除 **`_registry/registry.sqlite`** 与 **registry-export**；历史 **`stage_events`** 若需保留，可导出到 **`<skills_root>/.pipeline/<id>/runs/`** 归档（非 MVP）。 |
+| **当前路径** | **`<skills_root>/_runtime/<project_id>/runtime.json`** — skill 仓**禁止**再写 **`.pipeline/`** |
+| **旧路径迁移** | **`<skills_root>/.pipeline/<id>/`** → `runtime-io.cjs` 首次访问时自动迁到 **`_runtime/`** |
+| **`registry.sqlite`** | **已移除**；`registry-db.cjs` 仅 re-export **`runtime-io.cjs`** |
+| **`_registry/`** | 可整目录删除，脚本不再创建 |
 
-**可重建性**：删除整个 **`<skills_root>/.pipeline/`** 后，下次 **autorun** / **soak** 从业务仓 **`stages.json`** 重建 **`project`** 块与空 **`orchestration`**；**`recent_runs`** 丢失可接受。
+**可重建性**：删除 **`<skills_root>/_runtime/`** 后，下次 **autorun** / **soak** 从业务仓 **`stages.json`** 重建 **`project`** 与空 **`orchestration`**。
 
 ---
 
@@ -142,7 +143,7 @@
 ## 7. 验收清单
 
 - [ ] 模板 **`docs/templates/runtime.json`** 与本文 §3 一致。
-- [ ] **autorun** 开跑后存在 **`<skills_root>/.pipeline/<project_id>/runtime.json`**，且 **`orchestration.active === true`**。
+- [ ] **autorun** 开跑后存在 **`<skills_root>/_runtime/<project_id>/runtime.json`**，且 **`orchestration.active === true`**。
 - [ ] **stop-pipeline** 后 **`active === false`**，相关 **`processes`** 标 **`exited`**。
 - [ ] **ai-dash3 serve** 项目下拉来自 **runtime 扫描**，无 **SQLite** 依赖。
 - [ ] 选中项目后阶段表来自业务 **`stages.json`**，运行态来自 **runtime.json**。

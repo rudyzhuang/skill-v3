@@ -21,6 +21,8 @@
 ```
 ai-soak3/
 ├── SKILL.md                       # 编排与触发说明（Agent 读取）
+├── prompts/
+│   └── invoke-soak3.md            # /ai-soak3 内置调用提示词（Agent 第一步必读）
 ├── docs/
 │   ├── spec/
 │   │   └── soak3.md               # 本文件（规范 SSOT）
@@ -73,6 +75,16 @@ ai-soak3/
 ---
 
 ## 5. 执行状态机
+
+### 5.0.1 内置调用提示词（`/ai-soak3`）
+
+用户通过 **`/ai-soak3`** 或等价话术触发时，Agent **必须先**按 **`prompts/invoke-soak3.md`** 执行：
+
+- **PROJECT_ROOT**：当前 Cursor 工作区根目录（业务项目），非 skill 仓路径；
+- **环境**：`AI_SOAK3_STRICT=1`；禁止 `AI_CODE3_SKIP_AGENT`；
+- **范围**：ensure-req → prd3 → autorun 至 report。
+
+`SKILL.md` §0.1 为入口摘要；本文 §5.0 以下为 strict 技术细则。
 
 ### 5.0 Soak 严格模式（`AI_SOAK3_STRICT=1`）
 
@@ -238,7 +250,7 @@ mobile 须实现 req 声明的 **列表 / 创建 / 编辑 / 详情**（见 prd-s
 
 ### 8.4 本机 runtime.json（后台登记）
 
-**ai-soak3** 在启动后台 **autorun** 或监控循环时，须更新 **`<skills_root>/.pipeline/<project_id>/runtime.json`**（见 **`docs/spec/runtime-pipeline.md`**）：
+**ai-soak3** 在启动后台 **autorun** 或监控循环时，须更新 **`<skills_root>/_runtime/<project_id>/runtime.json`**（见 **`docs/spec/runtime-pipeline.md`**）：
 
 | 时机 | 写入 |
 | --- | --- |

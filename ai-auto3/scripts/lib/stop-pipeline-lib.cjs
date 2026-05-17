@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { pipelineLockPath } = require('./paths.cjs');
 const {
-  openDb,
+  finishActiveRuns,
   clearProjectRuntimeState,
   upsertProjectFromStages,
 } = require('./registry-db.cjs');
@@ -159,21 +159,7 @@ function terminatePids(pids) {
 
 function finishActiveRegistryRuns(projectId) {
   if (!projectId) return [];
-  const db = openDb();
-  const rows = db
-    .prepare(
-      `SELECT run_id FROM pipeline_runs WHERE project_id = ? AND ended_at IS NULL ORDER BY started_at DESC`
-    )
-    .all(projectId);
-  const now = new Date().toISOString();
-  const finished = [];
-  for (const row of rows) {
-    db.prepare(
-      `UPDATE pipeline_runs SET ended_at = ?, exit_code = ?, stopped_at_stage = ? WHERE run_id = ?`
-    ).run(now, 130, 'user_stop', row.run_id);
-    finished.push(row.run_id);
-  }
-  return finished;
+  return finishActiveRuns(projectId, 130, 'user_stop');
 }
 
 /**

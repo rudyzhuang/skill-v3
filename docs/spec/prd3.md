@@ -425,7 +425,7 @@ summary_hash = SHA256( concat(parts) )
 | ID | 内容 | 状态 |
 | --- | --- | --- |
 | T1 | LLM 产出 JSON 的 **JSON Schema** 随 skill 分发路径 | **已关闭**：**`templates/schemas/prd-review-output.v1.schema.json`**（见 **§4.1** 目录树；版本后缀 `v1` 与 breaking 时升版规则见 `input-spec.md` §9.1）。 |
-| T2 | **runtime.json** 是否在 prd 完成时写入 | **已关闭**：**不**作为 prd 完成必要条件；门闸真源为 **`.pipeline/stages.json`**；本机 **`~/.cursor/skills/.pipeline/<project_id>/runtime.json`** 由 **ai-auto3** / **ai-soak3** 在后台编排时写入（`input-spec.md` §3.2）。**ai-prd3** **不**写 runtime。 |
+| T2 | **runtime.json** 是否在 prd 完成时写入 | **已关闭**：**不**作为 prd 完成必要条件；门闸真源为 **`.pipeline/stages.json`**；本机 **`~/.cursor/skills/_runtime/<project_id>/runtime.json`** 由 **ai-auto3** / **ai-soak3** 在后台编排时写入（`input-spec.md` §3.2）。**ai-prd3** **不**写 runtime。 |
 
 ---
 

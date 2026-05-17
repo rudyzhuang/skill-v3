@@ -578,7 +578,7 @@ ai-code3/
 
 ### A.5a 本机 runtime（`runtime-pipeline.md`）
 
-- 长时 **codegen / cursor-agent** 等后台子进程：经 **`ai-auto3/scripts/lib/runtime-io.cjs`** 向 **`<skills_root>/.pipeline/<project_id>/runtime.json` → `processes[]`** 登记 **`kind`**（如 **`codegen-agent`**）、**`pid`**、**`log_path`**；退出时标 **`exited`**。  
+- 长时 **codegen / cursor-agent** 等后台子进程：经 **`ai-auto3/scripts/lib/runtime-io.cjs`** 向 **`<skills_root>/_runtime/<project_id>/runtime.json` → `processes[]`** 登记 **`kind`**（如 **`codegen-agent`**）、**`pid`**、**`log_path`**；退出时标 **`exited`**。  
 - **不**写 **`orchestration`**（归 **ai-auto3**）；**不**写业务仓 **`stages.json`** 以外的新真源。
 
 ### A.6 超时默认值与心跳（§6.1）

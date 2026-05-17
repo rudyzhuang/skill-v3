@@ -13,14 +13,49 @@ function sanitizeProjectId(projectId) {
   return s.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+/** 本机运行态根目录（勿与业务仓 `.pipeline/` 混淆） */
+function skillsRuntimeRoot() {
+  return path.join(skillsRootFromThisFile(), '_runtime');
+}
+
+/** @deprecated 使用 skillsRuntimeRoot */
 function skillsPipelineRoot() {
-  return path.join(skillsRootFromThisFile(), '.pipeline');
+  return skillsRuntimeRoot();
 }
 
 function runtimeDirForProjectId(projectId) {
   const id = sanitizeProjectId(projectId);
   if (!id) throw new Error('runtime-io: empty project_id');
-  return path.join(skillsPipelineRoot(), id);
+  return path.join(skillsRuntimeRoot(), id);
+}
+
+/** 一次性：旧路径 skills_root/.pipeline/<id>/ → _runtime/<id>/ */
+function migrateLegacyRuntimeDirs() {
+  const legacyRoot = path.join(skillsRootFromThisFile(), '.pipeline');
+  if (!fs.existsSync(legacyRoot)) return;
+  const destRoot = skillsRuntimeRoot();
+  fs.mkdirSync(destRoot, { recursive: true });
+  for (const ent of fs.readdirSync(legacyRoot, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    const from = path.join(legacyRoot, ent.name, 'runtime.json');
+    if (!fs.existsSync(from)) continue;
+    const toDir = path.join(destRoot, ent.name);
+    const to = path.join(toDir, 'runtime.json');
+    if (fs.existsSync(to)) continue;
+    fs.mkdirSync(toDir, { recursive: true });
+    fs.renameSync(from, to);
+    try {
+      const left = path.join(legacyRoot, ent.name);
+      if (fs.readdirSync(left).length === 0) fs.rmdirSync(left);
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    if (fs.readdirSync(legacyRoot).length === 0) fs.rmdirSync(legacyRoot);
+  } catch {
+    /* ignore */
+  }
 }
 
 function runtimePathForProjectId(projectId) {
@@ -114,6 +149,7 @@ function runtimeRowFromDoc(doc) {
 }
 
 function ensureProjectFromStages(projectRoot, stagesDoc, updatedBy) {
+  migrateLegacyRuntimeDirs();
   const projectId = stagesDoc?.project?.project_id;
   if (!projectId || !String(projectId).trim()) {
     const e = new Error('runtime-io: stages.json.project.project_id 为空');
@@ -208,8 +244,32 @@ function startRun(projectId, sessionId, orchestrator) {
   return runId;
 }
 
+function finishActiveRuns(projectId, exitCode, stoppedAtStage) {
+  const id = String(projectId || '').trim();
+  if (!id) return [];
+  const doc = readRuntimeFile(id);
+  if (!doc) return [];
+  const now = new Date().toISOString();
+  const finished = [];
+  for (const run of doc.recent_runs || []) {
+    if (!run.ended_at) {
+      run.ended_at = now;
+      run.exit_code = exitCode;
+      run.stopped_at_stage = stoppedAtStage || 'user_stop';
+      finished.push(run.run_id);
+    }
+  }
+  if (doc.orchestration?.active) {
+    doc.orchestration.active = false;
+  }
+  doc.updated_by = 'ai-auto3';
+  writeRuntimeFile(id, doc);
+  return finished;
+}
+
 function finishRun(runId, exitCode, stoppedAt) {
-  const root = skillsPipelineRoot();
+  migrateLegacyRuntimeDirs();
+  const root = skillsRuntimeRoot();
   if (!fs.existsSync(root)) return;
   const now = new Date().toISOString();
   for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
@@ -283,7 +343,8 @@ function markProcessExited(projectId, pid, exitCode) {
 }
 
 function listProjectsFromRuntime() {
-  const root = skillsPipelineRoot();
+  migrateLegacyRuntimeDirs();
+  const root = skillsRuntimeRoot();
   if (!fs.existsSync(root)) return [];
   const out = [];
   for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
@@ -361,7 +422,9 @@ function setDashServe(projectId, meta) {
 
 module.exports = {
   sanitizeProjectId,
+  skillsRuntimeRoot,
   skillsPipelineRoot,
+  migrateLegacyRuntimeDirs,
   runtimePathForProjectId,
   readRuntimeFile,
   writeRuntimeFile,
@@ -370,6 +433,7 @@ module.exports = {
   clearProjectRuntimeState,
   startRun,
   finishRun,
+  finishActiveRuns,
   registerProcess,
   markProcessExited,
   listProjectsFromRuntime,
