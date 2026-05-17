@@ -240,7 +240,11 @@ function sortFeaturesByPriority(features, doc, projectRoot, orderIndex) {
 }
 
 function parsePendingFeatures(runtime) {
-  if (!runtime || !runtime.pending_features_json) return new Set();
+  if (!runtime) return new Set();
+  if (Array.isArray(runtime.pending_features)) {
+    return new Set(runtime.pending_features.map((x) => String(x).trim()).filter(Boolean));
+  }
+  if (!runtime.pending_features_json) return new Set();
   try {
     const arr = JSON.parse(runtime.pending_features_json);
     if (!Array.isArray(arr)) return new Set();

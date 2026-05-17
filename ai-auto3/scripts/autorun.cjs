@@ -93,7 +93,7 @@ function parseArgs(argv) {
     dryRun: false,
     features: null,
   };
-  const known = new Set(['run', 'preflight-only', 'sync-registry']);
+  const known = new Set(['run', 'preflight-only', 'sync-registry', 'sync-runtime']);
   if (rest.length && known.has(rest[0])) {
     out.subcommand = rest.shift();
   }
@@ -910,7 +910,7 @@ async function main() {
     process.exit(0);
   }
 
-  if (opts.subcommand === 'sync-registry') {
+  if (opts.subcommand === 'sync-registry' || opts.subcommand === 'sync-runtime') {
     let doc;
     try {
       doc = readStages(projectRoot);
@@ -924,7 +924,7 @@ async function main() {
       console.error(String(e.message || e));
       process.exit(1);
     }
-    console.error('sync-registry: OK');
+    console.error(`${opts.subcommand}: OK`);
     process.exit(0);
   }
 

@@ -105,7 +105,41 @@ async function invokeAiCode3Agent({
     cwd: worktreePath,
     timeoutMs,
     env,
+    onSpawn(pid) {
+      try {
+        const runtimeIo = require('../../../ai-auto3/scripts/lib/runtime-io.cjs');
+        const fs = require('fs');
+        const stagesPath = require('path').join(projectRoot, '.pipeline', 'stages.json');
+        if (!fs.existsSync(stagesPath)) return;
+        const doc = JSON.parse(fs.readFileSync(stagesPath, 'utf8'));
+        const projectId = doc?.project?.project_id;
+        if (!projectId) return;
+        runtimeIo.registerProcess(projectId, {
+          kind: `codegen-agent-${String(phase || 'impl')}`,
+          pid,
+          command: `${bin} ${args.slice(0, 2).join(' ')}…`,
+          cwd: worktreePath,
+          updated_by: 'ai-code3',
+        });
+      } catch {
+        /* ignore runtime registration failures */
+      }
+    },
   });
+  if (r.pid) {
+    try {
+      const runtimeIo = require('../../../ai-auto3/scripts/lib/runtime-io.cjs');
+      const fs = require('fs');
+      const stagesPath = require('path').join(projectRoot, '.pipeline', 'stages.json');
+      if (fs.existsSync(stagesPath)) {
+        const doc = JSON.parse(fs.readFileSync(stagesPath, 'utf8'));
+        const projectId = doc?.project?.project_id;
+        if (projectId) runtimeIo.markProcessExited(projectId, r.pid, r.code);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   const elapsed = Date.now() - t0;
   const ok = !r.timedOut && r.code === 0;
   const label = stageLabelForLog(phase);

@@ -128,14 +128,21 @@ function renderRuntime(dash) {
   fillKv($('runtimeDl'), [
     ['autorun 活跃', dash.autorun_active ? '是' : '否'],
     ['PID 锁存活', dash.pid_lock_alive ? '是' : '否'],
-    ['registry 僵尸 run', dash.registry_stale_run ? '是（建议停止任务后台）' : '否'],
-    ['registry 未结束 run', dash.registry_run_active ? '是' : '否'],
+    ['runtime 僵尸 run', dash.registry_stale_run ? '是（建议停止任务后台）' : '否'],
+    ['runtime 未结束 run', dash.registry_run_active ? '是' : '否'],
+    ['后台进程数', (dash.processes || []).length],
     ['当前 codegen feature', dash.active_codegen_feature_id || '—'],
     ['当前 phase', rt.current_phase],
     ['当前 stage', rt.current_stage],
     ['pending 数量', (rt.pending_features || []).length],
     ['active_run_id', rt.active_run_id],
     ['runtime 更新', rt.updated_at],
+    ...(dash.processes || [])
+      .slice(0, 5)
+      .map((p, i) => [
+        `进程 ${i + 1}`,
+        `${p.kind} pid=${p.pid} ${p.status}${p.exit_code != null ? ` exit=${p.exit_code}` : ''}`,
+      ]),
   ]);
 }
 

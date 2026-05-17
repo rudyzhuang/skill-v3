@@ -12,8 +12,10 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { URL } = require('url');
 const { requireAbsoluteProject } = require('./lib/summary.cjs');
-const { buildDashboard, buildRegistryPayload } = require('./lib/dashboard.cjs');
-const { fetchRegistryExport } = require('./lib/registry-bridge.cjs');
+const { buildDashboard, buildProjectsPayload } = require('./lib/dashboard.cjs');
+const { fetchRuntimeExport } = require('./lib/runtime-bridge.cjs');
+const { setDashServe } = require('../../ai-auto3/scripts/lib/runtime-io.cjs');
+const { readStages } = require('./lib/summary.cjs');
 const { invokeStopPipeline } = require('./lib/stop-bridge.cjs');
 const { buildStopServeResponse, scheduleStopServe } = require('./lib/stop-serve.cjs');
 
@@ -104,16 +106,33 @@ function serveStatic(req, res, urlPath) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-let cachedRegistry = { at: 0, data: null };
+let cachedRuntime = { at: 0, data: null };
 
-function getRegistryCached() {
+function getRuntimeCached() {
   const now = Date.now();
-  if (cachedRegistry.data && now - cachedRegistry.at < 2000) {
-    return cachedRegistry.data;
+  if (cachedRuntime.data && now - cachedRuntime.at < 2000) {
+    return cachedRuntime.data;
   }
-  const reg = fetchRegistryExport();
-  cachedRegistry = { at: now, data: reg.ok ? reg.data : null };
-  return cachedRegistry.data;
+  const reg = fetchRuntimeExport();
+  cachedRuntime = { at: now, data: reg.ok ? reg.data : null };
+  return cachedRuntime.data;
+}
+
+function writeDashServeMeta(projectRoot, host, port) {
+  if (!projectRoot) return;
+  try {
+    const read = readStages(projectRoot);
+    if (!read.ok || !read.data?.project?.project_id) return;
+    setDashServe(read.data.project.project_id, {
+      pid: process.pid,
+      host,
+      port,
+      url: `http://${host}:${port}/`,
+      started_at: new Date().toISOString(),
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 function createServer(opts) {
@@ -123,8 +142,8 @@ function createServer(opts) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
-    if (req.method === 'GET' && url.pathname === '/api/registry') {
-      return sendJson(res, 200, buildRegistryPayload());
+    if (req.method === 'GET' && (url.pathname === '/api/projects' || url.pathname === '/api/registry')) {
+      return sendJson(res, 200, buildProjectsPayload());
     }
 
     if (req.method === 'GET' && url.pathname === '/api/config') {
@@ -184,7 +203,7 @@ function createServer(opts) {
         });
       }
       const result = invokeStopPipeline(root);
-      cachedRegistry.at = 0;
+      cachedRuntime.at = 0;
       return sendJson(res, result.ok ? 200 : 207, {
         schema: 'ai-dash3.stop.v1',
         project_root: root,
@@ -204,7 +223,6 @@ function createServer(opts) {
           message: 'missing or invalid ?project=<absolute path>',
         });
       }
-      const { readStages } = require('./lib/summary.cjs');
       const read = readStages(root);
       if (!read.ok) {
         return sendJson(res, 400, {
@@ -214,7 +232,7 @@ function createServer(opts) {
           path: read.path,
         });
       }
-      const reg = getRegistryCached();
+      const reg = getRuntimeCached();
       try {
         const dash = buildDashboard(root, reg ? { ok: true, ...reg } : null);
         return sendJson(res, 200, dash);
@@ -264,8 +282,10 @@ function main(argv) {
   server.listen(opts.port, opts.host, () => {
     const url = `http://${opts.host}:${opts.port}/`;
     process.stdout.write(`ai-dash3 web: ${url}\n`);
-    if (opts.project) {
-      process.stdout.write(`default project: ${safeProjectRoot(opts.project)}\n`);
+    const defaultRoot = opts.project ? safeProjectRoot(opts.project) : null;
+    if (defaultRoot) {
+      process.stdout.write(`default project: ${defaultRoot}\n`);
+      writeDashServeMeta(defaultRoot, opts.host, opts.port);
     }
     if (opts.open) {
       openBrowser(url);

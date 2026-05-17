@@ -68,6 +68,22 @@ echo "[monitor] ============================================"
 node "$AUTORUN_SCRIPT" --project="$PROJECT_ROOT" &
 AUTORUN_PID=$!
 echo "[monitor] autorun 已启动，PID=$AUTORUN_PID"
+
+REGISTER_SCRIPT="$SKILL_DIR/scripts/register-runtime-process.cjs"
+if [[ -f "$REGISTER_SCRIPT" ]]; then
+  node "$REGISTER_SCRIPT" \
+    --project="$PROJECT_ROOT" \
+    --kind=soak-orchestrator \
+    --pid="$AUTORUN_PID" \
+    --command="node ai-auto3/scripts/autorun.cjs --project=$PROJECT_ROOT" \
+    --cwd="$PROJECT_ROOT" || true
+  node "$REGISTER_SCRIPT" \
+    --project="$PROJECT_ROOT" \
+    --kind=autorun \
+    --pid="$AUTORUN_PID" \
+    --command="autorun (soak monitor)" \
+    --cwd="$PROJECT_ROOT" || true
+fi
 echo ""
 
 STUCK_DETECTED=0
@@ -92,6 +108,9 @@ while kill -0 "$AUTORUN_PID" 2>/dev/null; do
     kill "$AUTORUN_PID" 2>/dev/null || true
     sleep 3
     kill -9 "$AUTORUN_PID" 2>/dev/null || true
+    if [[ -f "$REGISTER_SCRIPT" ]]; then
+      node "$REGISTER_SCRIPT" --project="$PROJECT_ROOT" --mark-exited --pid="$AUTORUN_PID" --exit-code=2 2>/dev/null || true
+    fi
 
     STUCK_DETECTED=1
     break
@@ -117,6 +136,14 @@ echo "[monitor] ============================================"
 echo "[monitor] autorun 结束，退出码: ${AUTORUN_EXIT}"
 echo "[monitor] ============================================"
 echo "autorun exit: ${AUTORUN_EXIT}"
+
+if [[ -f "$REGISTER_SCRIPT" ]] && [[ -n "${AUTORUN_PID:-}" ]]; then
+  node "$REGISTER_SCRIPT" \
+    --project="$PROJECT_ROOT" \
+    --mark-exited \
+    --pid="$AUTORUN_PID" \
+    --exit-code="${AUTORUN_EXIT:-1}" 2>/dev/null || true
+fi
 
 # ──────────────────── 结果处理 ────────────────────────────────
 if [[ "$STUCK_DETECTED" -eq 1 ]]; then

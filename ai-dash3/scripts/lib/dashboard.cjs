@@ -2,7 +2,12 @@
 
 const { buildJsonSummary, readStages, pidLockInfo } = require('./summary.cjs');
 const { buildFeatureBoard } = require('./features.cjs');
-const { fetchRegistryExport, runtimeForProject, recentRunsForProject } = require('./registry-bridge.cjs');
+const {
+  fetchRuntimeExport,
+  runtimeForProject,
+  recentRunsForProject,
+  readRuntimeForProjectRoot,
+} = require('./runtime-bridge.cjs');
 
 function deriveProjectOverall(summary, featureBoard) {
   if (summary.blockers && summary.blockers.some((b) => b.code === 'stage_failed')) return 'failed';
@@ -48,6 +53,9 @@ function buildDashboard(projectRoot, registryExport) {
     registry_run_active: registryRunActive,
   };
 
+  const runtimeRead = readRuntimeForProjectRoot(projectRoot);
+  const processes = runtimeRead?.doc?.processes || [];
+
   return {
     schema: 'ai-dash3.dashboard.v1',
     project_root: projectRoot,
@@ -57,6 +65,7 @@ function buildDashboard(projectRoot, registryExport) {
     features: featureBoard.features,
     phases: featureBoard.phases,
     runtime: featureBoard.runtime,
+    processes,
     autorun_active: autorunActive,
     registry_run_active: registryRunActive,
     pid_lock_alive: pid?.alive === true,
@@ -68,11 +77,11 @@ function buildDashboard(projectRoot, registryExport) {
   };
 }
 
-function buildRegistryPayload() {
-  const reg = fetchRegistryExport();
+function buildProjectsPayload() {
+  const reg = fetchRuntimeExport();
   if (!reg.ok) {
     return {
-      schema: 'ai-dash3.registry.v1',
+      schema: 'ai-dash3.projects.v1',
       ok: false,
       error: reg.error,
       projects: [],
@@ -83,14 +92,17 @@ function buildRegistryPayload() {
   const projects = (data.projects || []).map((p) => {
     const rt = runtimeForProject(data, p.project_id);
     let pendingCount = 0;
-    if (rt?.pending_features_json) {
+    if (rt?.pending_features?.length) {
+      pendingCount = rt.pending_features.length;
+    } else if (rt?.pending_features_json) {
       try {
         pendingCount = JSON.parse(rt.pending_features_json).length;
       } catch {
         pendingCount = 0;
       }
     }
-    const active = (data.active_runs || []).some((r) => r.project_id === p.project_id);
+    const active =
+      (data.active_runs || []).some((r) => r.project_id === p.project_id) || rt?.active === true;
     return {
       project_id: p.project_id,
       root_path: p.root_path,
@@ -102,16 +114,23 @@ function buildRegistryPayload() {
     };
   });
   return {
-    schema: 'ai-dash3.registry.v1',
+    schema: 'ai-dash3.projects.v1',
     ok: true,
     exported_at: data.exported_at,
+    source: data.source || 'runtime.json',
     projects,
     active_runs: data.active_runs || [],
-    registry_error: data.ok === false ? data.error : null,
   };
+}
+
+/** @deprecated 别名 */
+function buildRegistryPayload() {
+  const p = buildProjectsPayload();
+  return { ...p, schema: p.ok ? 'ai-dash3.registry.v1' : p.schema };
 }
 
 module.exports = {
   buildDashboard,
+  buildProjectsPayload,
   buildRegistryPayload,
 };

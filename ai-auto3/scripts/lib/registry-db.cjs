@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { skillsRootFromThisFile } = require('./paths.cjs');
+const runtimeIo = require('./runtime-io.cjs');
 
 const REGISTRY_DIR = () => path.join(skillsRootFromThisFile(), '_registry');
 const REGISTRY_DB = () => path.join(REGISTRY_DIR(), 'registry.sqlite');
@@ -75,9 +76,15 @@ function openDb() {
 }
 
 function hasProject(projectId) {
-  const db = openDb();
-  const row = db.prepare('SELECT 1 FROM projects WHERE project_id = ?').get(projectId);
-  return !!row;
+  if (runtimeIo.readRuntimeFile(projectId)) return true;
+  try {
+    const db = openDb();
+    const row = db.prepare('SELECT 1 FROM projects WHERE project_id = ?').get(projectId);
+    return !!row;
+  } catch (e) {
+    if (e.code === 'NO_SQLITE') return false;
+    throw e;
+  }
 }
 
 /**
@@ -85,48 +92,56 @@ function hasProject(projectId) {
  * @param {object} stagesDoc
  */
 function upsertProjectFromStages(projectRoot, stagesDoc) {
-  const db = openDb();
-  const projectId = stagesDoc.project?.project_id;
-  if (!projectId || !String(projectId).trim()) {
-    const e = new Error('registry: stages.json.project.project_id 为空');
-    e.code = 'NO_PROJECT_ID';
-    throw e;
+  const { projectId } = runtimeIo.ensureProjectFromStages(projectRoot, stagesDoc, 'ai-auto3');
+  try {
+    const db = openDb();
+    const schemaVer = stagesDoc._schema?.version ?? 1;
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO projects (project_id, root_path, last_seen_at, stages_schema_version)
+       VALUES (@project_id, @root_path, @last_seen_at, @sv)
+       ON CONFLICT(project_id) DO UPDATE SET
+         root_path = excluded.root_path,
+         last_seen_at = excluded.last_seen_at,
+         stages_schema_version = excluded.stages_schema_version`
+    ).run({
+      project_id: String(projectId),
+      root_path: projectRoot,
+      last_seen_at: now,
+      sv: schemaVer,
+    });
+  } catch (e) {
+    if (e.code !== 'NO_SQLITE') throw e;
   }
-  const schemaVer = stagesDoc._schema?.version ?? 1;
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO projects (project_id, root_path, last_seen_at, stages_schema_version)
-     VALUES (@project_id, @root_path, @last_seen_at, @sv)
-     ON CONFLICT(project_id) DO UPDATE SET
-       root_path = excluded.root_path,
-       last_seen_at = excluded.last_seen_at,
-       stages_schema_version = excluded.stages_schema_version`
-  ).run({
-    project_id: String(projectId),
-    root_path: projectRoot,
-    last_seen_at: now,
-    sv: schemaVer,
-  });
   return { projectId };
 }
 
 function startRun(projectId, sessionId) {
-  const db = openDb();
-  const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO pipeline_runs (run_id, project_id, session_id, started_at, ended_at, exit_code, stopped_at_stage)
-     VALUES (?, ?, ?, ?, NULL, NULL, NULL)`
-  ).run(runId, projectId, sessionId || '', now);
+  const runId = runtimeIo.startRun(projectId, sessionId, 'ai-auto3');
+  try {
+    const db = openDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO pipeline_runs (run_id, project_id, session_id, started_at, ended_at, exit_code, stopped_at_stage)
+       VALUES (?, ?, ?, ?, NULL, NULL, NULL)`
+    ).run(runId, projectId, sessionId || '', now);
+  } catch (e) {
+    if (e.code !== 'NO_SQLITE') throw e;
+  }
   return runId;
 }
 
 function finishRun(runId, exitCode, stoppedAt) {
-  const db = openDb();
-  const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE pipeline_runs SET ended_at = ?, exit_code = ?, stopped_at_stage = ? WHERE run_id = ?`
-  ).run(now, exitCode, stoppedAt || '', runId);
+  runtimeIo.finishRun(runId, exitCode, stoppedAt);
+  try {
+    const db = openDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE pipeline_runs SET ended_at = ?, exit_code = ?, stopped_at_stage = ? WHERE run_id = ?`
+    ).run(now, exitCode, stoppedAt || '', runId);
+  } catch (e) {
+    if (e.code !== 'NO_SQLITE') throw e;
+  }
 }
 
 function recordStageEvent(runId, stage, childExit, durationMs, skipped, notes) {
@@ -157,41 +172,54 @@ function finishPhaseRun(phaseRunId, result) {
 }
 
 function updateProjectRuntimeState(projectId, patch) {
-  const db = openDb();
-  const now = new Date().toISOString();
-  const row = db
-    .prepare(
-      `SELECT project_id, active_run_id, current_phase, current_stage, pending_features_json
-       FROM project_runtime_state WHERE project_id = ?`
-    )
-    .get(projectId);
-  const next = {
-    project_id: projectId,
-    active_run_id: patch.active_run_id !== undefined ? patch.active_run_id : row?.active_run_id || '',
-    current_phase: patch.current_phase !== undefined ? patch.current_phase : row?.current_phase || '',
-    current_stage: patch.current_stage !== undefined ? patch.current_stage : row?.current_stage || '',
-    pending_features_json:
+  runtimeIo.updateProjectRuntimeState(projectId, patch, 'ai-auto3');
+  try {
+    const db = openDb();
+    const now = new Date().toISOString();
+    const row = db
+      .prepare(
+        `SELECT project_id, active_run_id, current_phase, current_stage, pending_features_json
+         FROM project_runtime_state WHERE project_id = ?`
+      )
+      .get(projectId);
+    const pendingJson =
       patch.pending_features_json !== undefined
         ? patch.pending_features_json
-        : row?.pending_features_json || '[]',
-    updated_at: now,
-  };
-  db.prepare(
-    `INSERT INTO project_runtime_state
-      (project_id, active_run_id, current_phase, current_stage, pending_features_json, updated_at)
-     VALUES (@project_id, @active_run_id, @current_phase, @current_stage, @pending_features_json, @updated_at)
-     ON CONFLICT(project_id) DO UPDATE SET
-       active_run_id = excluded.active_run_id,
-       current_phase = excluded.current_phase,
-       current_stage = excluded.current_stage,
-       pending_features_json = excluded.pending_features_json,
-       updated_at = excluded.updated_at`
-  ).run(next);
+        : patch.pending_features !== undefined
+          ? JSON.stringify(patch.pending_features)
+          : row?.pending_features_json || '[]';
+    const next = {
+      project_id: projectId,
+      active_run_id: patch.active_run_id !== undefined ? patch.active_run_id : row?.active_run_id || '',
+      current_phase: patch.current_phase !== undefined ? patch.current_phase : row?.current_phase || '',
+      current_stage: patch.current_stage !== undefined ? patch.current_stage : row?.current_stage || '',
+      pending_features_json: pendingJson,
+      updated_at: now,
+    };
+    db.prepare(
+      `INSERT INTO project_runtime_state
+        (project_id, active_run_id, current_phase, current_stage, pending_features_json, updated_at)
+       VALUES (@project_id, @active_run_id, @current_phase, @current_stage, @pending_features_json, @updated_at)
+       ON CONFLICT(project_id) DO UPDATE SET
+         active_run_id = excluded.active_run_id,
+         current_phase = excluded.current_phase,
+         current_stage = excluded.current_stage,
+         pending_features_json = excluded.pending_features_json,
+         updated_at = excluded.updated_at`
+    ).run(next);
+  } catch (e) {
+    if (e.code !== 'NO_SQLITE') throw e;
+  }
 }
 
 function clearProjectRuntimeState(projectId) {
-  const db = openDb();
-  db.prepare(`DELETE FROM project_runtime_state WHERE project_id = ?`).run(projectId);
+  runtimeIo.clearProjectRuntimeState(projectId);
+  try {
+    const db = openDb();
+    db.prepare(`DELETE FROM project_runtime_state WHERE project_id = ?`).run(projectId);
+  } catch (e) {
+    if (e.code !== 'NO_SQLITE') throw e;
+  }
 }
 
 module.exports = {

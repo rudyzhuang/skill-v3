@@ -10,16 +10,23 @@ const DEFAULT_GRACE_MS = 5000;
  * @param {string} command
  * @param {string[]} args
  * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, timeoutMs: number, gracefulShutdownMs?: number }} opts
- * @returns {Promise<{ code: number, timedOut: boolean }>}
+ * @returns {Promise<{ code: number, timedOut: boolean, pid: number|null }>}
  */
 function runWithTimeout(command, args, opts) {
-  const { cwd, env, timeoutMs, gracefulShutdownMs = DEFAULT_GRACE_MS } = opts;
+  const { cwd, env, timeoutMs, gracefulShutdownMs = DEFAULT_GRACE_MS, onSpawn } = opts;
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...env },
       stdio: 'inherit',
     });
+    if (typeof onSpawn === 'function' && child.pid) {
+      try {
+        onSpawn(child.pid);
+      } catch {
+        /* ignore */
+      }
+    }
     let timedOut = false;
     let settled = false;
     const finish = (code, t) => {
@@ -27,7 +34,7 @@ function runWithTimeout(command, args, opts) {
       settled = true;
       clearTimeout(t);
       const c = timedOut ? 3 : code ?? 1;
-      resolve({ code: c, timedOut });
+      resolve({ code: c, timedOut, pid: child.pid ?? null });
     };
 
     const t = setTimeout(() => {
