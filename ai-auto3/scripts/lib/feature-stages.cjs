@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const agentLog = require('../../../scripts/lib/agent-sessions-log.cjs');
 
 /** 与 dash3 / stages.json.template 对齐 */
 const STAGE_KEYS = [
@@ -404,34 +405,51 @@ function anyFeatureStageRunning(doc, featureId, stageKeys = STAGE_KEYS) {
 }
 
 /**
- * 给人看的阶段日志（.agent-sessions/<session>.log + stderr）
+ * 给人看的阶段日志：
+ * - `.agent-sessions/logs/sessions/<session_id>.log`
+ * - `.agent-sessions/logs/stages/<stage>.log`
+ * - `.agent-sessions/logs/features/<feature_id>.log`（本行涉及的全部 feature）
  */
 function appendStageLog(projectRoot, rec) {
   const ts = isoNow();
-  const stage = rec.stageKey || rec.stage || '';
+  const stage = agentLog.normalizeStageKey(rec.stageKey || rec.stage || '');
   const level = rec.level || 'info';
   const skill = rec.skill || 'pipeline';
   const fid = rec.featureId || rec.feature_id || '';
-  const head = `[${skill}] 阶段=${stage}${fid ? ` feature=${fid}` : ''}`;
-  const line = `${head} | ${level.toUpperCase()} | ${String(rec.message || '').trim()}${
-    rec.detail ? ` | ${rec.detail}` : ''
-  }`;
+  const featureIds = agentLog.resolveFeatureIds(rec);
 
   try {
-    const dir = path.join(projectRoot, '.agent-sessions');
+    agentLog.appendAgentLog(projectRoot, {
+      ...rec,
+      stageKey: stage,
+      skill,
+      level,
+      sessionId: rec.sessionId || rec.session_id || '',
+    });
+    const dir = agentLog.agentSessionsRoot(projectRoot);
     fs.mkdirSync(dir, { recursive: true });
-    const sid = String(rec.sessionId || rec.session_id || 'pipeline').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
-    fs.appendFileSync(path.join(dir, `${sid}.log`), `${ts} ${line}\n`, 'utf8');
     const ndjson = path.join(dir, `${skill}.ndjson`);
     fs.appendFileSync(
       ndjson,
-      `${JSON.stringify({ ts, skill, stage, feature_id: fid || undefined, level, message: rec.message, detail: rec.detail })}\n`,
+      `${JSON.stringify({
+        ts,
+        skill,
+        stage,
+        feature_ids: featureIds.length ? featureIds : fid ? [fid] : undefined,
+        level,
+        message: rec.message,
+        detail: rec.detail,
+      })}\n`,
       'utf8'
     );
   } catch {
     /* 日志失败不阻断 */
   }
 
+  const head = `[${skill}] 阶段=${stage}${fid ? ` feature=${fid}` : ''}`;
+  const line = `${head} | ${level.toUpperCase()} | ${String(rec.message || '').trim()}${
+    rec.detail ? ` | ${rec.detail}` : ''
+  }`;
   if (process.env.AI_FEATURE_STAGES_QUIET !== '1') {
     console.error(`${ts} ${line}`);
   }

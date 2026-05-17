@@ -19,6 +19,8 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const agentLog = require('../../scripts/lib/agent-sessions-log.cjs');
+const localTime = require('../../scripts/lib/local-time.cjs');
 
 // ────────────────────── 参数 ──────────────────────────────────
 const args = {};
@@ -63,7 +65,7 @@ const lines = [];
 const push  = (...a) => lines.push(a.join(' '));
 
 push('# Skill V3 运行诊断报告');
-push(`生成时间: ${new Date().toISOString()}`);
+push(`生成时间: ${localTime.formatLocalTime(new Date())}`);
 push(`项目根目录: ${projectRoot}`);
 push('');
 
@@ -115,7 +117,8 @@ push('');
 
 // 3. autorun 主日志尾部
 push('## 3. 最新 autorun 主日志（末尾）');
-const latestLog = latestFile(sessionsDir, f => f.endsWith('.log') && !f.includes('codegen'));
+const latestLogPath = agentLog.findLatestSessionLog(projectRoot, (f) => f.endsWith('.log') && !f.includes('codegen'));
+const latestLog = latestLogPath ? { path: latestLogPath } : null;
 if (!latestLog) {
   push('  未找到主日志');
 } else {
@@ -134,12 +137,20 @@ const STUCK_MS = 15 * 60 * 1000;
 const stuckSessions = [];
 const runningSessions = [];
 
-if (fs.existsSync(sessionsDir)) {
-  const codegenLogs = fs.readdirSync(sessionsDir)
-    .filter(f => f.endsWith('.log') && f.includes('codegen'));
-
-  for (const fname of codegenLogs) {
-    const fpath = path.join(sessionsDir, fname);
+const codegenLogDirs = [
+  path.join(agentLog.logsRoot(projectRoot), 'sessions'),
+  sessionsDir,
+];
+const codegenLogFiles = [];
+for (const dir of codegenLogDirs) {
+  if (!fs.existsSync(dir)) continue;
+  for (const fname of fs.readdirSync(dir)) {
+    if (!fname.endsWith('.log') || !fname.includes('codegen')) continue;
+    codegenLogFiles.push({ fname, fpath: path.join(dir, fname) });
+  }
+}
+if (codegenLogFiles.length) {
+  for (const { fname, fpath } of codegenLogFiles) {
     const content = (safeRead(fpath) || '').trim();
     const logLines = content.split('\n').filter(Boolean);
     if (!logLines.length) continue;
@@ -147,10 +158,12 @@ if (fs.existsSync(sessionsDir)) {
     const lastLine = logLines[logLines.length - 1];
     if (/codegen end passed=/.test(lastLine)) continue;
 
-    const timeM = lastLine.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)/);
-    if (!timeM) continue;
+    if (!localTime.matchLogLineTimestampPrefix(lastLine)) continue;
 
-    const ageMs = Date.now() - new Date(timeM[1]).getTime();
+    const lastMs = localTime.parseLogLineTimestamp(lastLine);
+    if (!Number.isFinite(lastMs)) continue;
+
+    const ageMs = Date.now() - lastMs;
 
     if (/alive:|tick/.test(lastLine)) {
       const ageMin = Math.round(ageMs / 60000);
@@ -159,6 +172,8 @@ if (fs.existsSync(sessionsDir)) {
       else runningSessions.push(entry);
     }
   }
+} else if (fs.existsSync(sessionsDir)) {
+  /* legacy-only tree with no codegen session logs */
 }
 
 if (stuckSessions.length) {

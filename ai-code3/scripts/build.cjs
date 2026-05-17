@@ -7,6 +7,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const pipelineTooling = require('./lib/pipeline-ai-code3.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -119,10 +120,38 @@ async function run(ctx) {
   }
 
   const sessionId = options.sessionId || '';
+  const buildFeatureIds =
+    options.featureIds?.length > 0
+      ? options.featureIds
+      : featureStages.collectPhaseFeatureIds(doc);
+  doc = featureStages.backfillFeatureStages(doc);
+  const buildBegun = featureStages.beginStageForFeatures(doc, {
+    stageKey: 'build',
+    featureIds: buildFeatureIds,
+    skill: 'ai-code3',
+    message: 'build 编译开始',
+  });
+  doc = buildBegun.doc;
+  stagesIo.writeStagesSync(projectRoot, doc);
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-code3',
+    sessionId,
+    stageKey: 'build',
+    featureIds: buildFeatureIds,
+    message: `build 处理中，targets=${declared.join(',')}`,
+  });
+
   let hb;
   if (sessionId) {
     const { appendHeartbeat } = require('./lib/session-log.cjs');
-    hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'build', 'tick'), 30_000);
+    hb = setInterval(
+      () =>
+        appendHeartbeat(projectRoot, sessionId, 'build', 'tick', {
+          featureIds: buildFeatureIds,
+          stderrTag: 'ai-code3',
+        }),
+      30_000
+    );
   }
 
   const targets = declared.length ? declared : ['website'];

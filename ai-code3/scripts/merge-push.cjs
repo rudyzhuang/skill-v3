@@ -332,7 +332,11 @@ async function run(ctx) {
     if (sessionIdMp) {
       const { appendHeartbeat } = require('./lib/session-log.cjs');
       hbMerge = setInterval(
-        () => appendHeartbeat(projectRoot, sessionIdMp, 'merge_push', 'tick'),
+        () =>
+          appendHeartbeat(projectRoot, sessionIdMp, 'merge_push', 'tick', {
+            featureIds: mpIds,
+            stderrTag: 'ai-code3',
+          }),
         30_000
       );
     }
@@ -397,6 +401,7 @@ async function run(ctx) {
       skill: 'ai-code3',
       sessionId: options.sessionId,
       stageKey: 'merge_push',
+      featureIds: mpIds,
       message: `merge-push 处理中，目标分支 ${targetBranch}`,
       detail: mpIds.join(','),
     });

@@ -15,10 +15,10 @@ function assert(cond, msg) {
 }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-dash3-flogs-'));
-const sessions = path.join(root, '.agent-sessions');
-fs.mkdirSync(sessions, { recursive: true });
+const sessionsRoot = path.join(root, '.agent-sessions', 'logs', 'sessions');
+fs.mkdirSync(sessionsRoot, { recursive: true });
 
-const autorunLog = path.join(sessions, 'sess-autorun.log');
+const autorunLog = path.join(sessionsRoot, 'sess-autorun.log');
 fs.writeFileSync(
   autorunLog,
   [
@@ -29,8 +29,10 @@ fs.writeFileSync(
   'utf8'
 );
 
+const featureLogDir = path.join(root, '.agent-sessions', 'logs', 'features');
+fs.mkdirSync(featureLogDir, { recursive: true });
 fs.writeFileSync(
-  path.join(sessions, 'sess-codegen-x.log'),
+  path.join(featureLogDir, 'F-X.log'),
   ['2026-01-01T00:00:10.000Z alive: stage=codegen', '2026-01-01T00:00:40.000Z codegen running'].join('\n'),
   'utf8'
 );
@@ -39,9 +41,9 @@ const active = parseActiveSessionsByFeature(autorunLog);
 assert(active.get('F-X')?.session_id === 'sess-codegen-x', 'expected active session for F-X');
 
 const log = resolveFeatureLog(root, 'F-X');
-assert(log.source === 'session', `expected session source, got ${log.source}`);
+assert(log.source === 'feature', `expected feature source, got ${log.source}`);
 assert(log.lines.length >= 2, 'expected tail lines');
-assert(log.log_path.includes('sess-codegen-x.log'), 'expected session log path');
+assert(log.log_path.includes('logs/features/F-X.log'), 'expected feature log path');
 
 const boardLogs = buildInProgressFeatureLogs(root, [
   { feature_id: 'F-X', feature_status: 'in_progress', current_stage_label: 'codegen' },

@@ -55,7 +55,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "function_name": "",
               "trigger_type": "http"
@@ -79,7 +79,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "app_name": "",
               "namespace": ""
@@ -104,7 +104,7 @@
           "config_defaults": {
             "runtime": "custom",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "instance_id": "",
               "image_id": "",
@@ -129,7 +129,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "bucket": "",
               "static_website": false
@@ -151,7 +151,7 @@
           "config_defaults": {
             "runtime": "edge",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "domain": "",
               "origin": ""
@@ -191,7 +191,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "function_name": "",
               "namespace": "default"
@@ -213,7 +213,7 @@
           "config_defaults": {
             "runtime": "gateway",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "service_id": "",
               "protocol": "https"
@@ -238,7 +238,7 @@
           "config_defaults": {
             "runtime": "serverless",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "environment_id": "",
               "hosting": false,
@@ -263,7 +263,7 @@
           "config_defaults": {
             "runtime": "custom",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "instance_id": "",
               "bundle_id": ""
@@ -286,7 +286,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "bucket": "",
               "static_website": false
@@ -324,7 +324,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "function_name": "",
               "package": "default"
@@ -346,7 +346,7 @@
           "config_defaults": {
             "runtime": "gateway",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "instance_id": "",
               "group_id": ""
@@ -370,7 +370,7 @@
           "config_defaults": {
             "runtime": "custom",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "server_id": "",
               "flavor_ref": "",
@@ -394,7 +394,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "bucket": "",
               "static_website": false
@@ -416,7 +416,7 @@
           "config_defaults": {
             "runtime": "edge",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "domain": "",
               "origin": ""
@@ -456,7 +456,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "function_name": "",
               "handler": ""
@@ -478,7 +478,7 @@
           "config_defaults": {
             "runtime": "gateway",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "api_id": "",
               "stage": ""
@@ -500,7 +500,7 @@
           "config_defaults": {
             "runtime": "container",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "cluster": "",
               "service": "",
@@ -525,7 +525,7 @@
           "config_defaults": {
             "runtime": "container",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "service_arn": "",
               "source_type": "repository"
@@ -549,7 +549,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "app_id": "",
               "branch_name": ""
@@ -572,7 +572,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "bucket": "",
               "static_website": false
@@ -594,7 +594,7 @@
           "config_defaults": {
             "runtime": "edge",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "distribution_id": "",
               "origin": ""
@@ -635,7 +635,7 @@
           "config_defaults": {
             "runtime": "container",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "service": "",
               "project": "",
@@ -659,7 +659,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "function": "",
               "trigger": "https"
@@ -683,7 +683,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "site_id": "",
               "channel": "live"
@@ -706,7 +706,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "bucket": "",
               "static_website": false
@@ -728,7 +728,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "service": "default",
               "version": ""
@@ -769,7 +769,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "resource_group": "",
               "site_name": "",
@@ -793,7 +793,7 @@
           "config_defaults": {
             "runtime": "container",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "resource_group": "",
               "container_app": "",
@@ -817,7 +817,7 @@
           "config_defaults": {
             "runtime": "",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "resource_group": "",
               "function_app": "",
@@ -842,7 +842,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "resource_group": "",
               "site_name": ""
@@ -865,7 +865,7 @@
           "config_defaults": {
             "runtime": "static",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "resource_group": "",
               "account_name": "",
@@ -905,7 +905,7 @@
           "config_defaults": {
             "runtime": "vercel",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "project_id": "",
               "team_id": "",
@@ -930,7 +930,7 @@
           "config_defaults": {
             "runtime": "vercel",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "project_id": "",
               "target": "production"
@@ -952,7 +952,7 @@
           "config_defaults": {
             "runtime": "dns",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "domain": "",
               "project_id": ""
@@ -991,7 +991,7 @@
           "config_defaults": {
             "runtime": "pages",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "account_id": "",
               "project_name": "",
@@ -1017,7 +1017,7 @@
           "config_defaults": {
             "runtime": "worker",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "account_id": "",
               "script_name": "",
@@ -1040,7 +1040,7 @@
           "config_defaults": {
             "runtime": "storage",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "account_id": "",
               "bucket": ""
@@ -1062,7 +1062,7 @@
           "config_defaults": {
             "runtime": "sqlite",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "account_id": "",
               "database_id": "",
@@ -1086,7 +1086,7 @@
           "config_defaults": {
             "runtime": "dns",
             "healthcheck_path": "/",
-            "create_if_missing": false,
+            "create_if_missing": true,
             "resource_config": {
               "zone_id": "",
               "records": []

@@ -2,12 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const agentLog = require('../../../scripts/lib/agent-sessions-log.cjs');
+const { localizeLogLines } = require('../../../scripts/lib/local-time.cjs');
 
 const DEFAULT_TAIL_LINES = 80;
 const MAX_READ_BYTES = 256 * 1024;
 
 function sessionsDir(projectRoot) {
-  return path.join(projectRoot, '.agent-sessions');
+  return agentLog.agentSessionsRoot(projectRoot);
 }
 
 function safeReadFile(filePath) {
@@ -20,17 +22,7 @@ function safeReadFile(filePath) {
 
 /** 找最新的 autorun 主日志（排除文件名含 codegen 的独立会话） */
 function findLatestAutorunLog(projectRoot) {
-  const dir = sessionsDir(projectRoot);
-  if (!fs.existsSync(dir)) return null;
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.log') && !f.includes('codegen'))
-    .map((f) => {
-      const p = path.join(dir, f);
-      return { name: f, path: p, mtime: fs.statSync(p).mtimeMs };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length ? files[0].path : null;
+  return agentLog.findLatestSessionLog(projectRoot, (f) => f.endsWith('.log') && !f.includes('codegen'));
 }
 
 /**
@@ -111,29 +103,38 @@ function tailFileLines(filePath, maxLines) {
 }
 
 /**
- * 在目录中找最近修改、且内容提及 feature 的 .log
+ * 在 sessions / features 目录中找最近修改、且内容提及 feature 的 .log
  */
 function findLogByFeatureMention(projectRoot, featureId) {
-  const dir = sessionsDir(projectRoot);
-  if (!fs.existsSync(dir)) return null;
   const fid = String(featureId || '').trim();
   if (!fid) return null;
-  const re = new RegExp(`feature[=:]\\s*${fid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b|--feature=${fid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
-  const candidates = fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.log'))
-    .map((f) => {
+
+  const featurePath = agentLog.resolveFeatureLogPath(projectRoot, fid);
+  if (featurePath && fs.existsSync(featurePath)) {
+    return featurePath;
+  }
+
+  const re = new RegExp(
+    `feature[=:]\\s*${fid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b|--feature=${fid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`
+  );
+  const dirs = [
+    path.join(agentLog.logsRoot(projectRoot), 'sessions'),
+    agentLog.agentSessionsRoot(projectRoot),
+  ];
+  const candidates = [];
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.log')) continue;
       const p = path.join(dir, f);
-      let mtime = 0;
       try {
-        mtime = fs.statSync(p).mtimeMs;
+        candidates.push({ path: p, mtime: fs.statSync(p).mtimeMs });
       } catch {
-        return null;
+        /* next */
       }
-      return { path: p, mtime };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.mtime - a.mtime);
+    }
+  }
+  candidates.sort((a, b) => b.mtime - a.mtime);
 
   for (const { path: logPath } of candidates) {
     try {
@@ -154,7 +155,7 @@ function findLogByFeatureMention(projectRoot, featureId) {
 
 function resolveSessionLogPath(projectRoot, sessionId) {
   if (!sessionId) return null;
-  const p = path.join(sessionsDir(projectRoot), `${sessionId}.log`);
+  const p = agentLog.resolveSessionLogPath(projectRoot, sessionId);
   return fs.existsSync(p) ? p : null;
 }
 
@@ -176,10 +177,22 @@ function resolveFeatureLog(projectRoot, featureId, ctx) {
     };
   }
 
+  const featureDedicated = agentLog.resolveFeatureLogPath(projectRoot, fid);
+  if (featureDedicated && fs.existsSync(featureDedicated)) {
+    const { lines, truncated } = tailFileLines(featureDedicated, DEFAULT_TAIL_LINES);
+    return {
+      feature_id: fid,
+      log_path: path.relative(projectRoot, featureDedicated),
+      session_id: null,
+      source: 'feature',
+      lines,
+      truncated,
+    };
+  }
+
   const autorunLog = ctx?.autorunLog ?? findLatestAutorunLog(projectRoot);
   const active =
-    ctx?.activeSessions ??
-    (autorunLog ? parseActiveSessionsByFeature(autorunLog) : new Map());
+    ctx?.activeSessions ?? (autorunLog ? parseActiveSessionsByFeature(autorunLog) : new Map());
 
   const activeEntry = active.get(fid);
   if (activeEntry?.session_id) {
@@ -255,6 +268,7 @@ function buildInProgressFeatureLogs(projectRoot, features) {
     const log = resolveFeatureLog(projectRoot, f.feature_id, ctx);
     return {
       ...log,
+      lines: localizeLogLines(log.lines),
       current_stage_label: f.current_stage_label || f.pipeline_stage_label || null,
     };
   });

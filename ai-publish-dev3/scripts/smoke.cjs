@@ -156,9 +156,13 @@ async function runSmoke(projectRoot, opts = {}) {
   const stPath = stagesPath(projectRoot);
   const stages = JSON.parse(fs.readFileSync(stPath, 'utf8'));
   const sessionId = opts.sessionId || null;
+  const smokeFeatureIds = featureStages.collectPhaseFeatureIds(stages);
   const log = (line) => {
     try {
-      appendSessionLog(projectRoot, sessionId, line);
+      appendSessionLog(projectRoot, sessionId, line, {
+        stageKey: 'smoke',
+        featureIds: smokeFeatureIds,
+      });
     } catch {
       /* ignore */
     }
@@ -311,6 +315,13 @@ async function runSmoke(projectRoot, opts = {}) {
   log(`smoke start checks=${effectiveChecks.length} session=${sessionId || 'none'} safe_only=${safeOnly}`);
 
   updateStages(stPath, (doc) => applySmokeFeatures(doc, 'running', 'HTTP smoke 执行中'));
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-publish-dev3',
+    sessionId,
+    stageKey: 'smoke',
+    featureIds: smokeFeatureIds,
+    message: `smoke 处理中，checks=${effectiveChecks.length}`,
+  });
 
   const timeoutMs = stageTimeoutSeconds(config, 'smoke_s') * 1000;
   const hbMs = heartbeatIntervalMs(config);

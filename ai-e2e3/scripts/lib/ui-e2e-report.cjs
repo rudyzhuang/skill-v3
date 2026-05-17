@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { formatLocalTime } = require('../../../scripts/lib/local-time.cjs');
 
 function writeUiE2eReport(projectRoot, sessionId, results, meta) {
   const dir = path.join(projectRoot, '.pipeline', 'reports');
@@ -11,7 +12,7 @@ function writeUiE2eReport(projectRoot, sessionId, results, meta) {
   const lines = [];
   lines.push('# UI 端到端测试报告');
   lines.push('');
-  lines.push(`- **生成时间**: ${new Date().toISOString()}`);
+  lines.push(`- **生成时间**: ${formatLocalTime(new Date())}`);
   lines.push(`- **session_id**: ${sessionId || 'n/a'}`);
   lines.push(`- **模式**: ${meta.stub ? 'stub' : 'agent'}`);
   lines.push(`- **合计**: ${meta.total} 通过 ${meta.passed} 失败 ${meta.failed}`);

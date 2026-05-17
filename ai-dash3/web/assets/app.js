@@ -178,6 +178,17 @@ function formatLocalTime(iso) {
   return d.toLocaleString('zh-CN', { hour12: false });
 }
 
+const LOG_ISO_PREFIX_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s/;
+
+function localizeLogLines(lines) {
+  return (lines || []).map((line) => {
+    const s = String(line || '');
+    const m = s.match(LOG_ISO_PREFIX_RE);
+    if (!m) return s;
+    return `${formatLocalTime(m[1])} ${s.slice(m[0].length)}`;
+  });
+}
+
 let serveMeta = { pid: null, host: '127.0.0.1', port: null };
 
 function updateStopButtons(dash) {
@@ -256,7 +267,7 @@ function renderRuntime(dash) {
     ['当前 stage', rt.current_stage],
     ['pending 数量', (rt.pending_features || []).length],
     ['active_run_id', rt.active_run_id],
-    ['runtime 更新', rt.updated_at],
+    ['runtime 更新', formatLocalTime(rt.updated_at)],
     ...(dash.processes || [])
       .slice(0, 5)
       .map((p, i) => [
@@ -276,7 +287,7 @@ function renderSummary(dash) {
     ['project_id', dash.project_id],
     ['current_stage', p.current_stage],
     ['last_completed', p.last_completed_stage],
-    ['pipeline 更新', p.updated_at],
+    ['pipeline 更新', formatLocalTime(p.updated_at)],
     ['项目根', dash.project_root],
   ]);
 }
@@ -426,7 +437,7 @@ function renderInProgressLogs(dash) {
   if (!active.lines?.length) {
     view.textContent = '暂无该 feature 的会话日志（等待 codegen 启动或检查 .agent-sessions/）';
   } else {
-    view.textContent = active.lines.join('\n');
+    view.textContent = localizeLogLines(active.lines).join('\n');
   }
   view.scrollTop = view.scrollHeight;
 }
@@ -489,8 +500,8 @@ function renderRuns(dash) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="mono">${escapeHtml(run.run_id || '')}</td>
-      <td>${escapeHtml(run.started_at || '—')}</td>
-      <td>${escapeHtml(run.ended_at || '—')}</td>
+      <td>${escapeHtml(formatLocalTime(run.started_at))}</td>
+      <td>${escapeHtml(formatLocalTime(run.ended_at))}</td>
       <td>${run.exit_code != null ? run.exit_code : '—'}</td>
       <td>${escapeHtml(run.stopped_at_stage || '—')}</td>
     `;

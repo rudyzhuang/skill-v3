@@ -603,8 +603,9 @@ function main() {
       featureStages.appendStageLog(root, {
         skill: 'ai-design3',
         stageKey: 'design',
+        featureIds: ids,
         message: `design 阶段：${begun.marked.length} 个 feature 已进入处理中`,
-        detail: begun.marked.join(','),
+        detail: ids.join(','),
       });
     }
 
@@ -660,6 +661,7 @@ function main() {
         featureStages.appendStageLog(root, {
           skill: 'ai-design3',
           stageKey: 'design',
+          featureIds: ids,
           level: 'error',
           message: `design 校验未通过（${errors.length} 项问题）`,
         });
@@ -673,6 +675,7 @@ function main() {
         featureStages.appendStageLog(root, {
           skill: 'ai-design3',
           stageKey: 'design',
+          featureIds: ids,
           message: 'design 校验全部通过',
         });
       }
@@ -799,6 +802,14 @@ function main() {
     stages.stages.contract = stages.stages.contract || {};
     stages.stages.contract.outputs = stages.stages.contract.outputs || {};
     stages.stages.contract.outputs.artifacts = artifacts;
+    if (!parsed.dryRun) {
+      featureStages.appendStageLog(root, {
+        skill: 'ai-design3',
+        stageKey: 'contract',
+        featureIds: ids,
+        message: `register-contract-artifacts 完成（${artifacts.length} 项）`,
+      });
+    }
     logDryRunSlice(parsed, { contract: { outputs: { artifacts } } });
     writeStages(root, stages, parsed.dryRun);
     console.log(JSON.stringify(artifacts, null, 2));
@@ -810,6 +821,23 @@ function main() {
     if (contractRerun) resetContractStageForForce(stages);
     const ids = filterFeatures(unionFeatureIds(stages), parsed.feature);
     if (!ids) finish(EXIT.PRECHECK, { reason: 'feature_not_in_phase_plan' });
+    if (!parsed.dryRun) {
+      stages = featureStages.backfillFeatureStages(stages);
+      const contractBegun = featureStages.beginStageForFeatures(stages, {
+        stageKey: 'contract',
+        featureIds: ids,
+        skill: 'ai-design3',
+        message: `validate-contract 开始（${ids.length} 个 feature）`,
+      });
+      stages = contractBegun.doc;
+      writeStages(root, stages, false);
+      featureStages.appendStageLog(root, {
+        skill: 'ai-design3',
+        stageKey: 'contract',
+        featureIds: ids,
+        message: 'contract 机器校验开始',
+      });
+    }
     if (stages.stages.design?.status !== 'completed' || !stages.stages.design?.validation?.passed) {
       if (!parsed.force) {
         console.error('validate-contract blocked: design not completed');
@@ -1138,6 +1166,24 @@ function main() {
   }
 
   if (parsed.cmd === 'validate-design-review') {
+    const drIds = filterFeatures(unionFeatureIds(stages), parsed.feature) || [];
+    if (!parsed.dryRun && drIds.length) {
+      stages = featureStages.backfillFeatureStages(stages);
+      const drBegun = featureStages.beginStageForFeatures(stages, {
+        stageKey: 'design_review',
+        featureIds: drIds,
+        skill: 'ai-design3',
+        message: 'validate-design-review 开始',
+      });
+      stages = drBegun.doc;
+      writeStages(root, stages, false);
+      featureStages.appendStageLog(root, {
+        skill: 'ai-design3',
+        stageKey: 'design_review',
+        featureIds: drIds,
+        message: 'design-review 对齐校验开始',
+      });
+    }
     const ha = stages.stages.contract?.outputs?.human_approval?.status;
     if (ha !== 'approved' && ha !== 'not_required') {
       console.error(`validate-design-review blocked: human_approval.status=${ha}`);
@@ -1200,6 +1246,18 @@ function main() {
     if (!stages.stages.design_review.validation.passed) {
       stages.stages.design_review.status = 'failed';
     }
+    if (!parsed.dryRun) {
+      featureStages.appendStageLog(root, {
+        skill: 'ai-design3',
+        stageKey: 'design_review',
+        featureIds: drIds,
+        level: errors.length || blocking > 0 ? 'error' : 'info',
+        message:
+          errors.length || blocking > 0
+            ? `design-review 校验未通过（${errors.length} 项）`
+            : 'design-review 校验通过',
+      });
+    }
     logDryRunSlice(parsed, {
       design_review: { validation: stages.stages.design_review.validation, status: stages.stages.design_review.status },
     });
@@ -1227,6 +1285,15 @@ function main() {
     }
     stages.stages.design_review.status = 'completed';
     stages.stages.design_review.completed_at = isoNow();
+    if (!parsed.dryRun) {
+      const wdrIds = filterFeatures(unionFeatureIds(stages), parsed.feature) || [];
+      featureStages.appendStageLog(root, {
+        skill: 'ai-design3',
+        stageKey: 'design_review',
+        featureIds: wdrIds,
+        message: 'write-design-review 完成，可进入 codegen',
+      });
+    }
     logDryRunSlice(parsed, {
       design_review: {
         status: stages.stages.design_review.status,

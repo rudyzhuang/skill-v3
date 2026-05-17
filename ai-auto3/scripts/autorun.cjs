@@ -109,10 +109,14 @@ function parseArgs(argv) {
   return out;
 }
 
-function appendLog(projectRoot, sessionId, line) {
-  const dir = agentSessionsDir(projectRoot);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.appendFileSync(path.join(dir, `${sessionId}.log`), `${new Date().toISOString()} ${line}\n`);
+const agentLog = require('../../../scripts/lib/agent-sessions-log.cjs');
+
+function appendLog(projectRoot, sessionId, line, opts = {}) {
+  agentLog.appendSessionLine(projectRoot, sessionId, line, {
+    skill: 'ai-auto3',
+    stageKey: opts.stageKey,
+    featureIds: opts.featureIds,
+  });
 }
 
 function stageTimeoutMs(cfg, stageKey) {
@@ -1381,7 +1385,7 @@ async function main() {
     doc = readStages(projectRoot);
     doc = appendPipelineLog(doc, {
       session_id: sessionId,
-      path: path.join('.agent-sessions', `${sessionId}.log`),
+      path: path.join('.agent-sessions', 'logs', 'sessions', `${sessionId}.log`),
       started_at: new Date(t0).toISOString(),
       ended_at: ended,
       notes: exitCode === 0 ? 'completed' : failureReason || `exit ${exitCode}`,

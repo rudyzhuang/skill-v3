@@ -84,10 +84,14 @@ async function runUiE2e(projectRoot, opts = {}) {
       });
       return begun.doc;
     });
+    const uiIds = featureStages.collectPhaseFeatureIds(
+      JSON.parse(fs.readFileSync(stPath, 'utf8'))
+    );
     featureStages.appendStageLog(projectRoot, {
       skill: 'ai-e2e3',
       sessionId,
       stageKey: 'ui_e2e',
+      featureIds: uiIds,
       message: `ui_e2e 处理中，场景数=${scenarios.length}`,
     });
   }

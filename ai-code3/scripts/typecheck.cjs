@@ -112,6 +112,7 @@ async function run(ctx) {
   featureStages.appendStageLog(projectRoot, {
     skill: 'ai-code3',
     stageKey: 'typecheck',
+    featureIds: tcIds,
     message: `typecheck 处理中（${tcIds.length} 个 feature）`,
     detail: `cwd=${cwd}`,
   });

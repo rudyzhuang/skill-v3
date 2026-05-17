@@ -76,7 +76,7 @@
         "region": "",
         "domain": "",
         "healthcheck_path": "/website/",
-        "create_if_missing": false,
+        "create_if_missing": true,
         "resource_config": {}
       },
       {
@@ -87,7 +87,7 @@
         "region": "",
         "domain": "",
         "healthcheck_path": "/admin/",
-        "create_if_missing": false,
+        "create_if_missing": true,
         "resource_config": {}
       },
       {
@@ -98,7 +98,7 @@
         "region": "",
         "domain": "",
         "healthcheck_path": "/api/health",
-        "create_if_missing": false,
+        "create_if_missing": true,
         "resource_config": {}
       }
     ]

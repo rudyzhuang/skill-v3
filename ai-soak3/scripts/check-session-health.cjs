@@ -22,6 +22,8 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const localTime = require('../../scripts/lib/local-time.cjs');
+const agentLog = require('../../scripts/lib/agent-sessions-log.cjs');
 
 // ──────────────────────── 参数解析 ───────────────────────────
 const args = {};
@@ -48,15 +50,7 @@ function safeReadFile(filePath) {
 
 /** 找最新的 autorun 主日志（不含 codegen 的 .log 文件） */
 function findLatestAutorunLog() {
-  if (!fs.existsSync(sessionsDir)) return null;
-  const files = fs.readdirSync(sessionsDir)
-    .filter(f => f.endsWith('.log') && !f.includes('codegen'))
-    .map(f => {
-      const p = path.join(sessionsDir, f);
-      return { name: f, path: p, mtime: fs.statSync(p).mtimeMs };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length ? files[0].path : null;
+  return agentLog.findLatestSessionLog(projectRoot, (f) => f.endsWith('.log') && !f.includes('codegen'));
 }
 
 /**
@@ -146,7 +140,7 @@ function parseFeatureFromSpawnLine(line) {
  * status: 'completed' | 'failed' | 'stuck' | 'running' | 'no_log' | 'unknown'
  */
 function checkSessionLog(sessionId) {
-  const logPath = path.join(sessionsDir, `${sessionId}.log`);
+  const logPath = agentLog.resolveSessionLogPath(projectRoot, sessionId);
   const content = safeReadFile(logPath);
   if (!content) return { status: 'no_log', lastTime: null, ageMs: null, lastEntry: null };
 
@@ -170,11 +164,15 @@ function checkSessionLog(sessionId) {
     return { status: 'failed', lastTime: null, ageMs: null, lastEntry: lastLine };
   }
 
-  // 解析最后时间戳
-  const timeM = lastLine.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)/);
-  if (!timeM) return { status: 'unknown', lastTime: null, ageMs: null, lastEntry: lastLine };
+  // 解析最后时间戳（兼容 UTC ISO 前缀与本地时间前缀）
+  if (!localTime.matchLogLineTimestampPrefix(lastLine)) {
+    return { status: 'unknown', lastTime: null, ageMs: null, lastEntry: lastLine };
+  }
 
-  const lastTime = new Date(timeM[1]).getTime();
+  const lastTime = localTime.parseLogLineTimestamp(lastLine);
+  if (!Number.isFinite(lastTime)) {
+    return { status: 'unknown', lastTime: null, ageMs: null, lastEntry: lastLine };
+  }
   const ageMs = Date.now() - lastTime;
 
   if (/alive:/.test(lastLine) || /\btick\b/.test(lastLine)) {
@@ -200,7 +198,8 @@ const { spawned, completed, failed } = parseAutorunLog(logFile);
 const total = Object.keys(spawned).length;
 
 const report = {
-  timestamp: new Date().toISOString(),
+  timestamp: localTime.formatLocalTime(new Date()),
+  timestamp_iso: new Date().toISOString(),
   logFile,
   stuckThresholdMin: stuckThresholdMs / 60000,
   total,

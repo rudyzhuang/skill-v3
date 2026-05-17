@@ -103,9 +103,13 @@ async function runDeploy(projectRoot, opts = {}) {
   const bu = stages.stages && stages.stages.build;
   const arts = (bu && bu.outputs && bu.outputs.artifacts) || [];
   const sessionId = opts.sessionId || null;
+  const deployFeatureIds = featureStages.collectPhaseFeatureIds(stages);
   const log = (line) => {
     try {
-      appendSessionLog(projectRoot, sessionId, line);
+      appendSessionLog(projectRoot, sessionId, line, {
+        stageKey: 'deploy',
+        featureIds: deployFeatureIds,
+      });
     } catch {
       /* ignore */
     }
@@ -207,6 +211,7 @@ async function runDeploy(projectRoot, opts = {}) {
     skill: 'ai-publish-dev3',
     sessionId,
     stageKey: 'deploy',
+    featureIds: deployFeatureIds,
     message: `deploy 处理中，provider=${providerRaw}`,
   });
 

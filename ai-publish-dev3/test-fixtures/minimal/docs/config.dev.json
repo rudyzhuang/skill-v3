@@ -37,7 +37,7 @@
         "region": "",
         "domain": "example.com",
         "healthcheck_path": "/",
-        "create_if_missing": false,
+        "create_if_missing": true,
         "resource_config": {}
       }
     ]

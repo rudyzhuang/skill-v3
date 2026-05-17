@@ -142,10 +142,12 @@ async function run(ctx) {
   });
   doc = begun.doc;
   stagesIo.writeStagesSync(projectRoot, doc);
+  const testFeatureIds = begun.featureIds || targetIds;
   featureStages.appendStageLog(projectRoot, {
     skill: 'ai-code3',
     sessionId,
     stageKey: 'test',
+    featureIds: testFeatureIds,
     message: `已标记 ${begun.marked.length} 个 feature 进入 test 处理中`,
     detail: `cmd=${testCmd}`,
   });
@@ -153,7 +155,14 @@ async function run(ctx) {
   let hb;
   if (sessionId) {
     const { appendHeartbeat } = require('./lib/session-log.cjs');
-    hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'test', 'tick'), 30_000);
+    hb = setInterval(
+      () =>
+        appendHeartbeat(projectRoot, sessionId, 'test', 'tick', {
+          featureIds: testFeatureIds,
+          stderrTag: 'ai-code3',
+        }),
+      30_000
+    );
   }
 
   const perFeature = [];

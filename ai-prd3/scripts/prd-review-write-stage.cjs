@@ -212,6 +212,13 @@ function main() {
   stages.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-prd3',
+    stageKey: 'prd_review',
+    featureIds: reviewIds,
+    message: 'prd-review JSON 已合并，阶段进入 running',
+    detail: reviewIds.length ? reviewIds.join(',') : 'no phase_plan',
+  });
   console.log(JSON.stringify({ ok: true, merged_from: jsonPath }, null, 2));
 }
 

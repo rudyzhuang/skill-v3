@@ -236,6 +236,13 @@ function main() {
   stages.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
+  featureStages.appendStageLog(root, {
+    skill: 'ai-prd3',
+    stageKey: 'prd_review',
+    featureIds: phaseIds,
+    message: 'prd_review 终检通过',
+    detail: deferredIds.length ? `deferred=${deferredIds.join(',')}` : '',
+  });
 
   try {
     const { path: reportPath } = writeImplementationReport(root, stages);

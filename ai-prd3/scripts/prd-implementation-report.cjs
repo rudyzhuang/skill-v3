@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs, requireProject, stagesPath } = require('./lib/paths.cjs');
+const { formatLocalTime } = require('../../../scripts/lib/local-time.cjs');
 
 const REPORT_REL = path.join('.pipeline', 'reports', 'prd-implementation-summary.md');
 
@@ -70,7 +71,7 @@ function buildImplementationReportMarkdown(root, stagesDoc) {
   const lines = [];
   lines.push('────────────────────────────────────────');
   lines.push(' ai-prd3 · 实施节奏摘要（人话版）');
-  lines.push(` 生成时间: ${new Date().toISOString()}`);
+  lines.push(` 生成时间: ${formatLocalTime(new Date())}`);
   lines.push('────────────────────────────────────────');
   lines.push('');
 

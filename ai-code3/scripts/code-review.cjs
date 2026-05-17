@@ -8,6 +8,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
 const { validateCodeReviewOutput } = require('./lib/validate-code-review-output.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 async function run(ctx) {
   const { projectRoot, options } = ctx;
@@ -26,6 +27,29 @@ async function run(ctx) {
     console.error(msg);
     if (!options.dryRun) writeTerminal(projectRoot, doc, 'code_review', 'blocked', { summary: msg });
     return 1;
+  }
+
+  const crFeatureIds =
+    options.featureIds?.length > 0
+      ? options.featureIds
+      : featureStages.collectPhaseFeatureIds(doc);
+  if (!options.dryRun) {
+    doc = featureStages.backfillFeatureStages(doc);
+    const crBegun = featureStages.beginStageForFeatures(doc, {
+      stageKey: 'code_review',
+      featureIds: crFeatureIds,
+      skill: 'ai-code3',
+      message: 'code-review 开始',
+    });
+    doc = crBegun.doc;
+    stagesIo.writeStagesSync(projectRoot, doc);
+    featureStages.appendStageLog(projectRoot, {
+      skill: 'ai-code3',
+      sessionId: options.sessionId || '',
+      stageKey: 'code_review',
+      featureIds: crFeatureIds,
+      message: 'code-review 处理中',
+    });
   }
 
   const importPath = process.env.AI_CODE3_CODE_REVIEW_JSON;

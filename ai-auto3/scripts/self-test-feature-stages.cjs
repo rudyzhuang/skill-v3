@@ -76,9 +76,11 @@ featureStages.appendStageLog(tmp, {
   stageKey: 'contract',
   message: '日志可读性自检',
 });
-const logPath = path.join(tmp, '.agent-sessions', 'selftest.log');
-assert(fs.existsSync(logPath), 'appendStageLog should create session log');
-const logText = fs.readFileSync(logPath, 'utf8');
+const sessionLog = path.join(tmp, '.agent-sessions', 'logs', 'sessions', 'selftest.log');
+const stageLog = path.join(tmp, '.agent-sessions', 'logs', 'stages', 'contract.log');
+assert(fs.existsSync(sessionLog), 'appendStageLog should create session log under logs/sessions/');
+assert(fs.existsSync(stageLog), 'appendStageLog should create stage log under logs/stages/');
+const logText = fs.readFileSync(sessionLog, 'utf8');
 assert(logText.includes('日志可读性自检'), 'log should contain human message');
 
 doc = featureStages.markFeatureStage(doc, 'codegen', 'F-A', 'completed', { message: 'done' });

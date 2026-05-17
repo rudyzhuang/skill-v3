@@ -10,6 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const { requireAbsoluteProject, agentSessionsDir } = require('./lib/paths.cjs');
 const { readStages, writeStages, updateStage, updatePipelineMeta } = require('./lib/stages-io.cjs');
+const featureStages = require('./lib/feature-stages.cjs');
+const { formatLocalTime } = require('../../scripts/lib/local-time.cjs');
 
 function parseArgs(argv) {
   const out = { project: null, sessionId: null, failureReason: '' };
@@ -91,7 +93,7 @@ function buildMarkdown(doc, opts) {
   const lines = [];
   lines.push(`# Pipeline 报告`);
   lines.push('');
-  lines.push(`- **生成时间**: ${new Date().toISOString()}`);
+  lines.push(`- **生成时间**: ${formatLocalTime(new Date())}`);
   lines.push(`- **session_id**: ${opts.sessionId}`);
   lines.push(`- **overall（推导）**: ${opts.overall}`);
   lines.push('');
@@ -197,6 +199,16 @@ function main() {
   fs.mkdirSync(reportDir, { recursive: true });
   const reportName = `autorun-${sessionId}.md`;
   const reportPath = path.join(reportDir, reportName);
+  const reportFeatureIds = collectFeatureIds(doc);
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-auto3',
+    sessionId,
+    stageKey: 'report',
+    featureIds: reportFeatureIds,
+    message: `gen-report 生成汇总 overall=${overall}`,
+    detail: path.relative(projectRoot, reportPath),
+  });
+
   const md = buildMarkdown(doc, { sessionId, overall, failureReason: opts.failureReason });
   fs.writeFileSync(reportPath, md, 'utf8');
 

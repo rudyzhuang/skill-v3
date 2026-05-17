@@ -382,8 +382,9 @@ function main() {
   featureStages.appendStageLog(projectRoot, {
     skill: 'ai-prd3',
     stageKey: 'prd',
+    featureIds: prdIds,
     message: `bootstrap 完成，prd=running，端=${parse.slugs.join(',')}`,
-    detail: prdIds.length ? `features=${prdIds.join(',')}` : 'no phase_plan yet',
+    detail: prdIds.length ? prdIds.join(',') : 'no phase_plan yet',
   });
 
   for (const f of [cfgDev, cfgRel]) {

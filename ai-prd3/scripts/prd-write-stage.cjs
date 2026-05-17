@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const { parseArgs, requireProject, stagesPath, prdSpecPath, skillDirFrom } = require('./lib/paths.cjs');
 const { specUsesLegacyYamlClientTargets } = require('./prd-parse-client-targets.cjs');
 const { markPrdFailed } = require('./lib/stage-status.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -104,6 +105,14 @@ function main() {
   stagesFresh.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stagesFresh, null, 2)}\n`, 'utf8');
+  const prdIds = featureStages.collectPhaseFeatureIds(stagesFresh);
+  featureStages.appendStageLog(root, {
+    skill: 'ai-prd3',
+    stageKey: 'prd',
+    featureIds: prdIds,
+    message: 'write-prd 完成，prd 阶段已标记 completed',
+    detail: `summary_hash=${summaryHash.slice(0, 12)}…`,
+  });
   console.log(JSON.stringify({ ok: true, summary_hash: summaryHash }, null, 2));
 }
 

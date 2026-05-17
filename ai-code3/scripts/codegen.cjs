@@ -346,6 +346,7 @@ async function run(ctx) {
     skill: 'ai-code3',
     sessionId,
     stageKey: 'codegen',
+    featureIds,
     message: `已标记 ${begun.marked.length} 个 feature 为处理中`,
     detail: begun.marked.length ? begun.marked.join(',') : 'none',
   });
@@ -426,8 +427,11 @@ async function run(ctx) {
 
   let hb;
   if (sessionId) {
-    appendHeartbeat(projectRoot, sessionId, 'codegen', 'start');
-    hb = setInterval(() => appendHeartbeat(projectRoot, sessionId, 'codegen', 'tick'), 30_000);
+    appendHeartbeat(projectRoot, sessionId, 'codegen', 'start', { featureIds, stderrTag: 'ai-code3' });
+    hb = setInterval(
+      () => appendHeartbeat(projectRoot, sessionId, 'codegen', 'tick', { featureIds, stderrTag: 'ai-code3' }),
+      30_000
+    );
   }
 
   console.error(
