@@ -1,6 +1,6 @@
 ---
 name: ai-e2e3
-version: "0.2.0"
+version: "0.2.1"
 description: >-
   Skill V3 UI 端到端：website/admin 使用 Browser MCP，mobile android/ios 使用 Dart MCP
   与 integration_test；读写 stages.ui_e2e。在用户提到 ai-e2e3、ui-e2e、UI 端到端、
@@ -37,6 +37,10 @@ node <skill_dir>/scripts/run.cjs --project=<业务项目根绝对路径> \
 | `AI_SOAK3_STRICT=1` | **必须** Browser/Dart MCP 或 integration_test；无 `AI_E2E3_AGENT_BIN` → **退出 1** |
 | `AI_E2E3_AGENT_BIN` | 外部 Agent（默认回退 `AI_CODE3_AGENT_BIN`）；soak 重跑前**建议** `which cursor-agent` 验证 |
 | `AI_E2E3_SKIP_FIX_AGENT=1` | 禁用失败后 `ui_test_fix` |
+
+## 人话 UI 测试日志
+
+每个场景写入 **`.agent-sessions/ui-test/<feature_id>/<datetime>.log`**，截图 **`.agent-sessions/ui-test/<feature_id>/*.jpg`**（打开页面、点击跳转、其它交互后）；详见 **`e2e3.md` §6.1** 与 **`prompts/ui-e2e-agent.md`**。
 
 ## 退出码
 

@@ -5,21 +5,33 @@ const path = require('path');
 const { runWithTimeout } = require('./run-with-timeout.cjs');
 const agentIo = require('../../../scripts/lib/agent-io-log.cjs');
 
-function buildPrompt({ scenario, baseUrl, mode, deviceId }) {
+function buildPrompt({ scenario, baseUrl, mode, deviceId, humanLogPath, screenshotDir }) {
   const lines = [
     'You are ai-e2e3 external agent (non-interactive).',
     `Mode: ${mode} (use ${mode === 'browser' ? 'cursor-ide-browser MCP' : 'user-dart MCP'}).`,
     `Scenario ID: ${scenario.id}`,
     `Client target: ${scenario.client_target}`,
     `Platform: ${scenario.platform}`,
+    `feature_id: ${scenario.feature_id || 'unknown'}`,
   ];
   if (deviceId) lines.push(`Flutter device id (already booted + app installed): ${deviceId}`);
   if (baseUrl) lines.push(`Base URL: ${baseUrl}`);
+  if (humanLogPath) {
+    lines.push(`Human-readable test log (append in Chinese): ${humanLogPath}`);
+  }
+  if (screenshotDir) {
+    lines.push(`Screenshot directory (*.jpg): ${screenshotDir}`);
+    lines.push(
+      'Take screenshots after: (1) app/page open, (2) each click/navigation, (3) scroll/drag/swipe/other interactions.',
+      'Record each screenshot absolute path in the human log immediately after saving.'
+    );
+  }
   lines.push(
     '',
     'Execute every step in the scenario JSON below against the running app.',
     'Write results JSON to AI_E2E3_UI_E2E_OUTPUT with shape:',
-    '{ "scenario_id": "...", "passed": true|false, "error": "", "step_failed": null|"step_name" }',
+    '{ "scenario_id": "...", "passed": true|false, "error": "", "step_failed": null|"step_name",',
+    '  "screenshots": [{ "path": "/abs/...jpg", "moment": "打开页面后" }] }',
     'Do not print secrets. Exit 0 only when done writing the file.',
     '',
     JSON.stringify(scenario, null, 2)
@@ -39,6 +51,8 @@ async function invokeE2eAgent({
   mode,
   deviceId,
   sessionId,
+  humanLogPath,
+  screenshotDir,
 }) {
   const bin =
     process.env.AI_E2E3_AGENT_BIN ||
@@ -72,8 +86,11 @@ async function invokeE2eAgent({
     AI_E2E3_PROJECT: projectRoot,
     AI_E2E3_UI_E2E_OUTPUT: outputJsonPath || '',
     AI_E2E3_MODE: mode,
+    AI_E2E3_UI_TEST_LOG: humanLogPath || '',
+    AI_E2E3_UI_TEST_SCREENSHOT_DIR: screenshotDir || '',
+    AI_E2E3_FEATURE_ID: scenario.feature_id || '',
   };
-  const promptText = buildPrompt({ scenario, baseUrl, mode, deviceId });
+  const promptText = buildPrompt({ scenario, baseUrl, mode, deviceId, humanLogPath, screenshotDir });
   const args = [];
   const cmdBase = path.basename(bin).toLowerCase();
   if (cmdBase === 'cursor-agent') {

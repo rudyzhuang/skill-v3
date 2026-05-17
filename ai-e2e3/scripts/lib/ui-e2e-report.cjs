@@ -21,8 +21,13 @@ function writeUiE2eReport(projectRoot, sessionId, results, meta) {
   for (const r of results) {
     const mark = r.passed ? 'PASS' : 'FAIL';
     lines.push(`- **${mark}** \`${r.scenario_id}\` (${r.client_target}/${r.platform}) ${r.duration_ms}ms`);
+    if (r.human_log_path) lines.push(`  - 人话日志: \`${r.human_log_path}\``);
     if (!r.passed && r.error) lines.push(`  - ${r.error.replace(/\n/g, ' ')}`);
   }
+  lines.push('');
+  lines.push('## 人话 UI 测试日志');
+  lines.push('');
+  lines.push('每个场景另写 **`.agent-sessions/ui-test/<feature_id>/<datetime>.log`**，截图存同目录 **`*.jpg`**。');
   lines.push('');
   if (meta.fix_attempts) lines.push(`- **修复尝试次数**: ${meta.fix_attempts}`);
   fs.writeFileSync(reportPath, lines.join('\n'), 'utf8');
