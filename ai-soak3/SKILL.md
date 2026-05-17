@@ -1,11 +1,11 @@
 ---
 name: ai-soak3
-version: "0.3.1"
+version: "0.3.2"
 description: >-
   Skill V3 Unattended Soak Agent：在目标业务项目中无人值守地执行 ai-prd3 → ai-auto3
   全链路压测，直至项目完整实现（含服务端部署上线、mobile 编译安装到模拟器、测试全通过）。
   发现失败时优先评估并修复 v3 skill，不在业务仓打补丁糊弄。
-  当用户说「ai-soak3」「无人值守压测」「soak agent」「按 agent-prompt 跑」时使用。
+  当用户说「/ai-soak3」「ai-soak3」「无人值守压测」「soak agent」时使用；内置调用见 prompts/invoke-soak3.md。
 ---
 
 # ai-soak3（Skill V3 Unattended Soak Agent）
@@ -13,6 +13,23 @@ description: >-
 ## 0. 规范真源（SSOT）
 
 实现细节与脚本行为以 **`docs/spec/soak3.md`**（skill 仓内）为唯一规范来源；本 `SKILL.md` 保留编排与触发说明。
+
+### 0.1 内置调用提示词（`/ai-soak3` 必读）
+
+用户输入 **`/ai-soak3`** 或等价触发时，**第一步完整阅读并执行**：
+
+**`prompts/invoke-soak3.md`**
+
+摘要（细节以该文件为准）：
+
+| 项 | 约定 |
+| --- | --- |
+| **PROJECT_ROOT** | 当前 Cursor **工作区根目录**（业务项目仓）的绝对路径；**不是** skill 安装目录 |
+| **严格模式** | 每轮 shell 先 `export AI_SOAK3_STRICT=1`；`unset AI_CODE3_SKIP_AGENT` |
+| **Agent** | 须已配置 `AI_CODE3_AGENT_BIN`；启用 ui_e2e 时须 `AI_E2E3_AGENT_BIN` |
+| **顺序** | ensure-req → prd3 全链 → autorun 至 report → §6/§7 |
+
+用户只发 `/ai-soak3` 即视为同意上表，**无需**再重复粘贴环境变量。
 
 ---
 
@@ -379,7 +396,7 @@ echo "mobile smoke: done"
 
 ## 10. 启动清单（第一步）
 
-1. 设 `PROJECT_ROOT`（默认当前仓根目录）。
+1. 读并执行 **`prompts/invoke-soak3.md`**（解析 `PROJECT_ROOT`、导出 `AI_SOAK3_STRICT=1`、禁止 `AI_CODE3_SKIP_AGENT`）。
 2. 运行 `ensure-req.cjs`（见 §2）；退出码 0 才继续。
 3. 确认运行环境：`uname -s` 是否为 Darwin（macOS）；若 req.md 含 mobile iOS 且非 macOS → 提前标记（见 §3.4）。
 4. 从 **§4.A** 开始执行；默认连续多 Round 直至 §7 或 §3 #2/#3。
