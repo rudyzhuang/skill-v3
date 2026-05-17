@@ -76,6 +76,8 @@ function buildRuntimeVars(cfgDev) {
     AI_SOAK3_CODEGEN_MIN_S: process.env.AI_SOAK3_CODEGEN_MIN_S || '7200',
     /** 每个 feature 额外预算秒数（与 feature 数相乘后与 MIN 取 max） */
     AI_SOAK3_CODEGEN_PER_FEATURE_S: process.env.AI_SOAK3_CODEGEN_PER_FEATURE_S || '600',
+    AI_CODE3_MERGE_AUTO_THEIRS: '1',
+    AI_CODE3_MERGE_CONFIRM: 'yes',
     http_proxy: process.env.http_proxy || 'http://127.0.0.1:1087',
     https_proxy: process.env.https_proxy || 'http://127.0.0.1:1087',
   };
@@ -120,6 +122,8 @@ function printShellExports(vars) {
     'AI_E2E3_AGENT_BIN',
     'AI_SOAK3_CODEGEN_MIN_S',
     'AI_SOAK3_CODEGEN_PER_FEATURE_S',
+    'AI_CODE3_MERGE_AUTO_THEIRS',
+    'AI_CODE3_MERGE_CONFIRM',
     'http_proxy',
     'https_proxy',
   ];

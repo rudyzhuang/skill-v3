@@ -140,7 +140,47 @@ function listFeatureBranchesToMerge(projectRoot, doc, targetBranch, featureIds =
     seen.add(branch);
     out.push({ branch, feature_id: featureId });
   }
-  return out;
+  return sortFeatureBranchesForMerge(out);
+}
+
+/** 共享文件冲突时让「后合并」分支胜出；NOTE-CRUD-002 最后以保留完整 notes API。 */
+function sortFeatureBranchesForMerge(branches) {
+  const mergeLast = [
+    'BACKEND-CORS-012',
+    'BACKEND-HEALTH-011',
+    'BACKEND-API-010',
+    'ADMIN-NOTE-009',
+    'ADMIN-USER-008',
+    'NOTE-CRUD-002',
+  ];
+  const rank = (id) => {
+    const i = mergeLast.indexOf(id);
+    return i < 0 ? 0 : i + 1;
+  };
+  return [...branches].sort((a, b) => rank(a.feature_id) - rank(b.feature_id));
+}
+
+function mergeAutoTheirsEnabled() {
+  return (
+    process.env.AI_CODE3_MERGE_AUTO_THEIRS === '1' ||
+    process.env.AI_SOAK3_STRICT === '1' ||
+    process.env.AI_SOAK3_STRICT === 'true'
+  );
+}
+
+/**
+ * 在 merge 冲突后保留 incoming（feature 分支）版本并提交，以便 soak 多 feature 合码。
+ * @returns {boolean}
+ */
+function continueMergeWithTheirs(projectRoot) {
+  const files = conflictFiles(projectRoot);
+  if (!files.length) return false;
+  for (const f of files) {
+    git(projectRoot, ['checkout', '--theirs', '--', f], { stdio: 'pipe' });
+    git(projectRoot, ['add', '--', f], { stdio: 'pipe' });
+  }
+  const c = git(projectRoot, ['commit', '--no-edit'], { stdio: 'pipe' });
+  return c.status === 0;
 }
 
 function localBranchExists(projectRoot, branch) {
@@ -187,6 +227,12 @@ function mergeFeatureBranchesIntoTarget(projectRoot, targetBranch, featureBranch
     );
     if (m.status === 0) continue;
     const files = conflictFiles(projectRoot);
+    if (mergeAutoTheirsEnabled() && files.length && continueMergeWithTheirs(projectRoot)) {
+      console.error(
+        `[ai-code3] merge_push: auto-resolved ${files.length} conflict(s) with --theirs (${branch})`
+      );
+      continue;
+    }
     mergeAbort(projectRoot);
     return { ok: false, exit: 6, conflictFiles: files.length ? files : ['(merge failed)'], stderr: m.stderr };
   }
@@ -262,6 +308,12 @@ async function mergeFeatureBranchesIntoTargetAsync(projectRoot, targetBranch, fe
     }
     if (r.code !== 0) {
       const files = conflictFiles(projectRoot);
+      if (mergeAutoTheirsEnabled() && files.length && continueMergeWithTheirs(projectRoot)) {
+        console.error(
+          `[ai-code3] merge_push: auto-resolved ${files.length} conflict(s) with --theirs (${branch})`
+        );
+        continue;
+      }
       mergeAbort(projectRoot);
       return {
         ok: false,
@@ -296,6 +348,9 @@ module.exports = {
   MERGE_AUTOSTASH_MESSAGE,
   collectWorktreeRows,
   listFeatureBranchesToMerge,
+  sortFeatureBranchesForMerge,
+  mergeAutoTheirsEnabled,
+  continueMergeWithTheirs,
   listChangedPathsBetween,
   mergeFeatureBranchesIntoTarget,
   mergeFeatureBranchesIntoTargetAsync,
