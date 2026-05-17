@@ -11,16 +11,19 @@
     "default_client_targets": []
   },
   "git": {
+    "_doc": "remote_url: empty until user sets Git hosting URL. allow_push: when true, each pipeline sync point (prd/design/code per feature) runs git push after commit; merge-push still follows §7.2 destructive confirm. See input-spec.md §3.5.",
     "remote": "origin",
+    "remote_url": "",
     "default_branch": "main",
     "working_branch_prefix": "ai",
-    "allow_push": false
+    "allow_push": true
   },
   "pipeline": {
     "_doc": "Orchestration flags consumed by ai-auto3 autorun.cjs (dev config only). See docs/spec/publish3.md §5.1.1 and docs/spec/auto3.md §5.1.",
     "autorun": {
-      "_doc": "When allow_destructive_deploy is false, autorun.cjs must not spawn ai-publish-dev3 deploy; missing key is treated as false (additive default). deploy.enabled alone is not sufficient.",
-      "allow_destructive_deploy": false
+      "_doc": "When allow_destructive_deploy is false, autorun.cjs must not spawn ai-publish-dev3 deploy; missing key is treated as false (additive default). deploy.enabled alone is not sufficient. feature_group_max_parallel caps concurrent ai-code3 group processes in codegen..code-review (see docs/spec/auto3.md §5.7.4); missing defaults to 3.",
+      "allow_destructive_deploy": false,
+      "feature_group_max_parallel": 3
     }
   },
   "build": {
@@ -31,6 +34,11 @@
       "test": "",
       "build": "",
       "test_max_fix_attempts": 3
+    },
+    "test_level_gate": {
+      "_doc": "Optional test-level gate consumed by ai-code3 test.cjs. mode: off|warn|enforce. Required levels are resolved from contract test_spec.required_test_levels first, then fallback_required_test_levels.",
+      "mode": "warn",
+      "fallback_required_test_levels": []
     },
     "artifacts_dir": "dist",
     "client_targets": {}
@@ -52,6 +60,7 @@
       "build_s": 1800,
       "deploy_s": 1800,
       "smoke_s": 300,
+      "ui_e2e_s": 3600,
       "report_s": 600
     },
     "subcommand": {
@@ -68,37 +77,15 @@
     "project_or_account": "",
     "services": [
       {
-        "_doc": "ai-prd3 apply-raw-input-config 按原始需求与 prd-spec 端列表补齐 website/admin/backend",
         "client_target": "website",
+        "sub_platform": "default",
         "service_name": "",
-        "resource_type": "pages_project",
-        "runtime": "static",
+        "resource_type": "",
+        "runtime": "",
         "region": "",
         "domain": "",
-        "healthcheck_path": "/website/",
-        "create_if_missing": true,
-        "resource_config": {}
-      },
-      {
-        "client_target": "admin",
-        "service_name": "",
-        "resource_type": "pages_project",
-        "runtime": "static",
-        "region": "",
-        "domain": "",
-        "healthcheck_path": "/admin/",
-        "create_if_missing": true,
-        "resource_config": {}
-      },
-      {
-        "client_target": "backend",
-        "service_name": "",
-        "resource_type": "worker_script",
-        "runtime": "nodejs",
-        "region": "",
-        "domain": "",
-        "healthcheck_path": "/api/health",
-        "create_if_missing": true,
+        "healthcheck_path": "/",
+        "create_if_missing": false,
         "resource_config": {}
       }
     ]
@@ -115,6 +102,40 @@
         "expected_status": 200
       }
     ]
+  },
+  "ui_e2e": {
+    "_doc": "UI end-to-end (Browser MCP for website/admin; Dart MCP + flutter integration_test for mobile). Consumed by ai-e2e3. See docs/spec/e2e3.md.",
+    "enabled": false,
+    "require_smoke_passed": true,
+    "web": {
+      "website": { "base_url_from": "deploy.services.website.url" },
+      "admin": { "base_url_from": "deploy.services.admin.url" }
+    },
+    "mobile": {
+      "sub_platforms": [],
+      "android": {
+        "device_id": "",
+        "emulator_id": "",
+        "auto_launch_emulator": true,
+        "install_before_test": true,
+        "bundle_id": ""
+      },
+      "ios": {
+        "simulator": "",
+        "device_id": "",
+        "auto_launch_simulator": true,
+        "install_before_test": true,
+        "bundle_id": ""
+      },
+      "commands": {
+        "boot_wait_s": 90,
+        "smoke_run_s": 35
+      }
+    },
+    "commands": {
+      "ui_test_max_fix_attempts": 3
+    },
+    "stub_mode": false
   },
   "security": {
     "env_file_path": "docs/config.env",

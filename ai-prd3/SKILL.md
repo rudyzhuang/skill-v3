@@ -33,6 +33,7 @@ description: >-
 | `.pipeline/stages.json` | 门闸真源 |
 | `.pipeline/reports/prd-implementation-summary.md` | **prd-review 终检通过**或 **`report`** 生成；含 **「AI 评审门闸结果」** 与分期摘要（`prd3.md` §8.8）；**非**门闸真源 |
 | `.agent-sessions/` | 会话日志（应加入 `.gitignore`）；**全流水线 PID 锁等**若未在本 skill 实现，由 **`ai-auto3`** 按 `input-spec.md` 管理 |
+| `inputs/` | 原始需求目录（可选）；**`bootstrap`** 收尾对**全项目** `git add -A` 后 **commit+push**（见 **`input-spec.md` §3.5**） |
 
 **允许的 `client_target`**：`website`、`admin`、`backend`、`miniapp`、`mobile`、`desktop`、`agent`。
 

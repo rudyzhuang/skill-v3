@@ -102,7 +102,7 @@ ai-prd3/
 
 | 子命令 | 职责 |
 | --- | --- |
-| `bootstrap` | 调用 `prd-bootstrap.cjs`：目录、模板拷贝、`.gitignore` 提示、`stages` 骨架 |
+| `bootstrap` | 调用 `prd-bootstrap.cjs`：**Git 本地/远程初始化**（§7.2.0）、**`.gitignore` 合并**、**全仓** **commit+push**、目录与模板拷贝、`stages` 骨架 |
 | `parse-targets` | 仅解析并 stdout JSON：`declared[]`（供调试） |
 | `validate-prd` | 串联 spec / derived / config 校验，**不写** completed |
 | `write-prd` | 在校验已通过的前提下写 `stages.prd` 完成态 + §9 hash |
@@ -212,13 +212,26 @@ ai-prd3/
 
 ### 7.2 建议执行顺序
 
+0. **Git 初始化（§7.2.0，最先执行）** — 见下节；**不得**推迟到 codegen。
+
 1. **`prd-bootstrap.cjs`**  
+   - **§7.2.0**：`git init`、配置 **`git.remote_url`**、合并 **`.gitignore.template`**；bootstrap **收尾**对项目根执行 **`git add -A`**（**非**仅 `inputs/`）并 **commit+push**。  
    - 创建 `.pipeline/`、**`docs/`**（确保存在，用于 **`prd-spec.md`** 与各端子目录）、各 `docs/<端>/`（**仅** `declared` 中端，须在 parse 之后调用或 bootstrap 内调 parse）。  
    - `docs/prd-spec.md` 不存在：从 **`templates/prd-spec/prd-spec.cn.md.template`**（或 `--lang=en`）复制；**已存在则不覆盖**。  
    - `config.*.json` / `config.env` 不存在：从模板复制；**已存在默认不覆盖**。缺模板必填键时：**stderr 说明 + 退出 1**，或经 **`--allow-fill-missing-keys`** 且在交互/显式确认后做 **additive 补齐**（与 `input-spec.md` §3 一致，具体 flag 名可在实现中定稿但须写入 `SKILL.md`）。  
    - `.pipeline/stages.json` 不存在：自 **`stages.json.template`** 拷贝初始化；已存在则 **`merge-stages.cjs` 合并**，禁止整文件覆盖。  
-   - `.gitignore` 未忽略 `.agent-sessions/`：**stderr 警告**，不阻断。  
+   - **`.gitignore`**：自 **`docs/templates/.gitignore.template`**（skill 分发副本）**合并写入**项目根；须含 **`.agent-sessions/`**、**`.pipeline/worktrees/`**、各端构建产物（见 **`input-spec.md` §3.5**）。仅当合并后仍缺 **`.agent-sessions/`** 时 **stderr 警告**（不阻断）。  
    - 将 `stages.prd.status` 置 **`running`**，`pipeline.updated_by` = `ai-prd3`，`pipeline.updated_at` = ISO8601。
+
+#### 7.2.0 Git 本地/远程与全仓首推送
+
+与 **`input-spec.md` §3.5**、**`ai-auto3/scripts/lib/git-pipeline-sync.cjs`** 一致：
+
+1. 读取 **`docs/config.dev.json` → `git.*`**（**`remote_url`**、**`default_branch`**、**`allow_push`**）。  
+2. **`initLocalAndRemote`**（bootstrap **前段**）：无仓库则 **`git init -b <default_branch>`**；**`remote_url` 非空**则 **`git remote add|set-url origin`**。  
+3. 回写 **`stages.project.git`**（**`repo_initialized_at`**、**`remote_configured_at`**、**`remote_url`**）。  
+4. **`syncPipelineGit(projectRoot, 'prd_start')`**（bootstrap **收尾**）：**`git add -A`** — 项目下**全部**未忽略文件入仓后 **commit**；**`allow_push=true`** 且 remote 可用则 **push**（失败 → **退出 7**）。  
+5. **`write-prd` 成功路径**末尾调用 **`syncPipelineGit(..., 'prd_complete')`**：跟踪 **`inputs/`、`docs/`、`.pipeline/`** 增量，写 **`stages.prd.git_sync.docs_pipeline_pushed_at`**。
 
 2. **LLM**（`prompts/prd-spec-author.md`）：补全 prd-spec，**不**在此步修改各端派生文件。
 

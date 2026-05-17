@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { runWithTimeout } = require('./run-with-timeout.cjs');
+const agentIo = require('../../../scripts/lib/agent-io-log.cjs');
 
 function buildPrompt({ scenario, baseUrl, mode, deviceId }) {
   const lines = [
@@ -29,13 +30,34 @@ function buildPrompt({ scenario, baseUrl, mode, deviceId }) {
 /**
  * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string, code?: number, passed?: boolean, error?: string, duration_ms?: number }>}
  */
-async function invokeE2eAgent({ projectRoot, scenario, baseUrl, outputJsonPath, timeoutMs, mode, deviceId }) {
+async function invokeE2eAgent({
+  projectRoot,
+  scenario,
+  baseUrl,
+  outputJsonPath,
+  timeoutMs,
+  mode,
+  deviceId,
+  sessionId,
+}) {
   const bin =
     process.env.AI_E2E3_AGENT_BIN ||
     process.env.AI_CODE3_AGENT_BIN ||
     process.env.AI_CODEGEN_AGENT_BIN ||
     '';
   if (!bin.trim()) {
+    agentIo.logAgentIo(projectRoot, 'skip', {
+      skill: 'ai-e2e3',
+      stageKey: 'ui_e2e',
+      phase: 'ui_scenario',
+      sessionId,
+      reason: 'no_agent_bin',
+      promptRef: agentIo.promptRef({
+        skill: 'ai-e2e3',
+        relPath: 'scripts/lib/invoke-e2e-agent.cjs',
+        symbol: 'buildPrompt',
+      }),
+    });
     return { ok: false, skipped: true, reason: 'no_agent_bin' };
   }
   if (outputJsonPath && fs.existsSync(outputJsonPath)) {
@@ -51,35 +73,80 @@ async function invokeE2eAgent({ projectRoot, scenario, baseUrl, outputJsonPath, 
     AI_E2E3_UI_E2E_OUTPUT: outputJsonPath || '',
     AI_E2E3_MODE: mode,
   };
+  const promptText = buildPrompt({ scenario, baseUrl, mode, deviceId });
   const args = [];
   const cmdBase = path.basename(bin).toLowerCase();
   if (cmdBase === 'cursor-agent') {
-    args.push('--print', '--trust', buildPrompt({ scenario, baseUrl, mode, deviceId }));
+    args.push('--print', '--trust', promptText);
   } else {
-    args.push(buildPrompt({ scenario, baseUrl, mode, deviceId }));
+    args.push(promptText);
   }
+  const promptRefStr = agentIo.promptRef({
+    skill: 'ai-e2e3',
+    relPath: 'scripts/lib/invoke-e2e-agent.cjs',
+    symbol: 'buildPrompt',
+  });
+  const { callId } = agentIo.logAgentIo(projectRoot, 'begin', {
+    skill: 'ai-e2e3',
+    stageKey: 'ui_e2e',
+    phase: 'ui_scenario',
+    sessionId: sessionId || process.env.AI_SESSION_ID,
+    agentBin: bin,
+    promptRef: promptRefStr,
+    promptSha: agentIo.sha256Short(promptText),
+    promptDynamic: `scenario_id=${scenario?.id || ''} mode=${mode}`,
+    outputPath: outputJsonPath,
+    argvSummary: cmdBase === 'cursor-agent' ? '--print --trust <prompt>' : '<prompt>',
+  });
   const t0 = Date.now();
   const r = await runWithTimeout(bin, args, { cwd: projectRoot, timeoutMs, env });
+  const elapsed = Date.now() - t0;
+  const finishLog = (extra) => {
+    agentIo.logAgentIo(projectRoot, 'end', {
+      skill: 'ai-e2e3',
+      stageKey: 'ui_e2e',
+      phase: 'ui_scenario',
+      sessionId: sessionId || process.env.AI_SESSION_ID,
+      callId,
+      agentBin: bin,
+      promptRef: promptRefStr,
+      elapsedMs: elapsed,
+      exitCode: r.code,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      outputPath: outputJsonPath,
+      ...extra,
+    });
+  };
   if (r.timedOut) {
-    return { ok: false, error: 'agent timed out', duration_ms: Date.now() - t0 };
+    finishLog({ ok: false, reason: 'agent_timed_out' });
+    return { ok: false, error: 'agent timed out', duration_ms: elapsed, callId };
   }
   if (r.code !== 0) {
-    return { ok: false, code: r.code, error: (r.stderr || '').slice(0, 500), duration_ms: Date.now() - t0 };
+    finishLog({ ok: false, reason: `agent_exit_${r.code}` });
+    return { ok: false, code: r.code, error: (r.stderr || '').slice(0, 500), duration_ms: elapsed, callId };
   }
   if (outputJsonPath && fs.existsSync(outputJsonPath)) {
     try {
       const j = JSON.parse(fs.readFileSync(outputJsonPath, 'utf8'));
+      finishLog({
+        ok: true,
+        outputSummary: agentIo.summarizeJsonFile(outputJsonPath),
+      });
       return {
         ok: true,
         passed: j.passed !== false,
         error: j.error || '',
-        duration_ms: Date.now() - t0,
+        duration_ms: elapsed,
+        callId,
       };
     } catch (e) {
-      return { ok: false, error: `invalid agent output: ${e.message}`, duration_ms: Date.now() - t0 };
+      finishLog({ ok: false, reason: 'invalid_agent_output' });
+      return { ok: false, error: `invalid agent output: ${e.message}`, duration_ms: elapsed, callId };
     }
   }
-  return { ok: true, passed: true, duration_ms: Date.now() - t0 };
+  finishLog({ ok: true });
+  return { ok: true, passed: true, duration_ms: elapsed, callId };
 }
 
 module.exports = { invokeE2eAgent, buildPrompt };

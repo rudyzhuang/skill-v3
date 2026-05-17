@@ -251,6 +251,7 @@ ai-code3/
 
 ### 7.7 Worktree 策略
 
+- **前置：Git 已由 prd 初始化**：进入 codegen 前 **`git rev-parse --is-inside-work-tree`** 须为真；否则 **退出 1** 并提示运行 **`ai-prd3` `bootstrap`**（见 **`input-spec.md` §3.5**）。
 - **基线分支**：默认 **`project.git.default_branch`**（见 **`stages.json.template`** 的 `project.git`）；允许 **`docs/config.dev.json`** 增加覆盖键（若增加，须同步 **`config.dev.json.template`** 与 **`input-spec.md`**）。  
 - **分支命名**：默认 **`v3-fc-<feature_id>`**（与目录后缀一致）；**不得**与 **`merge_push`** 目标保护分支硬冲突；若分支已存在，**`--resume`**（规划 CLI 旗标）或检测到「未完成 **`running`**」时走 **复用挂载**，否则由 **`AI_CODE3_CODEGEN_RESET_BRANCH=yes`** 一类**显式**开关决定是否重置（默认不重置，失败退出 **1** 以免丢工作）。  
 - **创建命令语义**：`git worktree add` + **检出基线**；共享 monorepo 下**单仓单 worktree**；**`shared_changes[]`** 只在**被指派为主实现端的 feature** 的 worktree 内修改（与 **`input-spec.md` §8 阶段 3** 一致），其它 feature **不得**重复改同一共享路径。  
@@ -303,7 +304,8 @@ ai-code3/
 - **阶段超时**：**`timeouts.stages.codegen_s`**（默认 **1800**，见 **`input-spec.md` §6.1**）。  
 - **心跳**：**`timeouts.subcommand.heartbeat_interval_s`**（默认 **30**）向会话日志追加 **`alive: stage=codegen`**。  
 - **CI 建议**：默认 **`AI_CODE3_SKIP_AGENT=1`** 跑「门闸 + worktree 创建 + 骨架」冒烟；**真实填码**在开发者本机或受凭证保护的 runner 上执行。  
-- **与 `merge-push` 的边界**：codegen **默认**在 worktree 内 **`git commit`**（与 v2 默认一致）；**禁止**在 codegen 内 **`git push`**。
+- **与 Git 流水线（`input-spec.md` §3.5）**：**禁止**在 codegen 内 **`git init`**（须 **prd bootstrap** 已初始化）。每个 feature **`completed` 后**由 **`git-pipeline-sync.syncAfterFeature`** 对 **`inputs/`、`docs/`、`.pipeline/`、`src/`** 做 **commit**；**`git.allow_push=true`** 时 **push**（feature 级推送；worktree 内仍可 **commit** 供 merge-push 使用）。
+- **与 `merge-push` 的边界**：worktree 内 **commit** 仍用于隔离开发；**主线**上的 feature 级 **push** 由 **`git-pipeline-sync`** 在阶段完成时执行，**merge-push** 负责分支合入与全局门闸。
 
 ### 7.11 状态写回与下游对齐
 

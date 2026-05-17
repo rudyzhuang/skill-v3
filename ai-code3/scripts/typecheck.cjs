@@ -7,6 +7,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -219,6 +220,13 @@ async function run(ctx) {
 
   if (passed) {
     doc = featureStages.markFeaturesCompleted(doc, 'typecheck', tcIds, { message: 'typecheck 通过' });
+    const config = gitSync.loadConfigDev(projectRoot);
+    for (const fid of tcIds) {
+      const gr = gitSync.syncAfterFeature(projectRoot, 'typecheck', fid, { config });
+      if (!gr.ok && !gr.skipped && gr.push_status === 'failed') {
+        process.exit(7);
+      }
+    }
   } else {
     doc = featureStages.markFeaturesFailed(doc, 'typecheck', tcIds, {
       message: anyTimedOut ? 'typecheck 超时' : 'typecheck 工具报错',

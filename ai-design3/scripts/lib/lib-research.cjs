@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const agentIo = require('../../../scripts/lib/agent-io-log.cjs');
 
 function normalizeCacheKey(functionArea) {
   return String(functionArea || '')
@@ -205,9 +206,25 @@ function buildLibResearchPrompt({
   ].join('\n');
 }
 
-function runLibResearchAgent({ worktreePath, prompt }) {
+function runLibResearchAgent({ projectRoot, worktreePath, prompt, featureId, sessionId, outputPath }) {
   const resolved = resolveAgentBin();
+  const promptRefStr = agentIo.promptRef({
+    skill: 'ai-design3',
+    relPath: 'scripts/lib/lib-research.cjs',
+    symbol: 'buildLibResearchPrompt',
+  });
   if (!resolved) {
+    if (projectRoot) {
+      agentIo.logAgentIo(projectRoot, 'skip', {
+        skill: 'ai-design3',
+        stageKey: 'design',
+        phase: 'lib_research',
+        featureId,
+        sessionId,
+        reason: 'no_agent_bin',
+        promptRef: promptRefStr,
+      });
+    }
     return { ran: false, ok: false, reason: 'no agent binary (install Cursor CLI or set AI_CODEGEN_AGENT_BIN)' };
   }
   const { bin, args_prefix } = resolved;
@@ -218,18 +235,74 @@ function runLibResearchAgent({ worktreePath, prompt }) {
   }
   args.push(prompt);
 
+  const { callId } = projectRoot
+    ? agentIo.logAgentIo(projectRoot, 'begin', {
+        skill: 'ai-design3',
+        stageKey: 'design',
+        phase: 'lib_research',
+        featureId,
+        sessionId: sessionId || process.env.AI_SESSION_ID,
+        agentBin: bin,
+        promptRef: promptRefStr,
+        promptSha: agentIo.sha256Short(prompt),
+        promptDynamic: featureId ? `feature_id=${featureId}` : '',
+        outputPath,
+        argvSummary: 'agent --workspace … --print --trust --force <prompt>',
+      })
+    : { callId: '' };
+
+  const t0 = Date.now();
   const r = spawnSync(bin, args, {
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
     timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : undefined,
     env: { ...process.env },
   });
+  const elapsed = Date.now() - t0;
 
   if (r.error && r.error.code === 'ETIMEDOUT') {
+    if (projectRoot) {
+      agentIo.logAgentIo(projectRoot, 'end', {
+        skill: 'ai-design3',
+        stageKey: 'design',
+        phase: 'lib_research',
+        featureId,
+        sessionId,
+        callId,
+        agentBin: bin,
+        promptRef: promptRefStr,
+        elapsedMs: elapsed,
+        ok: false,
+        reason: 'agent timeout',
+        stdout: r.stdout,
+        stderr: r.stderr,
+      });
+    }
     return { ran: true, ok: false, reason: 'agent timeout' };
   }
   const status = typeof r.status === 'number' ? r.status : 1;
-  return { ran: true, ok: status === 0, reason: status !== 0 ? `agent exit ${status}` : undefined };
+  const ok = status === 0;
+  if (projectRoot) {
+    agentIo.logAgentIo(projectRoot, 'end', {
+      skill: 'ai-design3',
+      stageKey: 'design',
+      phase: 'lib_research',
+      featureId,
+      sessionId,
+      callId,
+      agentBin: bin,
+      promptRef: promptRefStr,
+      elapsedMs: elapsed,
+      exitCode: status,
+      ok,
+      reason: ok ? '' : `agent exit ${status}`,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      outputPath,
+      outputSummary: outputPath && fs.existsSync(outputPath) ? agentIo.summarizeJsonFile(outputPath) : undefined,
+    });
+  }
+  return { ran: true, ok, reason: ok ? undefined : `agent exit ${status}` };
 }
 
 function generateStub({ featureId, featureName, techStack, functionAreas }) {
@@ -423,8 +496,12 @@ function runLibResearch(opts) {
   });
 
   const agentResult = runLibResearchAgent({
+    projectRoot,
     worktreePath: projectRoot,
     prompt,
+    featureId,
+    outputPath,
+    sessionId: process.env.AI_SESSION_ID,
   });
 
   let libResearch;

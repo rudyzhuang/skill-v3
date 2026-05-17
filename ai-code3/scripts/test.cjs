@@ -10,6 +10,7 @@ const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
 const pipelineTooling = require('./lib/pipeline-ai-code3.cjs');
 const { evaluateWorktreeTestCoverage } = require('./lib/test-level-gate.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -245,6 +246,7 @@ async function run(ctx) {
               featureId: row.feature_id,
               timeoutMs: agentSubMs,
               extraEnv: {},
+              sessionId,
             });
             if (!ar.ok && ar.code === 3) {
               lastCode = 3;
@@ -280,6 +282,15 @@ async function run(ctx) {
         fail_reason: failReason || null,
         test_level_gate: levelGateInfo || null,
       });
+      if (passed) {
+        const config = gitSync.loadConfigDev(projectRoot);
+        const gr = gitSync.syncAfterFeature(projectRoot, 'test', row.feature_id, { config });
+        if (!gr.ok && !gr.skipped && gr.push_status === 'failed') {
+          lastCode = 7;
+          allPassed = false;
+          break;
+        }
+      }
       if (!passed) {
         allPassed = false;
         break;

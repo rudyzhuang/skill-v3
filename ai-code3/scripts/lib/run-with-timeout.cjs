@@ -13,13 +13,33 @@ const DEFAULT_GRACE_MS = 5000;
  * @returns {Promise<{ code: number, timedOut: boolean, pid: number|null }>}
  */
 function runWithTimeout(command, args, opts) {
-  const { cwd, env, timeoutMs, gracefulShutdownMs = DEFAULT_GRACE_MS, onSpawn } = opts;
+  const {
+    cwd,
+    env,
+    timeoutMs,
+    gracefulShutdownMs = DEFAULT_GRACE_MS,
+    onSpawn,
+    captureIo = false,
+  } = opts;
+  const stdio = captureIo ? ['ignore', 'pipe', 'pipe'] : 'inherit';
   return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...env },
-      stdio: 'inherit',
+      stdio,
     });
+    if (captureIo) {
+      child.stdout?.on('data', (d) => {
+        stdout += d.toString();
+        if (process.env.AI_CODE3_AGENT_TEE_STDOUT === '1') process.stderr.write(d);
+      });
+      child.stderr?.on('data', (d) => {
+        stderr += d.toString();
+        if (process.env.AI_CODE3_AGENT_TEE_STDERR === '1') process.stderr.write(d);
+      });
+    }
     if (typeof onSpawn === 'function' && child.pid) {
       try {
         onSpawn(child.pid);
@@ -34,7 +54,7 @@ function runWithTimeout(command, args, opts) {
       settled = true;
       clearTimeout(t);
       const c = timedOut ? 3 : code ?? 1;
-      resolve({ code: c, timedOut, pid: child.pid ?? null });
+      resolve({ code: c, timedOut, pid: child.pid ?? null, stdout, stderr });
     };
 
     const t = setTimeout(() => {

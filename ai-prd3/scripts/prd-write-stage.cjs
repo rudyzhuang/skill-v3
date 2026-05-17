@@ -8,6 +8,7 @@ const { parseArgs, requireProject, stagesPath, prdSpecPath, skillDirFrom } = req
 const { specUsesLegacyYamlClientTargets } = require('./prd-parse-client-targets.cjs');
 const { markPrdFailed } = require('./lib/stage-status.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -105,7 +106,25 @@ function main() {
   stagesFresh.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stagesFresh, null, 2)}\n`, 'utf8');
-  const prdIds = featureStages.collectPhaseFeatureIds(stagesFresh);
+
+  const configDev = gitSync.loadConfigDev(root);
+  const completeSync = gitSync.syncPipelineGit(root, 'prd_complete', {
+    config: configDev,
+    message: 'chore(prd): prd stage complete (docs, pipeline)',
+  });
+  if (!completeSync.ok) {
+    markPrdFailed(root, `git_sync_failed:${completeSync.reason || completeSync.push_error}`);
+    process.exit(completeSync.push_status === 'failed' ? 7 : 1);
+  }
+  const stagesAfterGit = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
+  stagesAfterGit.stages.prd.git_sync = stagesAfterGit.stages.prd.git_sync || {};
+  stagesAfterGit.stages.prd.git_sync.docs_pipeline_pushed_at = now;
+  stagesAfterGit.stages.prd.git_sync.last_commit = completeSync.commit || stagesAfterGit.stages.prd.git_sync.last_commit;
+  stagesAfterGit.stages.prd.git_sync.last_push_status =
+    completeSync.push_status || stagesAfterGit.stages.prd.git_sync.last_push_status;
+  fs.writeFileSync(stagesFile, `${JSON.stringify(stagesAfterGit, null, 2)}\n`, 'utf8');
+
+  const prdIds = featureStages.collectPhaseFeatureIds(stagesAfterGit);
   featureStages.appendStageLog(root, {
     skill: 'ai-prd3',
     stageKey: 'prd',
@@ -113,7 +132,7 @@ function main() {
     message: 'write-prd 完成，prd 阶段已标记 completed',
     detail: `summary_hash=${summaryHash.slice(0, 12)}…`,
   });
-  console.log(JSON.stringify({ ok: true, summary_hash: summaryHash }, null, 2));
+  console.log(JSON.stringify({ ok: true, summary_hash: summaryHash, git: completeSync }, null, 2));
 }
 
 main();

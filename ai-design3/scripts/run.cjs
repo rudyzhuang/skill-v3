@@ -17,6 +17,17 @@ const { createValidators, validateJson } = require('./lib/schema-validate.cjs');
 const { featureDeclaredInLists } = require('./lib/feature-list.cjs');
 const { appendSessionLog } = require('./lib/session-log.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
+
+function syncGitForFeatureIds(root, stageKey, featureIds) {
+  if (!featureIds?.length) return 0;
+  const config = gitSync.loadConfigDev(root);
+  for (const fid of featureIds) {
+    const r = gitSync.syncAfterFeature(root, stageKey, fid, { config });
+    if (!r.ok && !r.skipped && r.push_status === 'failed') return 7;
+  }
+  return 0;
+}
 const { runStyleScan } = require('./lib/style-scan.cjs');
 const { runLibResearch } = require('./lib/lib-research.cjs');
 const {
@@ -672,6 +683,8 @@ function main() {
         stages = featureStages.markFeaturesCompleted(stages, 'design', ids, {
           message: 'design 规格校验通过',
         });
+        const gitCode = syncGitForFeatureIds(root, 'design', ids);
+        if (gitCode !== 0) finish(gitCode, { reason: 'git_sync_failed' });
         featureStages.appendStageLog(root, {
           skill: 'ai-design3',
           stageKey: 'design',
@@ -1087,6 +1100,21 @@ function main() {
       contract: { validation: stages.stages.contract.validation, status: stages.stages.contract.status },
     });
     writeStages(root, stages, parsed.dryRun);
+    if (
+      !parsed.dryRun &&
+      stages.stages.contract.status === 'completed' &&
+      stages.stages.contract.validation?.passed
+    ) {
+      const syncIds = [
+        ...new Set(
+          (artifacts || [])
+            .map((a) => a.feature_id)
+            .filter((fid) => !ids.length || ids.includes(fid))
+        ),
+      ];
+      const gitCode = syncGitForFeatureIds(root, 'contract', syncIds);
+      if (gitCode !== 0) finish(gitCode, { reason: 'git_sync_failed' });
+    }
     if (stages.stages.contract.outputs.timed_out) finish(EXIT.TIMEOUT, { timed_out: true });
     if (anyMissing) finish(EXIT.PRECHECK, { reason: 'missing_artifact_files' });
     if (anyFailed) finish(EXIT.QUALITY, { reason: 'contract_checks_failed' });
@@ -1287,6 +1315,8 @@ function main() {
     stages.stages.design_review.completed_at = isoNow();
     if (!parsed.dryRun) {
       const wdrIds = filterFeatures(unionFeatureIds(stages), parsed.feature) || [];
+      const gitCode = syncGitForFeatureIds(root, 'design_review', wdrIds);
+      if (gitCode !== 0) finish(gitCode, { reason: 'git_sync_failed' });
       featureStages.appendStageLog(root, {
         skill: 'ai-design3',
         stageKey: 'design_review',

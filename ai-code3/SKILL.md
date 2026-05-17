@@ -30,7 +30,7 @@ disable-model-invocation: true
 ## codegen 与 Cursor Agent（规划真源）
 
 - **worktree + 分相 Agent、环境变量、CI 跳过策略、状态字段** 以 **`docs/spec/code3.md` §7.4–§7.12** 为准（对齐上一代 **ai-codegen2**，状态落在 **`stages.codegen.outputs.worktrees[]`** 与 **`outputs.agent`**）。  
-- **`codegen.cjs`** 已拆分 **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`**、**`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**；若业务目录尚未初始化 git，codegen 会先自动 `git init` + 初始提交，再进入 worktree 与 diff-guard；**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
+- **`codegen.cjs`** 已拆分 **`lib/codegen-worktree.cjs`**、**`lib/codegen-gates.cjs`**、**`lib/codegen-scaffold.cjs`**、**`lib/invoke-codegen-agent.cjs`**；**Git 初始化在 prd `bootstrap`**（**`input-spec.md` §3.5**），codegen **不再** `git init`；每个 feature 完成后由 **`git-pipeline-sync`** 对 **`src/`** 等路径 **commit+push**；**不得**弱化 **diff-guard** 与 **`stages.json`** 原子写。
 - 当 `AI_CODE3_SKIP_AGENT=1` 且 `AI_CODE3_ALLOW_NO_AGENT_PASS=yes` 时，codegen 经 **`lib/codegen-health-full-scaffold.cjs`** 按 **`client_targets`** 在 **feature worktree** 落盘 **`src/<client_target>/`**；非 feature 工具链（**`package.json`**、**`scripts/build.cjs`**）写入 **`.pipeline/ai-code3/`**，**禁止**在业务仓根或 worktree 根落盘上述文件；**禁止**在仓库根落盘 `backend/`、`website/`、`apps/mobile/` 等 V2 端目录。
 
 ## 业务项目路径（相对 `<project_root>/`）

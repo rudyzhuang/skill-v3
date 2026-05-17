@@ -1,7 +1,9 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { runWithTimeout } = require('./run-with-timeout.cjs');
+const agentIo = require('../../../scripts/lib/agent-io-log.cjs');
 
 function stageLabelForLog(phase) {
   const p = String(phase || 'impl');
@@ -61,12 +63,26 @@ async function invokeAiCode3Agent({
   featureId,
   timeoutMs,
   extraEnv = {},
+  sessionId,
 }) {
   const bin =
     process.env.AI_CODE3_AGENT_BIN ||
     process.env.AI_CODEGEN_AGENT_BIN ||
     '';
   if (!bin.trim()) {
+    agentIo.logAgentIo(projectRoot, 'skip', {
+      skill: 'ai-code3',
+      stageKey: stageLabelForLog(phase),
+      phase: String(phase || 'impl'),
+      featureId: featureId != null ? String(featureId) : '',
+      sessionId: sessionId || process.env.AI_SESSION_ID,
+      reason: 'no_agent_bin',
+      promptRef: agentIo.promptRef({
+        skill: 'ai-code3',
+        relPath: 'scripts/lib/invoke-ai-code3-agent.cjs',
+        symbol: 'buildCursorAgentPrompt',
+      }),
+    });
     console.error(
       `[ai-code3] cursor-agent skip phase=${String(phase || 'impl')} reason=no_agent_bin`
     );
@@ -83,28 +99,50 @@ async function invokeAiCode3Agent({
   if (fid) env.AI_CODE3_FEATURE_ID = fid;
   const cmdBase = path.basename(bin).toLowerCase();
   const args = [];
+  let promptText = '';
   if (cmdBase === 'cursor-agent') {
     args.push('--print', '--trust');
-    args.push(
-      buildCursorAgentPrompt({
-        phase,
-        worktreePath,
-        projectRoot,
-        featureId: fid,
-        extraEnv,
-      })
-    );
+    promptText = buildCursorAgentPrompt({
+      phase,
+      worktreePath,
+      projectRoot,
+      featureId: fid,
+      extraEnv,
+    });
+    args.push(promptText);
   }
+
+  const stageKey = stageLabelForLog(phase);
+  const promptRefStr = agentIo.promptRef({
+    skill: 'ai-code3',
+    relPath: 'scripts/lib/invoke-ai-code3-agent.cjs',
+    symbol: 'buildCursorAgentPrompt',
+  });
+  const outPath = String(extraEnv?.AI_CODE3_CODE_REVIEW_OUTPUT || '').trim();
+  const { callId } = agentIo.logAgentIo(projectRoot, 'begin', {
+    skill: 'ai-code3',
+    stageKey,
+    phase: String(phase || 'impl'),
+    featureId: fid,
+    sessionId: sessionId || process.env.AI_SESSION_ID,
+    agentBin: bin,
+    promptRef: promptRefStr,
+    promptSha: agentIo.sha256Short(promptText),
+    promptDynamic: fid ? `feature_id=${fid}` : '',
+    outputPath: outPath || undefined,
+    argvSummary: cmdBase === 'cursor-agent' ? '--print --trust <prompt>' : '<prompt>',
+  });
 
   const t0 = Date.now();
   console.error(
-    `[ai-code3] cursor-agent begin phase=${String(phase || 'impl')}${fid ? ` feature_id=${fid}` : ''} timeout_ms=${timeoutMs} cwd=${worktreePath}`
+    `[ai-code3] cursor-agent begin phase=${String(phase || 'impl')}${fid ? ` feature_id=${fid}` : ''} timeout_ms=${timeoutMs} cwd=${worktreePath} call_id=${callId}`
   );
 
   const r = await runWithTimeout(bin, args, {
     cwd: worktreePath,
     timeoutMs,
     env,
+    captureIo: true,
     onSpawn(pid) {
       try {
         const runtimeIo = require('../../../ai-auto3/scripts/lib/runtime-io.cjs');
@@ -148,8 +186,30 @@ async function invokeAiCode3Agent({
   const elapsed = Date.now() - t0;
   const ok = !r.timedOut && r.code === 0;
   const label = stageLabelForLog(phase);
+  let outputSummary;
+  if (outPath && fs.existsSync(outPath)) {
+    outputSummary = agentIo.summarizeJsonFile(outPath);
+  }
+  agentIo.logAgentIo(projectRoot, 'end', {
+    skill: 'ai-code3',
+    stageKey,
+    phase: String(phase || 'impl'),
+    featureId: fid,
+    sessionId: sessionId || process.env.AI_SESSION_ID,
+    callId,
+    agentBin: bin,
+    promptRef: promptRefStr,
+    elapsedMs: elapsed,
+    exitCode: r.code,
+    ok,
+    reason: r.timedOut ? 'agent_timed_out' : ok ? '' : `agent_exit_${r.code ?? 1}`,
+    stdout: r.stdout,
+    stderr: r.stderr,
+    outputPath: outPath || undefined,
+    outputSummary,
+  });
   console.error(
-    `[ai-code3] cursor-agent end phase=${String(phase || 'impl')}${fid ? ` feature_id=${fid}` : ''} ok=${ok ? 1 : 0} exit=${r.code ?? 'null'} elapsed_ms=${elapsed}${r.timedOut ? ' timed_out=1' : ''}`
+    `[ai-code3] cursor-agent end phase=${String(phase || 'impl')}${fid ? ` feature_id=${fid}` : ''} ok=${ok ? 1 : 0} exit=${r.code ?? 'null'} elapsed_ms=${elapsed}${r.timedOut ? ' timed_out=1' : ''} call_id=${callId}`
   );
   if (r.timedOut) {
     console.error(`failed_stage=${label}${fid ? ` feature_id=${fid}` : ''} timed_out=1`);
@@ -166,4 +226,4 @@ async function invokeAiCode3Agent({
   };
 }
 
-module.exports = { invokeAiCode3Agent, stageLabelForLog };
+module.exports = { invokeAiCode3Agent, stageLabelForLog, buildCursorAgentPrompt };

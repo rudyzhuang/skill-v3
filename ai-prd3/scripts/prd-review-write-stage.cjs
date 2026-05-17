@@ -5,6 +5,7 @@ const path = require('path');
 const { parseArgs, requireProject, stagesPath, skillDirFrom } = require('./lib/paths.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const agentIo = require('../../scripts/lib/agent-io-log.cjs');
 
 function parseFeatureRowsFromFeatureList(md) {
   const m = md.match(/^##\s+Features\s*$/m);
@@ -89,6 +90,19 @@ function main() {
     console.error('找不到 JSON 文件:', jsonPath);
     process.exit(1);
   }
+  const sessionId = args.sessionId || process.env.AI_SESSION_ID || '';
+  agentIo.logAgentArtifactIn(root, {
+    skill: 'ai-prd3',
+    stageKey: 'prd_review',
+    sessionId,
+    jsonPath,
+    promptRef: agentIo.promptRef({
+      skill: 'ai-prd3',
+      relPath: 'prompts/prd-review.md',
+    }),
+    inputSummary: agentIo.summarizeJsonFile(jsonPath),
+    ok: true,
+  });
 
   const stagesFile = stagesPath(root);
   let stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));

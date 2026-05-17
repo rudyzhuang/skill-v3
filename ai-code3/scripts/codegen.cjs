@@ -13,11 +13,26 @@ const { invokeCodegenAgent } = require('./lib/invoke-codegen-agent.cjs');
 const { appendHeartbeat } = require('./lib/session-log.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
   if (!fs.existsSync(p)) return {};
   return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+
+function syncPipelineGitForFeature(projectRoot, stageKey, featureId) {
+  const config = loadDevConfig(projectRoot);
+  const r = gitSync.syncAfterFeature(projectRoot, stageKey, featureId, { config });
+  if (!r.ok && !r.skipped) {
+    console.error(
+      `[ai-code3] git sync ${stageKey}/${featureId} failed:`,
+      r.reason || r.push_error || 'unknown'
+    );
+    if (r.push_status === 'failed') return 7;
+    return 1;
+  }
+  return 0;
 }
 
 function stageTimeoutMs(config, key, fallbackSec) {
@@ -127,58 +142,17 @@ function runDiffGuard(repoRoot, relPaths) {
   return { exit: 1, reason: r.stderr || 'git_diff_failed' };
 }
 
-function ensureGitRepoForCodegen(projectRoot, baseBranch) {
+function ensureGitRepoForCodegen(projectRoot, _baseBranch) {
   const inside = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree'], {
     encoding: 'utf8',
   });
   if (inside.status === 0 && String(inside.stdout || '').trim() === 'true') return { ok: true };
 
-  // Empty template dir avoids parallel init racing on .git/info/exclude (Xcode git templates).
-  const init = spawnSync('git', ['-C', projectRoot, '-c', 'init.templateDir=', 'init'], {
-    encoding: 'utf8',
-  });
-  if (init.status !== 0) {
-    const recheck = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree'], {
-      encoding: 'utf8',
-    });
-    if (recheck.status === 0 && String(recheck.stdout || '').trim() === 'true') {
-      return { ok: true };
-    }
-    return { ok: false, reason: init.stderr || 'git_init_failed' };
-  }
-
-  const target = baseBranch || 'main';
-  const cur = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
-  const currentBranch = String(cur.stdout || '').trim();
-  if (!currentBranch || currentBranch !== target) {
-    const chk = spawnSync('git', ['-C', projectRoot, 'checkout', '-B', target], { encoding: 'utf8' });
-    if (chk.status !== 0) {
-      return { ok: false, reason: chk.stderr || 'git_checkout_base_failed' };
-    }
-  }
-
-  spawnSync('git', ['-C', projectRoot, 'add', '-A'], { encoding: 'utf8' });
-  const hasHead = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
-  if (hasHead.status !== 0) {
-    const commit = spawnSync(
-      'git',
-      ['-C', projectRoot, 'commit', '--allow-empty', '-m', 'chore: initialize repository for ai-code3 autorun'],
-      {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || 'ai-code3',
-          GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || 'ai-code3@local',
-          GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || 'ai-code3',
-          GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || 'ai-code3@local',
-        },
-      }
-    );
-    if (commit.status !== 0) {
-      return { ok: false, reason: commit.stderr || commit.stdout || 'git_initial_commit_failed' };
-    }
-  }
-  return { ok: true };
+  return {
+    ok: false,
+    reason:
+      'not_a_git_repo: run ai-prd3 bootstrap first (input-spec.md §3.5 — git init moved to prd stage)',
+  };
 }
 
 /**
@@ -527,6 +501,7 @@ async function run(ctx) {
           phase: 'impl',
           timeoutMs: subMs,
           featureId: row.feature_id,
+          sessionId,
         });
         if (ir.skipped) {
           agentMeta = { ...agentMeta, skipped: true, skip_reason: ir.reason || 'no_agent_bin' };
@@ -656,6 +631,7 @@ async function run(ctx) {
             phase: 'test',
             timeoutMs: subMs,
             featureId: row.feature_id,
+            sessionId,
           });
           if (!tr.ok && !tr.skipped) {
             testStatus = 'failed';
@@ -701,6 +677,8 @@ async function run(ctx) {
             `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} test skipped_no_spec`
           );
         }
+        const gitCode = syncPipelineGitForFeature(projectRoot, 'codegen', row.feature_id);
+        if (gitCode !== 0) return gitCode;
       }
     }
   } finally {

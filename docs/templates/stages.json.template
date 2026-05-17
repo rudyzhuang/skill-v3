@@ -10,8 +10,11 @@
     "root_path": "",
     "name": "",
     "git": {
-      "remote": "",
-      "default_branch": "main"
+      "remote": "origin",
+      "remote_url": "",
+      "default_branch": "main",
+      "repo_initialized_at": null,
+      "remote_configured_at": null
     }
   },
   "pipeline": {
@@ -84,7 +87,13 @@
         "warnings": []
       },
       "generated_files": [],
-      "blocking_issues": []
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": "",
+        "last_push_status": "not_requested"
+      }
     },
     "prd_review": {
       "status": "not_started",

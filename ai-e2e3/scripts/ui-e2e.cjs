@@ -11,6 +11,7 @@ const { sha256Stable, uiE2eSummaryInput } = require('./lib/summary-hash.cjs');
 const { invokeE2eAgent } = require('./lib/invoke-e2e-agent.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const agentIo = require('../../scripts/lib/agent-io-log.cjs');
 
 function stageTimeoutS(config) {
   const v = config?.timeouts?.stages?.ui_e2e_s;
@@ -24,7 +25,7 @@ function uiE2eCompleted(stage, expectedHash, forceRerun) {
   return true;
 }
 
-async function runUiTestFix(projectRoot, config, failedResults, outputDir) {
+async function runUiTestFix(projectRoot, config, failedResults, outputDir, sessionId) {
   const bin =
     process.env.AI_E2E3_AGENT_BIN ||
     process.env.AI_CODE3_AGENT_BIN ||
@@ -40,13 +41,46 @@ async function runUiTestFix(projectRoot, config, failedResults, outputDir) {
     'Failures:',
     summary,
   ].join('\n');
+  const promptRefStr = agentIo.promptRef({
+    skill: 'ai-e2e3',
+    relPath: 'scripts/ui-e2e.cjs',
+    symbol: 'runUiTestFix',
+  });
+  const { callId } = agentIo.logAgentIo(projectRoot, 'begin', {
+    skill: 'ai-e2e3',
+    stageKey: 'ui_e2e',
+    phase: 'ui_test_fix',
+    sessionId,
+    agentBin: bin,
+    promptRef: promptRefStr,
+    promptSha: agentIo.sha256Short(prompt),
+    promptDynamic: `failures=${failedResults.length}`,
+    argvSummary: '--print --trust <prompt>',
+  });
   const args = path.basename(bin).toLowerCase() === 'cursor-agent' ? ['--print', '--trust', prompt] : [prompt];
+  const t0 = Date.now();
   const r = await runWithTimeout(bin, args, {
     cwd: projectRoot,
     timeoutMs: 600000,
     env: { ...process.env, AI_E2E3_PHASE: 'ui_test_fix', AI_E2E3_PROJECT: projectRoot },
   });
-  return { attempted: true, ok: !r.timedOut && r.code === 0 };
+  const ok = !r.timedOut && r.code === 0;
+  agentIo.logAgentIo(projectRoot, 'end', {
+    skill: 'ai-e2e3',
+    stageKey: 'ui_e2e',
+    phase: 'ui_test_fix',
+    sessionId,
+    callId,
+    agentBin: bin,
+    promptRef: promptRefStr,
+    elapsedMs: Date.now() - t0,
+    exitCode: r.code,
+    ok,
+    reason: r.timedOut ? 'agent_timed_out' : ok ? '' : `agent_exit_${r.code ?? 1}`,
+    stdout: r.stdout,
+    stderr: r.stderr,
+  });
+  return { attempted: true, ok };
 }
 
 /**
@@ -161,11 +195,12 @@ async function runUiE2e(projectRoot, opts = {}) {
       scenarios,
       outputJsonPath: outputJson,
       agentTimeoutMs: Math.min(timeoutMs, 600000),
+      sessionId,
     });
     const failed = results.filter((r) => !r.passed);
     if (failed.length === 0) break;
     if (fixAttempts >= maxFix) break;
-    const fix = await runUiTestFix(projectRoot, config, failed, outDir);
+    const fix = await runUiTestFix(projectRoot, config, failed, outDir, sessionId);
     if (!fix.attempted || !fix.ok) break;
     fixAttempts += 1;
   }

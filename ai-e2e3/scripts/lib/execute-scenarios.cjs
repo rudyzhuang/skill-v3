@@ -75,7 +75,8 @@ async function runWebScenarioStub(scenario, baseUrl, vars) {
  * @returns {Promise<object[]>}
  */
 async function executeScenarios(opts) {
-  const { projectRoot, config, stagesDoc, scenarios, outputJsonPath, agentTimeoutMs } = opts;
+  const { projectRoot, config, stagesDoc, scenarios, outputJsonPath, agentTimeoutMs, sessionId } =
+    opts;
   const stub = isStubMode(config);
   const results = [];
   /** @type {Record<string, { ok: boolean, deviceId?: string, error?: string, mode?: string }>} */
@@ -125,6 +126,7 @@ async function executeScenarios(opts) {
               outputJsonPath,
               timeoutMs: agentTimeoutMs,
               mode: 'browser',
+              sessionId,
             });
             if (agentRes.skipped) {
               if (isSoakStrict(config)) {
@@ -172,6 +174,7 @@ async function executeScenarios(opts) {
             timeoutMs: agentTimeoutMs,
             mode: 'dart',
             deviceId: prep.deviceId,
+            sessionId,
           });
           if (agentRes.skipped) {
             if (isSoakStrict(config)) {

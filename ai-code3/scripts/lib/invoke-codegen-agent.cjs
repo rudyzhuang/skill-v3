@@ -3,7 +3,7 @@
 const { invokeAiCode3Agent } = require('./invoke-ai-code3-agent.cjs');
 
 /** @deprecated 名称保留：请优先使用 {@link invokeAiCode3Agent} */
-async function invokeCodegenAgent({ worktreePath, projectRoot, phase, timeoutMs, featureId }) {
+async function invokeCodegenAgent({ worktreePath, projectRoot, phase, timeoutMs, featureId, sessionId }) {
   return invokeAiCode3Agent({
     worktreePath,
     projectRoot,
@@ -11,6 +11,7 @@ async function invokeCodegenAgent({ worktreePath, projectRoot, phase, timeoutMs,
     featureId: featureId || '',
     timeoutMs,
     extraEnv: {},
+    sessionId,
   });
 }
 

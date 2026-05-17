@@ -8,6 +8,7 @@ const mergeGit = require('./lib/merge-git.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -643,6 +644,11 @@ async function run(ctx) {
       message: `merge-push 完成 commit=${mergeCommit}`,
     });
     stagesIo.writeStagesSync(projectRoot, doc);
+    const syncConfig = gitSync.loadConfigDev(projectRoot);
+    for (const fid of mpIds) {
+      const gr = gitSync.syncAfterFeature(projectRoot, 'merge_push', fid, { config: syncConfig });
+      if (!gr.ok && !gr.skipped && gr.push_status === 'failed') return 7;
+    }
     return 0;
     } finally {
       if (hbMerge) clearInterval(hbMerge);

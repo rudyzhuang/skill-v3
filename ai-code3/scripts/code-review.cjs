@@ -9,6 +9,7 @@ const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
 const { validateCodeReviewOutput } = require('./lib/validate-code-review-output.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 async function run(ctx) {
   const { projectRoot, options } = ctx;
@@ -149,6 +150,7 @@ async function run(ctx) {
       featureId: fid,
       timeoutMs,
       extraEnv: { AI_CODE3_CODE_REVIEW_OUTPUT: outPath },
+      sessionId: options.sessionId || '',
     });
 
     if (ar.skipped) {
@@ -238,6 +240,15 @@ async function run(ctx) {
       console.error(`failed_stage=code_review decision=${decision} critical=${crit}`);
       return 4;
     }
+    const crIds =
+      options.featureIds?.length > 0
+        ? options.featureIds
+        : featureStages.collectPhaseFeatureIds(doc);
+    const config = gitSync.loadConfigDev(projectRoot);
+    for (const fid of crIds) {
+      const gr = gitSync.syncAfterFeature(projectRoot, 'code_review', fid, { config });
+      if (!gr.ok && !gr.skipped && gr.push_status === 'failed') return 7;
+    }
     return 0;
   }
 
@@ -289,6 +300,15 @@ async function run(ctx) {
       },
     });
     stagesIo.writeStagesSync(projectRoot, doc);
+    const stubIds =
+      options.featureIds?.length > 0
+        ? options.featureIds
+        : featureStages.collectPhaseFeatureIds(doc);
+    const configStub = gitSync.loadConfigDev(projectRoot);
+    for (const fid of stubIds) {
+      const gr = gitSync.syncAfterFeature(projectRoot, 'code_review', fid, { config: configStub });
+      if (!gr.ok && !gr.skipped && gr.push_status === 'failed') return 7;
+    }
     return 0;
   }
 
@@ -301,6 +321,15 @@ async function run(ctx) {
       inputs: { ...cr.inputs, summary_hash: hash },
     });
     stagesIo.writeStagesSync(projectRoot, doc);
+    const passIds =
+      options.featureIds?.length > 0
+        ? options.featureIds
+        : featureStages.collectPhaseFeatureIds(doc);
+    const configPass = gitSync.loadConfigDev(projectRoot);
+    for (const fid of passIds) {
+      const gr = gitSync.syncAfterFeature(projectRoot, 'code_review', fid, { config: configPass });
+      if (!gr.ok && !gr.skipped && gr.push_status === 'failed') return 7;
+    }
     return 0;
   }
 

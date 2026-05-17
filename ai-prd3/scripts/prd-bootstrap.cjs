@@ -10,6 +10,7 @@ const { deepMerge } = require('./lib/merge-stages.cjs');
 const { fillMissingFromTemplate, wouldFillChange } = require('./lib/config-fill.cjs');
 const { resolveRawInputFilePath, loadRawInputContent } = require('./lib/raw-input.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function getGitRemoteUrl(root) {
   try {
@@ -233,6 +234,15 @@ function main() {
   copyIfMissing(path.join(tplRoot, 'config.release.json.template'), cfgRel);
   copyIfMissing(path.join(tplRoot, 'config.env.template'), cfgEnv);
 
+  const configDev = JSON.parse(fs.readFileSync(cfgDev, 'utf8'));
+  gitSync.ensureInputsDir(projectRoot);
+  gitSync.mergeGitignoreFromTemplate(projectRoot);
+  const gitInit = gitSync.initLocalAndRemote(projectRoot, configDev);
+  if (!gitInit.ok) {
+    console.error('bootstrap: git 初始化失败:', gitInit.reason);
+    process.exit(1);
+  }
+
   const devTplPath = path.join(tplRoot, 'config.dev.json.template');
   const relTplPath = path.join(tplRoot, 'config.release.json.template');
   for (const [label, cfgPath, tplPath] of [
@@ -302,6 +312,17 @@ function main() {
   stages.project = stages.project || {};
   if (!stages.project.project_id) stages.project.project_id = pid;
   stages.project.root_path = projectRoot;
+  stages.project.git = stages.project.git || {};
+  stages.project.git.default_branch =
+    stages.project.git.default_branch || configDev.git?.default_branch || 'main';
+  stages.project.git.remote = stages.project.git.remote || configDev.git?.remote || 'origin';
+  if (configDev.git?.remote_url) {
+    stages.project.git.remote_url = configDev.git.remote_url;
+  }
+  stages.project.git.repo_initialized_at = now;
+  if (gitInit.remoteConfigured) {
+    stages.project.git.remote_configured_at = now;
+  }
   stages.pipeline = stages.pipeline || {};
   stages.pipeline.updated_at = now;
   stages.pipeline.updated_by = 'ai-prd3';
@@ -397,6 +418,24 @@ function main() {
     fs.writeFileSync(f, `${JSON.stringify(j, null, 2)}\n`, 'utf8');
   }
 
+  const initialSync = gitSync.syncPipelineGit(projectRoot, 'prd_start', {
+    config: configDev,
+    message: 'chore(prd): bootstrap initial commit (entire project)',
+  });
+  if (!initialSync.ok) {
+    console.error('bootstrap: 全仓 git 同步失败:', initialSync.reason || initialSync.push_error);
+    process.exit(initialSync.push_status === 'failed' ? 7 : 1);
+  }
+
+  stages.stages.prd = stages.stages.prd || {};
+  stages.stages.prd.git_sync = stages.stages.prd.git_sync || {};
+  if (initialSync.committed || initialSync.push_status === 'pushed') {
+    stages.stages.prd.git_sync.initial_pushed_at = now;
+    stages.stages.prd.git_sync.last_commit = initialSync.commit || '';
+    stages.stages.prd.git_sync.last_push_status = initialSync.push_status || 'not_requested';
+  }
+  fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
+
   const gitignore = path.join(projectRoot, '.gitignore');
   if (fs.existsSync(gitignore)) {
     const g = fs.readFileSync(gitignore, 'utf8');
@@ -407,7 +446,18 @@ function main() {
     console.warn('建议在 .gitignore 中加入: .agent-sessions/');
   }
 
-  console.log(JSON.stringify({ ok: true, declared: parse.slugs, project_id: stages.project.project_id }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        declared: parse.slugs,
+        project_id: stages.project.project_id,
+        git: { initial_sync: initialSync },
+      },
+      null,
+      2
+    )
+  );
 }
 
 main();

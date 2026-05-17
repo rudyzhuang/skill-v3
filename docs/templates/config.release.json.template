@@ -11,7 +11,9 @@
     "default_client_targets": []
   },
   "git": {
+    "_doc": "Align with config.dev.json git keys; remote_url empty until set. See input-spec.md §3.5.",
     "remote": "origin",
+    "remote_url": "",
     "default_branch": "main",
     "release_branch": "release",
     "tag_prefix": "v",

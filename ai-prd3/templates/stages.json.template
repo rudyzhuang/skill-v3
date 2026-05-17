@@ -2,30 +2,26 @@
   "_schema": {
     "name": "skill-v3-stages",
     "version": 1,
-    "description": "Project-side pipeline state. This file is the recoverable source for local skill DB state."
+    "description": "Project-side pipeline state. This file is the recoverable source for local skill DB state.",
+    "feature_row_schema": "docs/templates/schemas/stages-feature-row.v1.schema.json"
   },
   "project": {
     "project_id": "",
     "root_path": "",
     "name": "",
     "git": {
-      "remote": "",
-      "default_branch": "main"
+      "remote": "origin",
+      "remote_url": "",
+      "default_branch": "main",
+      "repo_initialized_at": null,
+      "remote_configured_at": null
     }
   },
   "pipeline": {
     "current_stage": "prd",
     "last_completed_stage": null,
     "updated_at": null,
-    "updated_by": "ai-prd3",
-    "raw_input": {
-      "_doc": "Upstream requirements: file (inputs/req.md) or inline text (--raw-input-text / AI_PRD3_RAW_INPUT_TEXT). Inline persists to .pipeline/cache/raw-input.snapshot.md. See docs/spec/prd3.md §1.",
-      "source": "file",
-      "path": "inputs/req.md",
-      "snapshot_path": null,
-      "content_hash": null,
-      "synced_at": null
-    }
+    "updated_by": "ai-prd3"
   },
   "client_targets": {
     "declared": [],
@@ -50,11 +46,7 @@
       "inputs": {
         "summary_hash": "",
         "source_prd_spec": "docs/prd-spec.md",
-        "raw_input_refs": [],
-        "raw_input_path": "inputs/req.md",
-        "raw_input_source": "file",
-        "raw_input_hash": "",
-        "raw_input_functional_hash": ""
+        "raw_input_refs": []
       },
       "outputs": {
         "config_dev": "docs/config.dev.json",
@@ -95,7 +87,13 @@
         "warnings": []
       },
       "generated_files": [],
-      "blocking_issues": []
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": "",
+        "last_push_status": "not_requested"
+      }
     },
     "prd_review": {
       "status": "not_started",
@@ -299,7 +297,13 @@
         "test_codegen_status": "pending",
         "duration_ms": null,
         "timed_out": false,
-        "timeout_reason": null
+        "timeout_reason": null,
+        "agent": {
+          "mode": "",
+          "model": "",
+          "skipped": false,
+          "skip_reason": ""
+        }
       },
       "validation": {
         "passed": false,
@@ -585,6 +589,45 @@
           }
         ],
         "failed_paths": [],
+        "skip_reason": "",
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": "",
+        "warnings": []
+      },
+      "features": []
+    },
+    "ui_e2e": {
+      "status": "not_started",
+      "started_at": null,
+      "completed_at": null,
+      "inputs": {
+        "summary_hash": "",
+        "requires_stage": "smoke",
+        "scenario_sources": []
+      },
+      "outputs": {
+        "scenarios_total": 0,
+        "scenarios_passed": 0,
+        "scenarios_failed": 0,
+        "results": [
+          {
+            "scenario_id": "",
+            "client_target": "",
+            "platform": "",
+            "passed": false,
+            "duration_ms": null,
+            "error": "",
+            "step_failed": null
+          }
+        ],
+        "report_path": "",
+        "fix_attempts": 0,
         "skip_reason": "",
         "duration_ms": null,
         "timed_out": false,

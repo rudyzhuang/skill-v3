@@ -9,6 +9,7 @@ const { scanJsonSecrets } = require('./lib/secret-scan.cjs');
 const { markPrdReviewFailed } = require('./lib/stage-status.cjs');
 const { writeImplementationReport } = require('./prd-implementation-report.cjs');
 const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
+const gitSync = require('../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
 function safeMarkPrdReviewFailed(root, summary) {
   try {
@@ -221,12 +222,12 @@ function main() {
 
   stages = featureStages.backfillFeatureStages(stages);
   const phaseIds = featureStages.collectPhaseFeatureIds(stages);
-  const deferredIds = [...featureStages.collectDeferredFeatureIds(stages)];
+  const deferredStageIds = [...featureStages.collectDeferredFeatureIds(stages)];
   stages = featureStages.markFeaturesCompleted(stages, 'prd_review', phaseIds, {
     message: 'prd_review 终检通过',
   });
-  if (deferredIds.length) {
-    stages = featureStages.markFeaturesSkipped(stages, 'prd_review', deferredIds, {
+  if (deferredStageIds.length) {
+    stages = featureStages.markFeaturesSkipped(stages, 'prd_review', deferredStageIds, {
       message: 'deferred_features',
     });
   }
@@ -236,12 +237,21 @@ function main() {
   stages.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
+
+  const configDev = gitSync.loadConfigDev(root);
+  for (const fid of phaseIds) {
+    const gr = gitSync.syncAfterFeature(root, 'prd_review', fid, { config: configDev });
+    if (!gr.ok && !gr.skipped && gr.push_status === 'failed') {
+      process.exit(7);
+    }
+  }
+
   featureStages.appendStageLog(root, {
     skill: 'ai-prd3',
     stageKey: 'prd_review',
     featureIds: phaseIds,
     message: 'prd_review 终检通过',
-    detail: deferredIds.length ? `deferred=${deferredIds.join(',')}` : '',
+    detail: deferredStageIds.length ? `deferred=${deferredStageIds.join(',')}` : '',
   });
 
   try {

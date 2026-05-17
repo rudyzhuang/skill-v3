@@ -11,10 +11,12 @@
     "default_client_targets": []
   },
   "git": {
+    "_doc": "remote_url: empty until user sets Git hosting URL. allow_push: when true, each pipeline sync point (prd/design/code per feature) runs git push after commit; merge-push still follows §7.2 destructive confirm. See input-spec.md §3.5.",
     "remote": "origin",
+    "remote_url": "",
     "default_branch": "main",
     "working_branch_prefix": "ai",
-    "allow_push": false
+    "allow_push": true
   },
   "pipeline": {
     "_doc": "Orchestration flags consumed by ai-auto3 autorun.cjs (dev config only). See docs/spec/publish3.md §5.1.1 and docs/spec/auto3.md §5.1.",
