@@ -109,7 +109,7 @@ function parseArgs(argv) {
   return out;
 }
 
-const agentLog = require('../../../scripts/lib/agent-sessions-log.cjs');
+const agentLog = require('../../scripts/lib/agent-sessions-log.cjs');
 
 function appendLog(projectRoot, sessionId, line, opts = {}) {
   agentLog.appendSessionLine(projectRoot, sessionId, line, {

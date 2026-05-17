@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const agentLog = require('../../../scripts/lib/agent-sessions-log.cjs');
+const agentLog = require('../../scripts/lib/agent-sessions-log.cjs');
 
 /** 与 dash3 / stages.json.template 对齐 */
 const STAGE_KEYS = [
