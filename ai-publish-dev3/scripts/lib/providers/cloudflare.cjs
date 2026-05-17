@@ -121,6 +121,31 @@ function pagesEdgeHostname(serviceName) {
   return `${serviceName}.pages.dev`;
 }
 
+/**
+ * 解析已有 Pages 项目的真实 *.pages.dev 主机名（可能含账号后缀，如 notes-website-3an.pages.dev）。
+ * 禁止假设 `${serviceName}.pages.dev`——该主机名可能是其他账号/历史废置项目。
+ */
+async function resolvePagesEdgeHostname(accountId, serviceName, token) {
+  const { statusCode, json } = await cfApi(
+    'GET',
+    `/accounts/${accountId}/pages/projects/${encodeURIComponent(serviceName)}`,
+    token,
+    null
+  );
+  if (statusCode === 200 && json && json.success && json.result) {
+    const r = json.result;
+    const sub = r.subdomain && String(r.subdomain).trim();
+    if (sub) return sub.replace(/\/$/, '');
+    const domains = Array.isArray(r.domains) ? r.domains : [];
+    const pagesDev = domains
+      .map((d) => (typeof d === 'string' ? d : d && d.name))
+      .filter(Boolean)
+      .find((h) => String(h).endsWith('.pages.dev'));
+    if (pagesDev) return String(pagesDev).replace(/\/$/, '');
+  }
+  return pagesEdgeHostname(serviceName);
+}
+
 async function fetchWorkersDevCnameTarget(serviceName, token, accountId) {
   if (!token || !accountId) return `${serviceName}.workers.dev`;
   const { statusCode, json } = await cfApi('GET', `/accounts/${accountId}/workers/subdomain`, token, null);
@@ -181,7 +206,7 @@ async function ensureDnsRecord(zoneInfo, fqdn, recordType, content, token, proxi
   return statusCode === 200 && json && json.success;
 }
 
-async function ensurePagesProject(accountId, serviceName, token) {
+async function ensurePagesProject(accountId, serviceName, token, createIfMissing = false) {
   const { statusCode, json } = await cfApi(
     'GET',
     `/accounts/${accountId}/pages/projects/${encodeURIComponent(serviceName)}`,
@@ -194,6 +219,13 @@ async function ensurePagesProject(accountId, serviceName, token) {
     throw err;
   }
   if (statusCode === 200 && json && json.success) return;
+  if (!createIfMissing) {
+    const err = new Error(
+      `Pages 项目 "${serviceName}" 不存在；create_if_missing=false 时不自动创建（沿用已有 service_name 部署）`
+    );
+    err.code = 'CONFIG';
+    throw err;
+  }
   const { statusCode: c2, json: j2 } = await cfApi('POST', `/accounts/${accountId}/pages/projects`, token, {
     name: serviceName,
     production_branch: 'main',
@@ -227,7 +259,8 @@ async function setupPagesCustomHost(accountId, serviceName, customHost, token, a
   await bindPagesCustomDomain(accountId, serviceName, customHost, token);
   const zi = await getZoneInfo(customHost, token, accountIdForDns);
   if (zi) {
-    await ensureDnsRecord(zi, customHost, 'CNAME', pagesEdgeHostname(serviceName), token, true);
+    const edgeHost = await resolvePagesEdgeHostname(accountId, serviceName, token);
+    await ensureDnsRecord(zi, customHost, 'CNAME', edgeHost, token, true);
   }
 }
 
@@ -351,11 +384,13 @@ async function runCloudflareDeploy(projectRoot, deploy, buildArtifacts, log) {
     const worker = isWorkerDeploy(svc, artifactAbs);
 
     if (!worker) {
-      await ensurePagesProject(accountId, serviceName, token);
+      const createIfMissing = svc.create_if_missing === true;
+      await ensurePagesProject(accountId, serviceName, token, createIfMissing);
       const stat = fs.statSync(artifactAbs);
       const deployPath = stat.isDirectory() ? artifactAbs : path.dirname(artifactAbs);
       runCmd(`npx wrangler pages deploy "${deployPath}" --project-name="${serviceName}"`, projectRoot, childEnv, log);
-      let publicUrl = `https://${pagesEdgeHostname(serviceName)}`;
+      const edgeHost = await resolvePagesEdgeHostname(accountId, serviceName, token);
+      let publicUrl = `https://${edgeHost}`;
       if (customHost && !isEdgeHostname(customHost)) {
         await setupPagesCustomHost(accountId, serviceName, customHost, token, accountId);
         publicUrl = `https://${customHost}`;
