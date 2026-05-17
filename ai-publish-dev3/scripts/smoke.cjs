@@ -5,7 +5,35 @@ const path = require('path');
 const { stagesPath } = require('./lib/paths.cjs');
 const { updateStages } = require('./lib/stages-io.cjs');
 const { sha256Stable, smokeSummaryInput } = require('./lib/summary-hash.cjs');
-const { runHttpSmokeChecks } = require('./lib/http-smoke.cjs');
+const { runHttpSmokeChecks, needsResponseBody } = require('./lib/http-smoke.cjs');
+
+function isSoakStrict() {
+  return process.env.AI_SOAK3_STRICT === '1' || process.env.AI_SOAK3_STRICT === 'true';
+}
+
+/** publish3.md §7.4：strict 下 website/admin 须含 body 指纹 */
+function validateStrictSmokeChecks(checks, clientTargets) {
+  if (!isSoakStrict()) return { ok: true };
+  const targets = new Set((clientTargets || []).map((t) => String(t).toLowerCase()));
+  const webLike = ['website', 'admin'].filter((t) => targets.has(t) || targets.size === 0);
+  if (!webLike.length && !checks.some((c) => /website|admin/i.test(String(c.client_target || c.name || c.path || '')))) {
+    return { ok: true };
+  }
+  const hasBodyRule = (checks || []).some(
+    (c) =>
+      c.body_contains ||
+      c.body_not_contains ||
+      (c.title_contains && String(c.title_contains).trim())
+  );
+  if (!hasBodyRule && !needsResponseBody(checks)) {
+    return {
+      ok: false,
+      message:
+        'AI_SOAK3_STRICT=1：smoke.checks 须至少一条含 body_contains/body_not_contains/title_contains（website/admin 禁止仅验状态码）',
+    };
+  }
+  return { ok: true };
+}
 const {
   collectXSmokeChecks,
   mergeSmokeChecks,
@@ -157,6 +185,11 @@ async function runSmoke(projectRoot, opts = {}) {
   if (!safeOnly && xs.sources && xs.sources.length) checksSource.push('api.yaml:x-smoke');
   if (configChecks.length) checksSource.push('config.smoke.checks');
   if (safeOnly && configChecks.length === 0) checksSource.push('safe_only:get-head-only');
+
+  const strictCk = validateStrictSmokeChecks(effectiveChecks, config.client_targets);
+  if (!strictCk.ok) {
+    return { code: 4, failed_step: 'smoke', message: strictCk.message };
+  }
 
   if (effectiveChecks.length === 0) {
     if (opts.requireSmoke) {

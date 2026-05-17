@@ -9,8 +9,14 @@ const { resolveWebBaseUrl, substitutePlaceholders } = require('./resolve-base-ur
 const { runWithTimeout } = require('./run-with-timeout.cjs');
 const { invokeE2eAgent } = require('./invoke-e2e-agent.cjs');
 const { prepareMobileAndRun } = require('./mobile-device.cjs');
+const {
+  isSoakStrict,
+  runWebScenarioWithExpects,
+  mobileExpectsSatisfied,
+} = require('./execute-expect.cjs');
 
 function isStubMode(config) {
+  if (isSoakStrict(config)) return false;
   if (process.env.AI_E2E3_SKIP_AGENT === '1') return true;
   return !!(config.ui_e2e && config.ui_e2e.stub_mode === true);
 }
@@ -103,9 +109,14 @@ async function executeScenarios(opts) {
           row.step_failed = 'preflight';
         } else {
           vars.base_url = baseUrl;
-          if (stub) {
+          const hasExpect = (scenario.expect || []).length > 0;
+          if (stub && !hasExpect) {
             const r = await runWebScenarioStub(scenario, baseUrl, vars);
             Object.assign(row, r);
+          } else if (stub || (hasExpect && !process.env.AI_E2E3_AGENT_BIN)) {
+            const r = await runWebScenarioWithExpects(scenario, baseUrl, vars, substitutePlaceholders);
+            Object.assign(row, r);
+            if (r.executor) row.executor = r.executor;
           } else {
             const agentRes = await invokeE2eAgent({
               projectRoot,
@@ -116,9 +127,16 @@ async function executeScenarios(opts) {
               mode: 'browser',
             });
             if (agentRes.skipped) {
-              const r = await runWebScenarioStub(scenario, baseUrl, vars);
-              Object.assign(row, r);
-              if (!r.passed) row.error = `${row.error}; agent skipped: ${agentRes.reason}`;
+              if (isSoakStrict(config)) {
+                row.error = `AI_SOAK3_STRICT: Browser agent 未执行 (${agentRes.reason || 'skipped'})`;
+                row.step_failed = 'agent';
+              } else {
+                const r = hasExpect
+                  ? await runWebScenarioWithExpects(scenario, baseUrl, vars, substitutePlaceholders)
+                  : await runWebScenarioStub(scenario, baseUrl, vars);
+                Object.assign(row, r);
+                if (!r.passed) row.error = `${row.error}; agent skipped: ${agentRes.reason}`;
+              }
             } else if (!agentRes.ok) {
               row.error = agentRes.error || `agent exit ${agentRes.code}`;
               row.step_failed = 'agent';
@@ -140,8 +158,11 @@ async function executeScenarios(opts) {
           row.unresolvable = !!prep.unresolvable;
           row.blocker = prep.blocker || '';
         } else if (stub || process.env.AI_E2E3_SKIP_AGENT === '1') {
-          row.passed = true;
-          row.error = '';
+          const mobEv = mobileExpectsSatisfied(scenario, config, prep);
+          row.passed = mobEv.passed;
+          row.error = mobEv.error || '';
+          if (mobEv.executor) row.executor = mobEv.executor;
+          if (!mobEv.passed) row.step_failed = 'expect';
         } else {
           const agentRes = await invokeE2eAgent({
             projectRoot,
@@ -153,8 +174,15 @@ async function executeScenarios(opts) {
             deviceId: prep.deviceId,
           });
           if (agentRes.skipped) {
-            row.passed = true;
-            row.error = '';
+            if (isSoakStrict(config)) {
+              row.passed = false;
+              row.error = `AI_SOAK3_STRICT: Dart MCP agent 未执行 (${agentRes.reason || 'skipped'})`;
+              row.step_failed = 'agent';
+            } else {
+              const mobEv = mobileExpectsSatisfied(scenario, config, prep);
+              row.passed = mobEv.passed;
+              row.error = mobEv.error || '';
+            }
           } else {
             row.passed = agentRes.ok && agentRes.passed !== false;
             row.error = agentRes.error || '';

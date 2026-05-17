@@ -19,10 +19,10 @@ function tryLoadCode3SummaryHash() {
  * @param {string[]} featureIds
  * @param {string|null} forceRerun
  */
-function shouldSkipCodeStage(stagesDoc, stageKey, projectRoot, featureIds, forceRerun) {
+function shouldSkipCodeStage(stagesDoc, stageKey, projectRoot, featureIds, forceRerun, soakOpts = null) {
   const mod = tryLoadCode3SummaryHash();
   if (!mod || typeof mod.shouldSkipStage !== 'function') return false;
-  return mod.shouldSkipStage(stagesDoc, stageKey, projectRoot, featureIds, forceRerun);
+  return mod.shouldSkipStage(stagesDoc, stageKey, projectRoot, featureIds, forceRerun, soakOpts);
 }
 
 module.exports = { shouldSkipCodeStage, tryLoadCode3SummaryHash };

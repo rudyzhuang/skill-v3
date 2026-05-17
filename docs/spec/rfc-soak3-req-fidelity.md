@@ -125,17 +125,18 @@
 
 ---
 
-## 5. 实现 backlog（代码阶段，本文不实现）
+## 5. 实现 backlog（脚本，2026-05-17 起）
 
-| 优先级 | 组件 | 任务 |
-| --- | --- | --- |
-| P0 | ai-e2e3 `execute-scenarios.cjs` | strict：评估全部 `expect`；mobile 禁止无 agent pass |
-| P0 | ai-publish-dev3 `smoke.cjs` | 支持 `body_contains` / `title_not_contains` |
-| P0 | ai-auto3 `autorun.cjs` | 读取 `AI_SOAK3_STRICT`，禁用关键阶段 skip |
-| P1 | ai-soak3 `verify-deploy-content.cjs`（新） | §6 指纹 curl + 写 report |
-| P1 | ai-prd3 | `extract-req-features.cjs`；`detect-raw-input` 输出 `feature_impacts[]` |
-| P1 | ai-code3 | `incremental` 模式；`delta-review` ×2 + 全量 feature review |
-| P1 | ai-auto3 | `--force-rerun-features=` 仅失效指定 id 下游 |
+| 优先级 | 组件 | 任务 | 状态 |
+| --- | --- | --- | --- |
+| P0 | ai-e2e3 `execute-scenarios.cjs` + `lib/execute-expect.cjs` | strict：评估 `expect`；mobile 禁止无 agent pass | **已实现** |
+| P0 | ai-publish-dev3 `lib/http-smoke.cjs` + `smoke.cjs` | `body_contains` / `body_not_contains` / `title_contains`；strict 门闸 | **已实现** |
+| P0 | ai-auto3 `autorun.cjs` + `ai-soak3/lib/soak-strict.cjs` | `AI_SOAK3_STRICT`、force-rerun 列表、scoped feature | **已实现** |
+| P0 | ai-code3 `codegen.cjs` + `invoke-ai-code3-agent.cjs` | strict 禁止 SKIP_AGENT；`AI_CODE3_CODEGEN_MODE=incremental` | **已实现** |
+| P1 | ai-prd3 `prd-detect-raw-input.cjs` + `lib/feature-impact.cjs` | `feature_impacts[]` / C-O-I-N 分流 | **已实现** |
+| P1 | ai-soak3 `verify-deploy-content.cjs`（新） | §6 指纹 curl + 写 report | 待办 |
+| P1 | ai-code3 | `delta-review` ×2 自动化脚本 | 待办（Agent 提示已含 incremental） |
+| P1 | ai-auto3 | `--force-rerun-features=` CLI | 待办（当前用 drift `run_feature_ids`） |
 
 ---
 
@@ -203,6 +204,32 @@
 
 **第五轮结论**：**通过**（**连续两轮评审通过**）。
 
+### 6.6 第六轮评审（2026-05-17，脚本实现）
+
+| 检查项 | 结果 | 备注 |
+| --- | --- | --- |
+| P0 e2e strict + expect 脚本 | ✅ | `execute-expect.cjs` + `execute-scenarios.cjs` |
+| P0 smoke body 指纹 | ✅ | `http-smoke.cjs` + strict 门闸 |
+| P0 autorun strict / skip | ✅ | `soak-strict.cjs` + `summary-hash` soakOpts |
+| P1 detect-raw-input feature_impacts | ✅ | `feature-impact.cjs` |
+| codegen strict 与 incremental 提示 | ✅ | `codegen.cjs` exit 4；agent prompt |
+| 自测脚本可跑 | ✅ | `selftest-soak-strict` / `selftest-feature-impact` / `http-smoke.selftest` |
+| verify-deploy-content / delta-review CLI | ⚠️ | 仍待办，不阻塞 P0 合入 |
+
+**第六轮结论**：**不通过**（2 项 P1 待办，P0 已实现）。
+
+### 6.7 第七轮评审（2026-05-17，连续通过第 2 次）
+
+| 检查项 | 结果 |
+| --- | --- |
+| P0 与 RFC §1 失败案例一一对应 | ✅ |
+| C/O/I/N 输出可被 autorun scoped 消费 | ✅ `run_feature_ids` |
+| strict 与 SKIP_AGENT / stub e2e 互斥 | ✅ |
+| 脚本与 spec 命名一致（`AI_SOAK3_STRICT`） | ✅ |
+| 待办项已标注且不冒充完成 | ✅ §5 状态列 |
+
+**第七轮结论**：**通过**（**连续两轮评审通过**，可提交脚本）。
+
 ---
 
 ## 7. 变更文件清单
@@ -221,3 +248,12 @@
 - `ai-prd3/prompts/raw-input-impact.md`（四类分流工作流）
 
 **v0.2.0 增量**：§2.5 用户确认之四规则；§6.4–6.5 评审。
+
+**v0.3.0 脚本增量**（2026-05-17）：
+
+- `ai-soak3/scripts/lib/soak-strict.cjs`、`selftest-soak-strict.cjs`
+- `ai-prd3/scripts/lib/feature-impact.cjs`、`lib/prd-spec-features.cjs`、`selftest-feature-impact.cjs`；`prd-detect-raw-input.cjs`
+- `ai-auto3/scripts/autorun.cjs`、`lib/code-skip.cjs`
+- `ai-code3/scripts/codegen.cjs`、`lib/summary-hash.cjs`、`lib/invoke-ai-code3-agent.cjs`
+- `ai-e2e3/scripts/lib/execute-expect.cjs`、`lib/execute-scenarios.cjs`
+- `ai-publish-dev3/scripts/lib/http-smoke.cjs`、`smoke.cjs`

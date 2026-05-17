@@ -361,11 +361,25 @@ async function run(ctx) {
     }
   }
 
+  const soakStrict =
+    process.env.AI_SOAK3_STRICT === '1' || process.env.AI_SOAK3_STRICT === 'true';
   const skipAgent =
     process.env.AI_CODE3_SKIP_AGENT === '1' ||
     process.env.AI_CODEGEN_SKIP_AGENT === '1' ||
     (!(process.env.AI_CODE3_AGENT_BIN || '').trim() && !(process.env.AI_CODEGEN_AGENT_BIN || '').trim());
   const allowNoAgent = process.env.AI_CODE3_ALLOW_NO_AGENT_PASS === 'yes';
+
+  if (soakStrict && skipAgent) {
+    console.error(
+      'failed_stage=codegen: AI_SOAK3_STRICT=1 禁止 AI_CODE3_SKIP_AGENT / 无 Agent 完成 codegen（见 code3.md §7.12）'
+    );
+    if (!options.dryRun) {
+      writeTerminal(projectRoot, doc, 'codegen', 'failed', {
+        summary: 'AI_SOAK3_STRICT forbids skip agent',
+      });
+    }
+    return 4;
+  }
 
   let hb;
   if (sessionId) {

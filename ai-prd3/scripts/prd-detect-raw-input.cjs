@@ -7,6 +7,7 @@ const { detectRawInputDrift, loadRawInputContent, readStages } = require('./lib/
 const { parseRawRequirements, inferImpactHints, collectSection } = require('./lib/req-parse.cjs');
 const { validateDeployServicesCoverage } = require('./lib/sync-config-from-req.cjs');
 const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-targets.cjs');
+const { classifyFeatureImpacts, loadSpecFeatures } = require('./lib/feature-impact.cjs');
 
 function buildLoadOpts(args) {
   return {
@@ -57,6 +58,13 @@ function main() {
   }
 
   const impact_hints = inferImpactHints(parsed, { functional_change: functionalChange });
+  const specFeatures = loadSpecFeatures(root);
+  const classification = classifyFeatureImpacts(text, {
+    functionalChange,
+    driftChanged: drift.changed,
+    specFeatures,
+    parsed,
+  });
 
   const report = {
     ok: true,
@@ -74,13 +82,24 @@ function main() {
     functional_requirements_changed: functionalChange,
     impact_hints,
     config_deploy_coverage: configCoverage,
-    requires_agent: drift.changed && (functionalChange || impact_hints.some((h) => h.category === 'domain')),
+    feature_impacts: classification.feature_impacts,
+    new_feature_ids: classification.new_feature_ids,
+    impacted_feature_ids: classification.impacted_feature_ids,
+    orthogonal_feature_ids: classification.orthogonal_feature_ids,
+    run_feature_ids: classification.run_feature_ids,
+    config_only: classification.config_only,
+    requires_agent:
+      classification.requires_agent ||
+      (drift.changed && impact_hints.some((h) => h.category === 'domain')),
     requires_apply_config: !!parsed.domain_host,
+    requires_scoped_pipeline: classification.requires_scoped_pipeline,
     next_steps: [],
   };
 
   if (drift.changed) {
-    report.next_steps.push('Agent: 阅读 prompts/raw-input-impact.md，按 impact_hints 更新 docs/prd-spec.md 与各端 prd');
+    report.next_steps.push(
+      'Agent: 阅读 prompts/raw-input-impact.md，先做 C/O/I/N 分流，再更新 prd-spec（功能）与 config.*（配置）'
+    );
     if (parsed.domain_host) {
       report.next_steps.push('运行: node scripts/run.cjs apply-raw-input-config --project=<root>');
     }

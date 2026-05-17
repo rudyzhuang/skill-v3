@@ -36,6 +36,11 @@ const {
   groupSortKey,
 } = require('./lib/feature-groups.cjs');
 const { filterRemainingCodegenQueue } = require('../../ai-dash3/scripts/lib/features.cjs');
+const {
+  buildSoakAutorunPlan,
+  isSoakStrict,
+  shouldForceRerunStage,
+} = require('../../ai-soak3/scripts/lib/soak-strict.cjs');
 
 const DESIGN_CHAIN = [
   'scan-design-style',
@@ -195,6 +200,33 @@ function unionPhasePlanFeatureIds(doc) {
 
 function featureCsv(ids) {
   return ids.join(',');
+}
+
+function soakSkipOpts(soakPlan) {
+  if (!soakPlan) return null;
+  return {
+    soakStrict: soakPlan.strict,
+    forceRerunStages: soakPlan.forceRerunStages || [],
+    scopedFeatureIds: soakPlan.scopedFeatureIds || [],
+  };
+}
+
+function mergeForceRerunCli(cliForce, stageKey, soakPlan) {
+  const sk = normalizeStage(stageKey);
+  if (cliForce && (normalizeStage(cliForce) === sk || cliForce === 'all')) return cliForce;
+  if (soakPlan && shouldForceRerunStage(sk, null, soakPlan.forceRerunStages)) return sk;
+  return cliForce;
+}
+
+function filterPhasePlansBySoak(phasePlans, soakPlan) {
+  if (!soakPlan?.scopedFeatureIds?.length) return phasePlans;
+  const scope = new Set(soakPlan.scopedFeatureIds);
+  return phasePlans
+    .map((p) => ({
+      phase: p.phase,
+      featureIds: p.featureIds.filter((id) => scope.has(id)),
+    }))
+    .filter((p) => p.featureIds.length > 0);
 }
 
 function codegenWorktreesFromDisk(projectRoot) {
@@ -573,7 +605,8 @@ async function runLayerGroupsParallel(
   forceRerun,
   maxParallel,
   forceStub,
-  phaseFeatureIdsForPending
+  phaseFeatureIdsForPending,
+  soakPlan
 ) {
   const items = layerGroups.map((members) => ({
     members,
@@ -602,7 +635,7 @@ async function runLayerGroupsParallel(
         `spawn ai-code3 ${cmd} stage=${stageKey} group=${groupNo} ${key} --feature=${csv} session=${sid}`
       );
       const t0 = Date.now();
-      const code = await spawnCode3(projectRoot, cmd, csv, cfg, sid, forceRerun, forceStub);
+      const code = await spawnCode3(projectRoot, cmd, csv, cfg, sid, forceRerun, forceStub, soakPlan);
       const elapsed = Date.now() - t0;
       console.error(
         `[ai-auto3] code3 ${cmd} group ${groupNo} end feature=${csv} exit=${code} elapsed_ms=${elapsed}`
@@ -647,7 +680,8 @@ async function runCodeStageWithFeatureGroups(
   forceRerun,
   warningCache,
   realAgentDetected,
-  forceStub
+  forceStub,
+  soakPlan
 ) {
   const doc = readStages(projectRoot);
   const plan = planFeatureGroupWaves(featureIds, doc, projectRoot);
@@ -687,14 +721,24 @@ async function runCodeStageWithFeatureGroups(
       forceRerun,
       maxP,
       forceStub,
-      stageKey === 'codegen' ? featureIds : null
+      stageKey === 'codegen' ? featureIds : null,
+      soakPlan
     );
     if (code !== 0) return code;
   }
   return 0;
 }
 
-async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, forceRerun, forceStubOverride) {
+async function spawnCode3(
+  projectRoot,
+  sub,
+  featureCsvStr,
+  cfg,
+  sessionId,
+  forceRerun,
+  forceStubOverride,
+  soakPlan
+) {
   const script = scriptPath('ai-code3', 'scripts/run.cjs');
   const args = [sub, `--project=${projectRoot}`, `--feature=${featureCsvStr}`, `--session-id=${sessionId}`];
   const sk = normalizeStage(sub.replace(/-/g, '_'));
@@ -702,10 +746,16 @@ async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, force
     args.push(`--force-rerun=${sk}`);
   }
   const agentBin = resolveCode3AgentBin(cfg);
-  const forceStub = !!forceStubOverride || shouldForceStubRemaining(cfg);
-  const useStub = forceStub || !agentBin;
+  const strict = soakPlan?.strict || isSoakStrict();
+  const forceStub = strict ? false : !!forceStubOverride || shouldForceStubRemaining(cfg);
+  const useStub = strict ? false : forceStub || !agentBin;
   if (useStub) {
     args.push('--stub-remaining');
+  }
+  if (strict && !agentBin) {
+    console.error(
+      '[ai-auto3] AI_SOAK3_STRICT=1 但未配置 AI_CODE3_AGENT_BIN — codegen 将失败（禁止 SKIP_AGENT 伪完成）'
+    );
   }
   let t = stageTimeoutMs(cfg, sk === 'merge_push' ? 'merge_push' : sk);
   if (!useStub && sk === 'codegen') {
@@ -715,24 +765,33 @@ async function spawnCode3(projectRoot, sub, featureCsvStr, cfg, sessionId, force
     }
     // 未设置 AI_AUTO3_CODEGEN_AGENT_MAX_S 时沿用 config.dev.json → timeouts.stages.codegen_s
   }
+  const env = {
+    AI_CODE3_ALLOW_NO_AGENT_PASS: strict ? '' : allowNoAgentPass(cfg) ? 'yes' : '',
+    AI_CODE3_SKIP_AGENT: useStub ? '1' : '',
+    AI_CODE3_AGENT_BIN: agentBin,
+    AI_CODE3_CODEGEN_CONFIRM: 'yes',
+  };
+  if (strict) env.AI_SOAK3_STRICT = '1';
+  const inc = soakPlan?.incrementalFeatureIds || [];
+  if (inc.length && featureCsvStr.split(',').some((id) => inc.includes(id.trim()))) {
+    env.AI_CODE3_CODEGEN_MODE = 'incremental';
+  }
   return runNodeScript({
     node: process.execPath,
     script,
     args,
     cwd: projectRoot,
-    env: {
-      AI_CODE3_ALLOW_NO_AGENT_PASS: allowNoAgentPass(cfg) ? 'yes' : '',
-      AI_CODE3_SKIP_AGENT: useStub ? '1' : '',
-      AI_CODE3_AGENT_BIN: agentBin,
-      AI_CODE3_CODEGEN_CONFIRM: 'yes',
-    },
+    env,
     timeoutMs: t,
   });
 }
 
-async function runPublishDev(projectRoot, cfg, sessionId) {
+async function runPublishDev(projectRoot, cfg, sessionId, soakPlan) {
   const script = scriptPath('ai-publish-dev3', 'scripts/run.cjs');
   const args = [`--project=${projectRoot}`, '--invoked-by-autorun', `--session-id=${sessionId}`];
+  if (soakPlan && shouldForceRerunStage('deploy', null, soakPlan.forceRerunStages)) {
+    args.push('--force-rerun');
+  }
   const deployMs = stageTimeoutMs(cfg, 'deploy') + stageTimeoutMs(cfg, 'smoke');
   return runNodeScript({
     node: process.execPath,
@@ -764,13 +823,19 @@ async function ensureE2e3Deps(slice) {
   return { ok: true };
 }
 
-async function runE2e3(projectRoot, cfg, sessionId) {
+async function runE2e3(projectRoot, cfg, sessionId, soakPlan) {
   if (!uiE2eEnabled(cfg)) {
     console.error('[ai-auto3] ui_e2e.enabled=false — 跳过 ai-e2e3');
     return 0;
   }
   const script = scriptPath('ai-e2e3', 'scripts/run.cjs');
   const args = [`--project=${projectRoot}`, '--invoked-by-autorun', `--session-id=${sessionId}`];
+  if (soakPlan?.strict || isSoakStrict()) {
+    process.env.AI_SOAK3_STRICT = '1';
+  }
+  if (soakPlan && shouldForceRerunStage('ui_e2e', null, soakPlan.forceRerunStages)) {
+    args.push('--force-rerun');
+  }
   return runNodeScript({
     node: process.execPath,
     script,
@@ -876,17 +941,34 @@ async function main() {
   let doc = ck.stages;
   const cfg = ck.configDev;
   const featureIds = ck.featureIds;
+  const soakPlan = buildSoakAutorunPlan(projectRoot, { featureIds });
+  if (soakPlan.blockReason) {
+    console.error(`[ai-auto3] ${soakPlan.blockReason}`);
+    await runGenReport(projectRoot, sessionId, soakPlan.blockReason);
+    process.exit(4);
+  }
+  if (soakPlan.strict) {
+    process.env.AI_SOAK3_STRICT = '1';
+    appendLog(projectRoot, sessionId, 'AI_SOAK3_STRICT=1 — 强制重跑 codegen/build/deploy/smoke/ui_e2e');
+    console.error('[ai-auto3] AI_SOAK3_STRICT=1');
+  }
   const featStr = featureCsv(featureIds);
   const selectedFeatureSet = new Set(featureIds);
-  const realAgentDetected = !!resolveCode3AgentBin(cfg) && !shouldForceStubRemaining(cfg);
+  const realAgentDetected =
+    (!!resolveCode3AgentBin(cfg) && !shouldForceStubRemaining(cfg)) || soakPlan.strict;
   let phasePlans = collectPhasePlans(doc)
     .map((p) => ({
       phase: p.phase,
       featureIds: p.featureIds.filter((id) => selectedFeatureSet.has(id)),
     }))
     .filter((p) => p.featureIds.length > 0);
+  phasePlans = filterPhasePlansBySoak(phasePlans, soakPlan);
   if (!phasePlans.length) {
-    phasePlans = [{ phase: 'mvp', featureIds: featureIds.slice() }];
+    if (soakPlan.scopedFeatureIds?.length) {
+      phasePlans = [{ phase: 'scoped', featureIds: soakPlan.scopedFeatureIds.slice() }];
+    } else {
+      phasePlans = [{ phase: 'mvp', featureIds: featureIds.slice() }];
+    }
   }
 
   try {
@@ -1067,7 +1149,16 @@ async function main() {
             recordStageEvent(runId, 'design_review', 0, 0, false, `phase=${phase}`);
           } else if (['codegen', 'typecheck', 'test', 'code_review', 'merge_push', 'build'].includes(stage)) {
             const sk = stage;
-            if (shouldSkipCodeStage(doc, sk, projectRoot, phaseFeatureIds, opts.forceRerun)) {
+            if (
+              shouldSkipCodeStage(
+                doc,
+                sk,
+                projectRoot,
+                phaseFeatureIds,
+                mergeForceRerunCli(opts.forceRerun, sk, soakPlan),
+                soakSkipOpts(soakPlan)
+              )
+            ) {
               appendLog(projectRoot, sessionId, `skip ${sk} (summary_hash) phase=${phase}`);
               recordStageEvent(runId, sk, 0, 0, true, `hash skip phase=${phase}`);
               continue;
@@ -1088,7 +1179,9 @@ async function main() {
                 phaseFeatStr,
                 cfg,
                 `${sessionId}-${phase}-${sk}`,
-                opts.forceRerun
+                mergeForceRerunCli(opts.forceRerun, sk, soakPlan),
+                false,
+                soakPlan
               );
             } else {
               code = await runCodeStageWithFeatureGroups(
@@ -1098,15 +1191,26 @@ async function main() {
                 phaseFeatureIds,
                 cfg,
                 sessionId,
-                opts.forceRerun,
+                mergeForceRerunCli(opts.forceRerun, sk, soakPlan),
                 featurePlanWarningCache,
                 realAgentDetected,
-                false
+                false,
+                soakPlan
               );
+            }
+            if (sk === 'codegen' && soakPlan.strict) {
+              doc = readStages(projectRoot);
+              const ag = doc.stages?.codegen?.outputs?.agent;
+              if (ag?.skipped === true) {
+                exitCode = 4;
+                failureReason = 'AI_SOAK3_STRICT: codegen agent 被跳过';
+                stoppedAt = sk;
+                break;
+              }
             }
             if (code !== 0) {
               if (sk === 'codegen') {
-                if (realAgentDetected) {
+                if (realAgentDetected || soakPlan.strict) {
                   appendLog(
                     projectRoot,
                     sessionId,
@@ -1125,7 +1229,8 @@ async function main() {
                     cfg,
                     `${sessionId}-retry-stub-all`,
                     'codegen',
-                    true
+                    true,
+                    soakPlan
                   );
                 }
               }
@@ -1157,7 +1262,8 @@ async function main() {
                   cfg,
                   `${sessionId}-coverage-backfill-stub`,
                   'codegen',
-                  true
+                  true,
+                  soakPlan
                 );
                 const cov2 = validateCodegenCoverage(projectRoot, phaseFeatureIds);
                 if (backfill !== 0 || cov2.missing.length) {
@@ -1185,7 +1291,14 @@ async function main() {
               if (
                 !pf.ok &&
                 mappingFailureLooksLikeStaleBuild(pf.message) &&
-                shouldSkipCodeStage(doc, 'build', projectRoot, phaseFeatureIds, opts.forceRerun)
+                shouldSkipCodeStage(
+                  doc,
+                  'build',
+                  projectRoot,
+                  phaseFeatureIds,
+                  mergeForceRerunCli(opts.forceRerun, 'build', soakPlan),
+                  soakSkipOpts(soakPlan)
+                )
               ) {
                 appendLog(
                   projectRoot,
@@ -1198,7 +1311,9 @@ async function main() {
                   phaseFeatStr,
                   cfg,
                   `${sessionId}-${phase}-build-retry`,
-                  'build'
+                  'build',
+                  false,
+                  soakPlan
                 );
                 if (buildCode !== 0) {
                   exitCode = buildCode;
@@ -1216,7 +1331,7 @@ async function main() {
                 break;
               }
             }
-            const pub = await runPublishDev(projectRoot, cfg, `${sessionId}-${phase}`);
+            const pub = await runPublishDev(projectRoot, cfg, `${sessionId}-${phase}`, soakPlan);
             if (pub !== 0) {
               exitCode = pub;
               failureReason = `ai-publish-dev3 exit=${pub}`;
@@ -1225,7 +1340,7 @@ async function main() {
             }
             recordStageEvent(runId, 'deploy_smoke', pub, 0, false, `phase=${phase}`);
           } else if (stage === 'ui_e2e') {
-            const e2e = await runE2e3(projectRoot, cfg, `${sessionId}-${phase}`);
+            const e2e = await runE2e3(projectRoot, cfg, `${sessionId}-${phase}`, soakPlan);
             if (e2e !== 0) {
               exitCode = e2e;
               failureReason = `ai-e2e3 exit=${e2e}`;

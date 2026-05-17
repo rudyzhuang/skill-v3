@@ -88,7 +88,16 @@ function computeUpstreamHashForStage(stagesDoc, stageKey, projectRoot, featureId
 /**
  * 附录 A.3：已完成则跳过（不含 force-rerun）
  */
-function shouldSkipStage(stagesDoc, stageKey, projectRoot, featureIds, forceRerun) {
+function shouldSkipStage(stagesDoc, stageKey, projectRoot, featureIds, forceRerun, soakOpts = null) {
+  if (soakOpts?.soakStrict) {
+    const sk = stageKey;
+    const forceStages = soakOpts.forceRerunStages || [];
+    if (forceStages.includes(sk) || forceRerun === sk || forceRerun === 'all') return false;
+    if (soakOpts.scopedFeatureIds?.length) {
+      const scope = new Set(soakOpts.scopedFeatureIds);
+      if (featureIds.some((id) => scope.has(id))) return false;
+    }
+  }
   if (forceRerun && (forceRerun === stageKey || forceRerun === 'all')) return false;
   const st = stagesDoc.stages?.[stageKey];
   if (!st) return false;

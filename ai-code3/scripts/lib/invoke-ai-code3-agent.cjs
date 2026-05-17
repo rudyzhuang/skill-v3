@@ -27,6 +27,14 @@ function buildCursorAgentPrompt({ phase, worktreePath, projectRoot, featureId, e
     '- Do not modify contract artifacts under docs/contracts.',
     '- Do not print secrets.',
   ];
+  const codegenMode = String(process.env.AI_CODE3_CODEGEN_MODE || '').toLowerCase();
+  if (codegenMode === 'incremental') {
+    lines.push(
+      '- CODEGEN MODE: incremental — read existing source files first; patch/extend for the new requirement.',
+      '- Do NOT delete unrelated modules or replace the entire app with a template scaffold.',
+      '- Preserve existing behavior outside the scope of this feature change.'
+    );
+  }
   if (p === 'code_review') {
     lines.push(
       '- Perform code review and write JSON output to AI_CODE3_CODE_REVIEW_OUTPUT.',
