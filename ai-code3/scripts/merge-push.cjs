@@ -338,7 +338,12 @@ async function run(ctx) {
     try {
     doc = stagesIo.readStagesSync(projectRoot);
     const mergeStepMs = mergePushStageTimeoutMs(config);
-    const featureBranches = mergeGit.listFeatureBranchesToMerge(projectRoot, doc, targetBranch);
+    const featureBranches = mergeGit.listFeatureBranchesToMerge(
+      projectRoot,
+      doc,
+      targetBranch,
+      options.featureIds
+    );
     const preMergeHeadRes = mergeGit.git(projectRoot, ['rev-parse', 'HEAD'], { stdio: 'pipe' });
     if (preMergeHeadRes.status !== 0) {
       const msg = 'merge_push failed: cannot resolve pre-merge HEAD';

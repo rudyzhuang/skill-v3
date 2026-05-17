@@ -123,16 +123,22 @@ function collectWorktreeRows(doc) {
  * 去重后的待合并 feature 分支列表（不含 target_branch）。
  * @returns {{ branch: string, feature_id: string }[]}
  */
-function listFeatureBranchesToMerge(projectRoot, doc, targetBranch) {
+function listFeatureBranchesToMerge(projectRoot, doc, targetBranch, featureIds = null) {
   const rows = collectWorktreeRows(doc);
+  const allow =
+    Array.isArray(featureIds) && featureIds.length > 0
+      ? new Set(featureIds.map((id) => String(id).trim()).filter(Boolean))
+      : null;
   const out = [];
   const seen = new Set();
   for (const w of rows) {
+    const featureId = String(w?.feature_id || '').trim();
+    if (allow && !allow.has(featureId)) continue;
     const branch = resolveFeatureBranch(projectRoot, w);
     if (!branch || branch === targetBranch) continue;
     if (seen.has(branch)) continue;
     seen.add(branch);
-    out.push({ branch, feature_id: String(w?.feature_id || '') });
+    out.push({ branch, feature_id: featureId });
   }
   return out;
 }
