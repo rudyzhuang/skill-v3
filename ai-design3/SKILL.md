@@ -11,6 +11,16 @@ disable-model-invocation: true
 
 本 skill 的**规范真源**为仓库内 [`docs/spec/design3.md`](../docs/spec/design3.md) 与 [`docs/input-spec.md`](../docs/input-spec.md)；**`stages` 字段形状**以 [`docs/templates/stages.json.template`](../docs/templates/stages.json.template) 为准。脚本与 schema **仅驻留在本目录**（`ai-design3/`），**不**复制到业务仓；**不**读取 v2 的 `pipeline.db` 或旧契约路径。
 
+## 默认编排 Prompt（Agent 须先读）
+
+触发本 skill 时**先**打开 [`prompts/invoke-design3.md`](prompts/invoke-design3.md)。执行 **design-review** 链前**必须**在本会话导出：
+
+```bash
+export AI_DESIGN_DESIGN_REVIEW_USE_AGENT=1
+```
+
+（CI / `scripts/smoke.cjs` 除外：使用 `AI_DESIGN_DESIGN_REVIEW_USE_STUB=1` 或跳过 Agent，见 invoke 文档 §2。）
+
 ## 覆盖阶段与顺序（不可跳步）
 
 1. **design**：前置为 `stages.prd_review.status === "completed"` 且 `outputs.decision === "passed"`；本期 `feature_id` 来自 `stages.prd_review.review.phase_plan[*].feature_ids` 并集。
@@ -56,7 +66,7 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `AI_DESIGN_LIB_RESEARCH_WEB_SEARCH` / `AI_DESIGN_LIB_RESEARCH_READ_DOCS` | 写入 Agent prompt 的控制位（默认 `1`） |
 | `AI_DESIGN_LIB_RESEARCH_CACHE_TTL_DAYS` | 项目级缓存 TTL 天（默认 `30`） |
 | `AI_CODEGEN_AGENT_BIN` / `AI_CODEGEN_AGENT_TIMEOUT_MS` / `AI_CODEGEN_AGENT_MODEL` | 外部 Agent 可执行文件与超时（`lib-research` 与 design-review Agent 共用） |
-| `AI_DESIGN_DESIGN_REVIEW_USE_AGENT=1` | **显式开启** design-review 外部 Agent（默认仅确定性校验） |
+| `AI_DESIGN_DESIGN_REVIEW_USE_AGENT=1` | **默认编排须 export=1**（见 `prompts/invoke-design3.md`）；开启后 `validate-design-review` 逐 feature 调外部 Agent |
 | `AI_DESIGN_DESIGN_REVIEW_SKIP_AGENT=1` / `AI_DESIGN_SKIP_AGENT=1` | 跳过 design-review Agent |
 | `AI_DESIGN_DESIGN_REVIEW_USE_STUB=1` | 不调 Agent，写 stub JSON（CI） |
 | `AI_DESIGN_DESIGN_REVIEW_JSON=<path>` | 导入已产出的评审 JSON（等同 `merge-design-review` 输入） |
@@ -121,6 +131,13 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 ## 批量语义
 
 省略 `--feature` 时，design/contract 相关子命令处理 **`prd_review.review.phase_plan[*].feature_ids` 并集**；与 `--feature=<id>` 联用时，`id` 必须属于该并集。
+
+## LLM 提示词
+
+| 文件 | 用途 |
+| --- | --- |
+| [prompts/invoke-design3.md](prompts/invoke-design3.md) | **默认编排**：`PROJECT_ROOT`、`export AI_DESIGN_DESIGN_REVIEW_USE_AGENT=1`、子命令顺序 |
+| [prompts/design-review.md](prompts/design-review.md) | 外部 Agent 单 feature 语义评审 JSON 产出 |
 
 ## 发布前自检（design3 §10）
 
