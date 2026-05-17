@@ -771,6 +771,21 @@ async function spawnCode3(
       t = Math.min(t, Number(capSRaw) * 1000);
     }
     // 未设置 AI_AUTO3_CODEGEN_AGENT_MAX_S 时沿用 config.dev.json → timeouts.stages.codegen_s
+    if (strict) {
+      const minS = Number(process.env.AI_SOAK3_CODEGEN_MIN_S);
+      const perS = Number(process.env.AI_SOAK3_CODEGEN_PER_FEATURE_S);
+      const baseMin = Number.isFinite(minS) && minS > 0 ? minS : 7200;
+      const perFeature = Number.isFinite(perS) && perS > 0 ? perS : 600;
+      const n = featureCsvStr
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean).length;
+      const scaledS = Math.max(baseMin, n * perFeature);
+      t = Math.max(t, scaledS * 1000);
+      console.error(
+        `[ai-auto3] AI_SOAK3_STRICT codegen wall_timeout_s=${scaledS} features=${n} timeout_ms=${t}`
+      );
+    }
   }
   const env = {
     AI_CODE3_ALLOW_NO_AGENT_PASS: strict ? '' : allowNoAgentPass(cfg) ? 'yes' : '',

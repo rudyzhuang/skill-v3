@@ -58,3 +58,4 @@ unset AI_CODEGEN_SKIP_AGENT 2>/dev/null || true
 echo "[load-soak-env] AI_CODE3_AGENT_BIN=${AI_CODE3_AGENT_BIN:-}"
 echo "[load-soak-env] AI_E2E3_AGENT_BIN=${AI_E2E3_AGENT_BIN:-}"
 echo "[load-soak-env] AI_SOAK3_STRICT=${AI_SOAK3_STRICT:-}"
+echo "[load-soak-env] AI_SOAK3_CODEGEN_MIN_S=${AI_SOAK3_CODEGEN_MIN_S:-}"
