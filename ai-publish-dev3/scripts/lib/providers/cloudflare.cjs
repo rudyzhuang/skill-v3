@@ -112,6 +112,62 @@ function hostFromUrl(url) {
   return u.split('/')[0].split(':')[0].toLowerCase();
 }
 
+/** 从 deploy.services[].domain 或 route_pattern 解析 URL 路径前缀（如 /website、/admin） */
+function pathPrefixFromDomain(domainRaw) {
+  const s = String(domainRaw || '').trim();
+  if (!s) return '';
+  try {
+    const u = new URL(s.includes('://') ? s : `https://${s}`);
+    let p = u.pathname.replace(/\/$/, '');
+    if (!p || p === '/') return '';
+    return p.startsWith('/') ? p : `/${p}`;
+  } catch {
+    const parts = s.replace(/^https?:\/\//i, '').split('/').slice(1);
+    if (!parts.length || !parts[0]) return '';
+    return `/${parts.join('/').replace(/\/$/, '')}`;
+  }
+}
+
+function pathPrefixForService(svc) {
+  const domainRaw = (svc.domain && String(svc.domain).trim()) || '';
+  let prefix = pathPrefixFromDomain(domainRaw);
+  if (prefix) return prefix;
+  const rc = svc.resource_config && typeof svc.resource_config === 'object' ? svc.resource_config : {};
+  const rp = rc.route_pattern && String(rc.route_pattern).trim();
+  if (!rp) return '';
+  const slash = rp.indexOf('/');
+  if (slash < 0) return '';
+  let tail = rp.slice(slash).replace(/\*.*$/, '').replace(/\/$/, '');
+  if (!tail || tail === '/') return '';
+  return tail.startsWith('/') ? tail : `/${tail}`;
+}
+
+function copyDirSync(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, ent.name);
+    const d = path.join(dest, ent.name);
+    if (ent.isDirectory()) copyDirSync(s, d);
+    else fs.copyFileSync(s, d);
+  }
+}
+
+/** 同 apex 多 Pages 服务合并到单目录（按路径前缀），避免后部署覆盖先部署 */
+function stagePagesBundle(projectRoot, hostKey, entries, log) {
+  const safe = String(hostKey || 'default').replace(/[^a-z0-9.-]+/gi, '_');
+  const stagingRoot = path.join(projectRoot, '.pipeline', 'cf-pages-staging', safe);
+  fs.rmSync(stagingRoot, { recursive: true, force: true });
+  for (const { prefix, artifactAbs, clientTarget } of entries) {
+    const src = fs.statSync(artifactAbs).isDirectory() ? artifactAbs : path.dirname(artifactAbs);
+    const dest = prefix
+      ? path.join(stagingRoot, prefix.replace(/^\//, ''))
+      : stagingRoot;
+    log(`Pages 合并 staging: ${clientTarget} → ${dest}`);
+    copyDirSync(src, dest);
+  }
+  return stagingRoot;
+}
+
 function isEdgeHostname(host) {
   const h = String(host || '').toLowerCase();
   return h.endsWith('.pages.dev') || h.endsWith('.workers.dev');
@@ -263,6 +319,21 @@ async function bindPagesCustomDomain(accountId, serviceName, customHost, token) 
   return false;
 }
 
+/** 解除非主 Pages 项目对同一 apex 域名的绑定，避免 /website 仍落到旧项目根目录 */
+async function unbindPagesCustomDomain(accountId, serviceName, customHost, token, log) {
+  if (!customHost || customHost === '_pages_dev_') return;
+  const { statusCode, json } = await cfApi(
+    'DELETE',
+    `/accounts/${accountId}/pages/projects/${encodeURIComponent(serviceName)}/domains/${encodeURIComponent(customHost)}`,
+    token,
+    null
+  );
+  if (statusCode === 200 || statusCode === 404) return;
+  log(
+    `Pages 解绑域名（可忽略）: ${serviceName} ← ${customHost} status=${statusCode} ${errorSummary(statusCode, json)}`
+  );
+}
+
 async function setupPagesCustomHost(accountId, serviceName, customHost, token, accountIdForDns) {
   await bindPagesCustomDomain(accountId, serviceName, customHost, token);
   const zi = await getZoneInfo(customHost, token, accountIdForDns);
@@ -389,6 +460,9 @@ async function runCloudflareDeploy(projectRoot, deploy, buildArtifacts, log) {
     pairs.push({ service: svc, artifact: matches[0] });
   }
 
+  const pagesGroups = new Map();
+  const workerPairs = [];
+
   for (const { service: svc, artifact: art } of pairs) {
     const artifactAbs = path.isAbsolute(art.artifact_path)
       ? art.artifact_path
@@ -398,25 +472,50 @@ async function runCloudflareDeploy(projectRoot, deploy, buildArtifacts, log) {
       e.code = 'CONFIG';
       throw e;
     }
-    const serviceName = resolveServiceName(svc);
+    if (isWorkerDeploy(svc, artifactAbs)) {
+      workerPairs.push({ service: svc, artifact: art, artifactAbs });
+      continue;
+    }
     const domainRaw = (svc.domain && String(svc.domain).trim()) || '';
-    const customHost = hostFromUrl(domainRaw);
+    const customHost = hostFromUrl(domainRaw) || '_pages_dev_';
+    const prefix = pathPrefixForService(svc);
+    if (!pagesGroups.has(customHost)) pagesGroups.set(customHost, []);
+    pagesGroups.get(customHost).push({
+      service: svc,
+      artifactAbs,
+      prefix,
+      clientTarget: svc.client_target,
+    });
+  }
 
-    const worker = isWorkerDeploy(svc, artifactAbs);
-
-    if (!worker) {
-      const createIfMissing = svc.create_if_missing === true;
-      await ensurePagesProject(accountId, serviceName, token, createIfMissing);
-      const stat = fs.statSync(artifactAbs);
-      const deployPath = stat.isDirectory() ? artifactAbs : path.dirname(artifactAbs);
-      runCmd(`npx wrangler pages deploy "${deployPath}" --project-name="${serviceName}"`, projectRoot, childEnv, log);
-      const edgeHost = await resolvePagesEdgeHostname(accountId, serviceName, token);
-      let publicUrl = `https://${edgeHost}`;
-      if (customHost && !isEdgeHostname(customHost)) {
-        await setupPagesCustomHost(accountId, serviceName, customHost, token, accountId);
-        publicUrl = `https://${customHost}`;
+  for (const [customHost, entries] of pagesGroups) {
+    const lead = entries[0].service;
+    const serviceName = resolveServiceName(lead);
+    const createIfMissing = entries.some((e) => e.service.create_if_missing === true);
+    await ensurePagesProject(accountId, serviceName, token, createIfMissing);
+    const deployPath = stagePagesBundle(projectRoot, customHost, entries, log);
+    runCmd(
+      `npx wrangler pages deploy "${deployPath}" --project-name="${serviceName}"`,
+      projectRoot,
+      childEnv,
+      log
+    );
+    const edgeHost = await resolvePagesEdgeHostname(accountId, serviceName, token);
+    let publicUrl = `https://${edgeHost}`;
+    if (customHost && customHost !== '_pages_dev_' && !isEdgeHostname(customHost)) {
+      await setupPagesCustomHost(accountId, serviceName, customHost, token, accountId);
+      publicUrl = `https://${customHost}`;
+    }
+    if (!deployUrl) deployUrl = publicUrl.replace(/\/$/, '');
+    if (customHost && customHost !== '_pages_dev_' && !isEdgeHostname(customHost)) {
+      for (let i = 1; i < entries.length; i += 1) {
+        const altName = resolveServiceName(entries[i].service);
+        if (altName !== serviceName) {
+          await unbindPagesCustomDomain(accountId, altName, customHost, token, log);
+        }
       }
-      if (!deployUrl) deployUrl = publicUrl.replace(/\/$/, '');
+    }
+    for (const { service: svc } of entries) {
       outServices.push({
         client_target: svc.client_target,
         service_name: serviceName,
@@ -425,25 +524,30 @@ async function runCloudflareDeploy(projectRoot, deploy, buildArtifacts, log) {
         status: 'deployed',
         log_path: '',
       });
-    } else {
-      const cwd = fs.statSync(artifactAbs).isDirectory() ? artifactAbs : path.dirname(artifactAbs);
-      runCmd('npx wrangler deploy', cwd, childEnv, log);
-      const target = await fetchWorkersDevCnameTarget(serviceName, token, accountId);
-      let publicUrl = `https://${target}`;
-      if (customHost && !isEdgeHostname(customHost)) {
-        await setupWorkerCustomHost(serviceName, customHost, token, accountId, svc);
-        publicUrl = `https://${customHost}`;
-      }
-      if (!deployUrl) deployUrl = publicUrl.replace(/\/$/, '');
-      outServices.push({
-        client_target: svc.client_target,
-        service_name: serviceName,
-        resource_type: svc.resource_type || 'worker_script',
-        url: publicUrl,
-        status: 'deployed',
-        log_path: '',
-      });
     }
+  }
+
+  for (const { service: svc, artifactAbs } of workerPairs) {
+    const serviceName = resolveServiceName(svc);
+    const domainRaw = (svc.domain && String(svc.domain).trim()) || '';
+    const customHost = hostFromUrl(domainRaw);
+    const cwd = fs.statSync(artifactAbs).isDirectory() ? artifactAbs : path.dirname(artifactAbs);
+    runCmd('npx wrangler deploy', cwd, childEnv, log);
+    const target = await fetchWorkersDevCnameTarget(serviceName, token, accountId);
+    let publicUrl = `https://${target}`;
+    if (customHost && !isEdgeHostname(customHost)) {
+      await setupWorkerCustomHost(serviceName, customHost, token, accountId, svc);
+      publicUrl = `https://${customHost}`;
+    }
+    if (!deployUrl) deployUrl = publicUrl.replace(/\/$/, '');
+    outServices.push({
+      client_target: svc.client_target,
+      service_name: serviceName,
+      resource_type: svc.resource_type || 'worker_script',
+      url: publicUrl,
+      status: 'deployed',
+      log_path: '',
+    });
   }
 
   return {

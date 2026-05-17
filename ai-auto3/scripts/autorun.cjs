@@ -845,6 +845,34 @@ async function ensureE2e3Deps(slice) {
   return { ok: true };
 }
 
+function countUiE2eScenarios(projectRoot) {
+  const contractsDir = path.join(projectRoot, 'docs', 'contracts');
+  if (!fs.existsSync(contractsDir)) return 0;
+  let n = 0;
+  for (const ent of fs.readdirSync(contractsDir, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue;
+    const yaml = path.join(contractsDir, ent.name, `${ent.name}.test-spec.yaml`);
+    if (fs.existsSync(yaml)) n += 1;
+  }
+  return n;
+}
+
+function soakUiE2eTimeoutMs(projectRoot, cfg) {
+  let t = stageTimeoutMs(cfg, 'ui_e2e');
+  if (!isSoakStrict()) return t;
+  const minS = Number(process.env.AI_SOAK3_UI_E2E_MIN_S);
+  const perS = Number(process.env.AI_SOAK3_UI_E2E_PER_SCENARIO_S);
+  const baseMin = Number.isFinite(minS) && minS > 0 ? minS : 10800;
+  const perScenario = Number.isFinite(perS) && perS > 0 ? perS : 600;
+  const n = Math.max(1, countUiE2eScenarios(projectRoot));
+  const scaledS = Math.max(baseMin, n * perScenario);
+  t = Math.max(t, scaledS * 1000);
+  console.error(
+    `[ai-auto3] AI_SOAK3_STRICT ui_e2e wall_timeout_s=${scaledS} scenarios=${n} timeout_ms=${t}`
+  );
+  return t;
+}
+
 async function runE2e3(projectRoot, cfg, sessionId, soakPlan) {
   if (!uiE2eEnabled(cfg)) {
     console.error('[ai-auto3] ui_e2e.enabled=false — 跳过 ai-e2e3');
@@ -863,7 +891,7 @@ async function runE2e3(projectRoot, cfg, sessionId, soakPlan) {
     script,
     args,
     cwd: projectRoot,
-    timeoutMs: stageTimeoutMs(cfg, 'ui_e2e'),
+    timeoutMs: soakUiE2eTimeoutMs(projectRoot, cfg),
   });
 }
 

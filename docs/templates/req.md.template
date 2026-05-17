@@ -1,0 +1,139 @@
+# 项目需求文档（inputs/req.md）
+
+> **用途**：在启动无人值守自动化开发流水线（ai-soak3/ai-std3 等）**之前**，由项目负责人填写并保存为业务项目根目录下的 **`inputs/req.md`**。
+>
+> **填写说明**
+>
+> - 带 `*` 的 `##` 标题为**必填**；填写完成后可运行 `node ~/.cursor/skills/ai-soak3/scripts/ensure-req.cjs --project=<业务项目根>` 校验（当前脚本校验：功能需求、云平台、主域名、鉴权信息）。
+> - 将各节中的 `TODO:` 占位符**整段替换**为实际内容，不要保留 `TODO:` 前缀。
+> - **禁止**在本文件写入真实 API Key、Token、密码；凭证只写在 **`inputs/config.env`**（可参考 skill 仓 `docs/templates/config.env.template`），「鉴权信息」节仅描述**路径与变量名**。
+> - 云平台名称请使用 **`docs/templates/deploy-services.catalog.json`** 中的 `providers[].id`（下表「可选范围」）。
+
+---
+
+## 项目中文名称 *
+
+<!-- 必填：应用在商店、关于页、浏览器标题等面向用户的中文名。 -->
+
+PROJECT_NAME_CN: 请填写项目中文名称
+
+---
+
+## 项目英文名称 *
+
+<!-- 必填：Bundle ID / 包名、仓库名、部署资源前缀等使用的英文标识（建议 PascalCase 或 kebab-case，不含空格）。 -->
+
+PROJECT_NAME_EN: 请填写项目英文名称
+
+
+---
+
+## 功能需求 *
+
+<!-- 必填：即「功能描述」——核心业务功能，至少一条。流水线会据此生成 prd-spec 与 feature 列表。 -->
+<!-- 写法：编号列表或段落；建议写明涉及的端（website / admin / backend / mobile 等）。 -->
+<!-- 示例：
+1. 笔记 CRUD：创建、编辑、删除、列表与全文搜索。
+2. 端：website（用户站）、admin（运营后台）、backend（REST API）、mobile（Flutter，iOS + Android）。
+3. 用户注册登录（邮箱 + 密码）；笔记支持 Markdown 与附件（对象存储）。
+4. 非目标：本期不做协作编辑、支付。
+-->
+
+DETAIL: 请填写功能需求
+
+---
+
+## App 要求 *
+
+<!-- 必填：各客户端（尤其 mobile / desktop / miniapp）的实现与验收约束。 -->
+<!-- 若仅有 Web + API，写明「无原生 App」并说明 Web 目标浏览器即可。 -->
+<!-- 示例（Flutter mobile）：
+| 项 | 要求 |
+| --- | --- |
+| 技术栈 | Flutter 3.x，Dart SDK 与业务仓 pubspec 一致 |
+| 平台 | Android（API 24+）；iOS 15+（构建机须 macOS + Xcode） |
+| 应用显示名 | 与「项目中文名称」一致：真实笔记 |
+| Bundle ID / 应用 ID | com.example.realnotes（与英文名称对齐） |
+| 最低权限 | 网络、本地存储（笔记缓存） |
+| 商店上架 | 本期仅侧载/模拟器验收，不上架商店 |
+-->
+<!-- 示例（仅 Web）：
+| 项 | 要求 |
+| --- | --- |
+| 端 | website + admin |
+| 浏览器 | Chromium 最新两个主版本、Safari 17+ |
+| 响应式 | 桌面优先，最小宽度 360px |
+-->
+
+TODO: 请填写 App 要求（表格或列表）
+
+---
+
+## 部署要求 *
+
+---
+
+## 主域名 *
+
+<!-- 必填：生产环境用户访问的主域名（不含路径）。 -->
+<!-- 示例：notes.example.com -->
+
+TODO: 请填写主域名，如 notes.example.com
+
+---
+
+<!-- 必填：生产（及可选 dev）部署目标、路径与合规说明。下一节「云平台」「主域名」须单独填写（ensure-req 按 H2 解析）。 -->
+<!-- 示例：
+| 环境 | 域名或前缀 |
+| --- | --- |
+| dev | dev-notes.example.com |
+| website | https://notes.example.com/ |
+| admin | https://notes.example.com/admin/ |
+| api | https://api.notes.example.com/ |
+-->
+
+TODO: 请填写部署要求（主域名、环境 URL、CDN、数据库托管等；）
+
+---
+
+## 云平台 *
+
+<!-- 必填：从下列 provider id 中选一个（可多行说明「主用 + 备用」）。 -->
+<!-- 可选范围（与 deploy-services.catalog.json 对齐）：
+| provider id | 常见显示名 |
+| --- | --- |
+| cloudflare | Cloudflare（Pages / Workers / R2 / DNS） |
+| vercel | Vercel |
+| aws | Amazon Web Services |
+| google_cloud | Google Cloud / Cloud Run / Firebase |
+| azure | Microsoft Azure |
+| tencent_cloud | 腾讯云 |
+| alibaba_cloud | 阿里云 |
+| huawei_cloud | 华为云 |
+| manual | 自建机 / SSH / 无云 API（须在「部署要求」说明访问方式） |
+-->
+<!-- 示例：cloudflare（主站 Pages + Workers API） -->
+
+TODO: 请填写云平台，如 Cloudflare
+
+
+---
+
+
+
+## 端（Client Targets）（推荐）
+
+<!-- 可选但强烈推荐：声明本期涉及的 client_target，与 prd-spec「端」一节一致。 -->
+<!-- 允许值：website | admin | backend | mobile | miniapp | desktop | agent -->
+<!-- 示例：
+- website
+- admin
+- backend
+- mobile
+-->
+
+---
+
+## 其他约束（可选）
+
+<!-- 时间计划、预算、合规（GDPR/等保）、指定技术栈、禁止使用的云服务等。 -->
