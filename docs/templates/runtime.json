@@ -1,0 +1,35 @@
+{
+  "_schema": {
+    "name": "skill-v3-runtime",
+    "version": 1,
+    "description": "Per-project background orchestration snapshot under <skills_root>/.pipeline/<project_id>/runtime.json. Recoverable from project stages.json; not committed to business repos."
+  },
+  "project": {
+    "project_id": "",
+    "root_path": "",
+    "display_name": ""
+  },
+  "updated_at": null,
+  "updated_by": null,
+  "orchestration": {
+    "active": false,
+    "active_run_id": null,
+    "session_id": null,
+    "orchestrator": null,
+    "current_phase": null,
+    "current_stage": null,
+    "pending_features": [],
+    "started_at": null,
+    "pid_lock": {
+      "present": false,
+      "pid": null,
+      "alive": null,
+      "lock_path": ".agent-sessions/locks/pipeline.pid"
+    }
+  },
+  "processes": [],
+  "recent_runs": [],
+  "services": {
+    "dash_serve": null
+  }
+}

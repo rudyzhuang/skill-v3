@@ -104,26 +104,39 @@
 - **与给人读的 Markdown 分工**：`docs/prd-spec.md`、各端 `prd.md`、**`feature_list.md`** 等仍以自然语言或约定正文为主；**`stages.json` 承担「门闸与编排真源（项目侧）」**，内容需与各阶段实际产物一致，避免口头状态与文件状态脱节。
 - **各 skill / ai-auto3** 在更新某阶段状态时，应**读写同一份** `stages.json`（或等价地由单一模块合并写入），并遵守第九节「手工与自动跑法结果对齐」。
 
-### 3.2 Skill 目录内的数据库（本机多项目编排）
+### 3.2 Skill 目录内的运行时状态（本机多项目编排）
 
-在 **skill 安装目录**（本机全局一处）维护**轻量数据库**，用于：
+在 **skill 安装目录**（本机全局一处）按项目维护 **`runtime.json`**，用于：
 
-- 记录**本机**上曾参与编排的**多个业务项目**的索引与运行态（须能按**项目根路径**或稳定 **project_id** 区分项目，避免串项）。
-- 加速查询、会话续跑、与 IDE/Agent 侧展示；**不作为**业务仓库内的提交物。
+- 记录**本机**上曾参与编排的**多个业务项目**的后台进程、当前 phase/stage、待处理 feature 队列与最近 run 摘要（须能按 **`project_id`** 与 **`root_path`** 区分项目，避免串项）。
+- 供 **ai-dash3** 多项目 Web 看板、**ai-soak3** 监控、会话续跑与 IDE/Agent 展示；**不作为**业务仓库内的提交物。
+
+**路径（定稿）**：
+
+- **`<skills_root>/.pipeline/<project_id>/runtime.json`**
+- **`<project_id>`** 与 **`<project_root>/.pipeline/stages.json` → `project.project_id`** 一致，目录名经文件系统安全化（见 **`docs/spec/runtime-pipeline.md` §1**）。
+- 字段真源模板：**`docs/templates/runtime.json`**；规格 SSOT：**`docs/spec/runtime-pipeline.md`**。
 
 **与 `stages.json` 的关系（避免双真源冲突）**：
 
-- **项目仓库内的权威**：以 **`<project_root>/.pipeline/stages.json`** 为**可恢复、可核对**的编排状态真源（随代码库走的那一份）。
-- **skill 目录 DB**：允许视为**本机缓存与跨会话索引**；须支持在丢失、损坏或新机器场景下，仅依据某项目根目录下的 **`stages.json`** **重新导入并生成**（或对齐）该项目的编排记录，而不依赖不可复现的本地-only 状态。
+- **项目仓库内的权威**：以 **`<project_root>/.pipeline/stages.json`** 为**可恢复、可核对**的编排门闸真源（阶段 status、validation、outputs）。
+- **skill 目录 runtime**：**本机后台与运行态索引**；须支持删除整个 **`<skills_root>/.pipeline/`** 后，仅依据业务仓 **`stages.json`** 在下次 **autorun / soak** 时重建 **`project`** 与空 **`orchestration`**，**不应**出现「runtime 丢了就无法开跑」的情况。
 
-**DB 实现约定（v0 默认）**：
+**读写分工（摘要）**：
 
-- **介质**：**SQLite**（单文件，零依赖；本版不再使用上一版可能存在的 JSON 散文件 DB）。
-- **默认路径**：**`~/.cursor/skills/_registry/registry.sqlite`**；目录与文件由 ai-auto3 在首次运行时自动创建。
-- **核心表**：`projects`（按 `project_id` 索引）、`pipeline_runs`（按 `(project_id, started_at)` 索引）、`stage_events`（按 `(run_id, stage)` 索引）。具体 DDL 由 ai-auto3 在初始化与升级时维护，**不**作为提交物随业务仓走。
-- **可重建**：DB 损坏可整库删除，下次运行将自动从各项目的 `stages.json` 重新导入；**不应**出现"DB 丢了就跑不了"的情况。
+| 写入方 | 内容 |
+| --- | --- |
+| **ai-auto3** | **`orchestration.*`**、**`recent_runs[]`**、autorun **`processes[]`** |
+| **ai-soak3** | soak / monitor 相关 **`processes[]`**、**`orchestrator: ai-soak3`** |
+| **ai-code3** | 长时 codegen / agent **`processes[]`** |
+| **ai-dash3** | 仅 **`services.dash_serve`**（可选）；**禁止**写阶段门闸 |
 
-**小结**：**skill 侧**——脚本与调用路径在 skill 安装目录，**本机编排 DB** 在 skill 目录；**项目侧**——用 **`docs/config.dev.json`** + **`docs/config.release.json`** + **`docs/config.env`** 描述环境与密钥；用 **`.pipeline/stages.json`** 描述阶段 JSON 状态。编排 **ai-auto3** 与各 **ai-*3** 在解析到业务项目根路径后，应能稳定定位上述文件，并把「缺文件 / 缺键 / 敏感项误入 JSON / `stages.json` 与文档不一致」等情况纳入前置校验与给人看的报错说明。
+**`registry.sqlite`（已废弃）**：
+
+- 原 **`~/.cursor/skills/_registry/registry.sqlite`** 不再作为规范真源；**ai-dash3** **不**维护、**不**读取 SQLite。
+- 实现迁移期可保留只写兼容；新代码以 **runtime.json** 为准。详见 **`runtime-pipeline.md` §5**。
+
+**小结**：**skill 侧**——脚本在 skill 安装目录，**本机运行态**在 **`<skills_root>/.pipeline/<project_id>/runtime.json`**；**项目侧**——**`docs/config.*.json`** + **`<project_root>/.pipeline/stages.json`**。编排 **ai-auto3** 与各 **ai-*3** 在解析到业务项目根路径后，应能稳定定位上述文件，并把「缺文件 / 缺键 / 敏感项误入 JSON / `stages.json` 与文档不一致」等情况纳入前置校验与给人看的报错说明。
 
 ### 3.3 实现分层：cjs 脚本与 skill prompt 的分工
 
@@ -183,7 +196,7 @@
 | **ai-publish-dev3** | deploy（**dev** 环境），smoke |
 | **ai-e2e3** | **ui_e2e**（**website/admin** Browser MCP；**mobile** android/ios Dart MCP + integration_test）；见 **`docs/spec/e2e3.md`** |
 | **ai-publish-release3** | deploy（**release** 环境），smoke；以及上一版中常见的 **release**（版本、变更日志、打标、托管发布等）类职责 |
-| **ai-dash3** | **无**独占 stage（**只读**看板）：聚合 **`.pipeline/stages.json`**、**`.pipeline/reports/`**、registry 运行态（经 **ai-auto3** 只读导出）、Feature 流水线；CLI 或 **`serve`** 本地 Web；**不** spawn 子 skill、**不**写 **`stages.*`**、**不**自动推进（见 **`docs/spec/dash3.md`**） |
+| **ai-dash3** | **无**独占 stage（**只读**看板）：读 **`<skills_root>/.pipeline/<project_id>/runtime.json`** + 业务仓 **`.pipeline/stages.json`**、**`reports/`**、Feature 流水线；CLI 或 **`serve`** 本地 Web；**不** spawn 子 skill、**不**写 **`stages.*`**、**不**自动推进（见 **`docs/spec/dash3.md`**） |
 
 **report** 不单独拆 skill：本版定为 **ai-auto3 的末尾职责**。当自动序列跑完 dev deploy + smoke + **ui_e2e**（若 `ui_e2e.enabled`）后，由 **ai-auto3** 读取 **`.pipeline/stages.json`** 与关键日志生成最终汇总。
 
@@ -197,7 +210,7 @@
 | **ai-publish-dev3** | ai-deploy2(dev) + ai-smoke2(dev) | dev 路径；不再生成各端 `deployment_plan.json` |
 | **ai-publish-release3** | ai-deploy2(release) + ai-smoke2(release) + 上一版 release 子流程 | 含 release 类内部子步骤（见 §4.1） |
 | **ai-dash3** | **ai-dash2**（看板 / 状态洞察层） | 只读诊断与下一步建议；**不**承担 autorun 物理推进（见 **`docs/spec/dash3.md`**） |
-| **ai-auto3** | **autorun** + **autorun-pro**（自动推进层） | 默认终点为 dev deploy + smoke + **ui_e2e**（可选）+ report；release 不默认跟随；**registry** 初始化/对齐仍由 **ai-auto3** 负责（见 §3.2、§4.3.1#6） |
+| **ai-auto3** | **autorun** + **autorun-pro**（自动推进层） | 默认终点为 dev deploy + smoke + **ui_e2e**（可选）+ report；release 不默认跟随；**runtime.json** 初始化/对齐由 **ai-auto3** 负责（见 §3.2、§4.3.1#8） |
 | **ai-e2e3** | （本版新增）UI 端到端 | 见 **`docs/spec/e2e3.md`**；默认在 **smoke** 之后、**report** 之前 |
 
 **配置文件迁移**：上一版各端目录下的 `deployment_plan.json` 在本版**不再被读取**；其内容应一次性合并入 `docs/config.dev.json` / `docs/config.release.json` 后**人工删除**。本版 ai-*3 不会自动迁移这些文件。
@@ -211,7 +224,7 @@
 | **是否 spawn 子 skill** | **否** | **是**（按 §4.1 链路与 **`docs/spec/auto3.md`**） |
 | **是否写 `.pipeline/stages.json`** | **否**（只读；**禁止**为「展示美观」回写任何 stage 字段） | **否**业务字段；仅允许编排契约已载明的 **`pipeline.*` / 停跑时 `contract` blocked 等**（见 **`docs/spec/auto3.md`**） |
 | **PID 锁** | **不**申请、**不**释放；可**只读检测** `.agent-sessions/locks/pipeline.pid` 给人提示 | **必须**按 §6 管理 |
-| **registry.sqlite** | **不**写入；若需「本机索引与 **ai-auto3** 对齐」，请用户或 Agent 另行执行 **`ai-auto3` … `sync-registry`**（见 **`docs/spec/auto3.md`**） | **负责** upsert / 导入对齐 |
+| **`<skills_root>/.pipeline/<project_id>/runtime.json`** | **只读**（ **`serve`** 可写 **`services.dash_serve`**）；项目列表来自扫描 **`.pipeline/*/runtime.json`** | **ai-auto3** 主写 **`orchestration` / `recent_runs`**；**ai-soak3**、**ai-code3** 写 **`processes`**（见 **`runtime-pipeline.md`**） |
 | **典型用途** | 会话开场快照、PR 描述贴进度、人工判断「卡在哪」；**`serve`** 本地 Web 看板跟踪多项目与 Feature 流水线 | 从 **design**（默认）起自动跑到 **report** |
 | **本地 Web** | **`run.cjs serve`** → **`http://127.0.0.1:9473/`**（只读；见 **`docs/spec/dash3.md` §3.4、§7.1**） | — |
 

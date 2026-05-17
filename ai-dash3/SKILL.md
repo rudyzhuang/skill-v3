@@ -1,7 +1,7 @@
 ---
 name: ai-dash3
 description: >-
-  Skill V3 流水线看板（只读）：聚合 .pipeline/stages.json、.pipeline/reports/、registry 运行态与 Feature 流水线；
+  Skill V3 流水线看板（只读）：读 <skills_root>/.pipeline/<project_id>/runtime.json 与业务仓 .pipeline/stages.json、reports/、Feature 流水线；
   CLI 或本地 Web（serve）展示进度、阻塞与 ai-auto3 正在跑什么；不 spawn 子 skill、不写 stages、不持锁。
   用户说「ai-dash3」「第三代看板」「流水线看板」「本地网页」「卡在哪」时使用。
 disable-model-invocation: true
@@ -19,10 +19,10 @@ disable-model-invocation: true
 
 | **ai-dash3** | **ai-auto3** |
 | --- | --- |
-| **只读**诊断 + 建议 | **autorun** 自动推进 + **registry** + **PID 锁** + **gen-report** |
+| **只读**诊断 + 建议 | **autorun** 自动推进 + **runtime.json** + **PID 锁** + **gen-report** |
 | **不**执行 `ai-design3` / `ai-code3` / `ai-publish-*` | **会** spawn 上述 skill |
 
-需要 **本机 registry 对齐**时：请用 **`ai-auto3`** 的 **`sync-registry`**（见 **`docs/spec/auto3.md`**），**不是**本 skill。
+多项目列表：扫描 **`~/.cursor/skills/.pipeline/*/runtime.json`**（见 **`docs/spec/runtime-pipeline.md`**），**不**使用 **`registry.sqlite`**。
 
 ## Agent 会话（必读）
 
@@ -62,7 +62,7 @@ node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=$(pwd)
 node ~/.cursor/skills/ai-dash3/scripts/run.cjs serve --open --project=$(pwd)
 ```
 
-**`--open`** 在 macOS / Linux / Windows 上调用系统命令打开 URL；设 **`AI_DASH3_NO_OPEN=1`** 可禁用。多项目列表来自 **ai-auto3** `registry-export.cjs`（须已在 **ai-auto3/** 执行过 **`npm install`** 且跑过 **`sync-registry`**）。页面每 3 秒自动刷新；顶栏两个停止按钮（见 **`docs/spec/dash3.md` §7.1**）：
+**`--open`** 在 macOS / Linux / Windows 上调用系统命令打开 URL；设 **`AI_DASH3_NO_OPEN=1`** 可禁用。多项目列表来自 **`<skills_root>/.pipeline/*/runtime.json`**（**零** npm 依赖）。页面每 3 秒自动刷新；顶栏两个停止按钮（见 **`docs/spec/dash3.md` §7.1**）：
 
 | 按钮 | API | 作用 |
 | --- | --- | --- |

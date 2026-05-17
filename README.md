@@ -124,7 +124,7 @@ done
    - `ai-codegen2`、`ai-typecheck2`、`ai-test2`、`ai-code-review2`、`ai-git2`、`ai-build2`
    - `ai-deploy2`、`ai-smoke2`、`ai-dash2`
    - 以及 **`auto-build-pro`**、**`auto-build-project-with-prd`** 等旧编排/并行 skill（若曾安装）。
-3. **（可选）** 若曾使用本版 **registry** 且希望从零重建：删除 **`~/.cursor/skills/_registry/`**（或其中 `registry.sqlite`）；下次运行 **ai-auto3** 会按需再建（见 `ai-auto3/SKILL.md`）。
+3. **（可选）** 若希望清零本机运行态：删除 **`~/.cursor/skills/.pipeline/`**（各项目 **`runtime.json`**）；业务仓 **`stages.json`** 不受影响。已废弃的 **`_registry/registry.sqlite`** 亦可删除（见 **`docs/spec/runtime-pipeline.md` §5**）。
 4. 按上文 **「按操作系统安装与使用」** 安装本仓的 **`ai-*3`**；若有老仓迁移需求，一并链接 **`migrate-v2-to-v3`**。
 5. **业务项目**：V3 **不会**读取旧版 `stages.json`、各端 `deployment_plan.json`、业务仓内旧 `scripts/config.env` 等；老项目需按 `docs/input-spec.md` 第九节做一次迁移或重建配置，再跑 V3。
 

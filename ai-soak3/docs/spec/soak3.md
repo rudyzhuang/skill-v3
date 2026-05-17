@@ -236,7 +236,19 @@ mobile 须实现 req 声明的 **列表 / 创建 / 编辑 / 详情**（见 prd-s
 **退出码**：发现问题时 1，否则 0  
 **副产物**：写 `<project>/.pipeline/reports/diagnosis.md`
 
-### 8.4 start-and-monitor.sh
+### 8.4 本机 runtime.json（后台登记）
+
+**ai-soak3** 在启动后台 **autorun** 或监控循环时，须更新 **`<skills_root>/.pipeline/<project_id>/runtime.json`**（见 **`docs/spec/runtime-pipeline.md`**）：
+
+| 时机 | 写入 |
+| --- | --- |
+| **start-and-monitor.sh** 启动 autorun | **`processes[]`** 追加 **`kind: autorun`**（含 **PID**、**log_path**）；**`orchestration.orchestrator: ai-soak3`** |
+| 监控循环运行中 | 按需刷新 **`updated_at`**；卡住杀进程后标 **`processes[].status: exited`** |
+| Round 结束 / autorun 退出 | 若不由 **ai-auto3** 收尾，则 **`orchestration.active: false`** |
+
+**`project_id`** 从业务仓 **`.pipeline/stages.json` → `project.project_id`** 读取；缺失时 stderr 告警且不阻断 **ensure-req**（但 dash 无法列出该项目）。
+
+### 8.5 start-and-monitor.sh
 
 ```bash
 bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh <PROJECT_ROOT> [CHECK_INTERVAL_SEC] [STUCK_MIN]

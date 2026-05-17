@@ -4,7 +4,7 @@
 
 | 约定 | 说明 |
 | --- | --- |
-| **唯一实现参考源** | 编写 **`ai-auto3/SKILL.md`**、**`ai-auto3/scripts/**/*.cjs`**（含 **`autorun.cjs`**、**`gen-report.cjs`**）以及本机 **`~/.cursor/skills/_registry/registry.sqlite`** 的初始化/升级逻辑时，**以本文为规范来源**。编排行为不依赖口头约定。 |
+| **唯一实现参考源** | 编写 **`ai-auto3/SKILL.md`**、**`ai-auto3/scripts/**/*.cjs`**（含 **`autorun.cjs`**、**`gen-report.cjs`**）以及本机 **`<skills_root>/.pipeline/<project_id>/runtime.json`** 读写时，**以本文为规范来源**；runtime 字段 SSOT 见 **`docs/spec/runtime-pipeline.md`**。编排行为不依赖口头约定。 |
 | **与 `docs/input-spec.md` 的关系** | 全流水线跨界语义（阶段链、退出码表、日志与 PID 锁、三层超时、`stages.json` 真源、**destructive** 与 **opt-in**、`inputs.summary_hash` 跳过规则等）以 **`docs/input-spec.md`** 为总纲。本文把 **仅与 ai-auto3 相关的条款** 收束为可执行规划；若冲突，收束顺序：**先改 `input-spec` + `docs/templates/` → 再改本文 → 再改 skill 实现**。 |
 | **与 `docs/templates/` 的关系** | **`stages.json`** 中 **`report`** 与 **`pipeline.*`**（**项目侧**编排状态）等键、**`config.dev.json.timeouts`**（含 **`autorun_total_s`**、各 **`stages.*_s`**）、**`config.dev.json.pipeline.autorun.allow_destructive_deploy`**（**配置侧** dev autorun deploy 授权，勿与 **`stages.json` 的 `pipeline` 节**混淆）以对应 **`* .template`** 为字段真源。模板演进遵守 **`input-spec.md` §9.1**（additive / breaking）。 |
 | **与上一版（v2）的关系** | 本版 **不**读取业务仓内 v2 **`autorun` / `autorun-pro` 脚本副本**、v2 **`stages.json`** 旧路径或 v2 编排专用 SQLite 作为默认真源。心智映射：**ai-auto3** ≈ **autorun** + **autorun-pro**；**ai-dash2** 的看板职能由 **`ai-dash3`** 承担（见 **`docs/spec/dash3.md`**）。**默认终点**为 **dev deploy + smoke + ui_e2e（可选）+ report**，**release 不默认跟随**（见 **`input-spec.md` §4.3**、**`docs/spec/e2e3.md`**）。 |
@@ -74,7 +74,7 @@
 3. **脚本只驻留在 skill 目录**：`<cursor_skills_root>/ai-auto3/scripts/**`；**不**复制到业务项目。  
 4. **`SKILL.md` 保持轻薄**：触发词、必读路径表、**如何一行命令开跑**、退出码、与 **ai-prd3 / ai-design3 / ai-publish-dev3** 的衔接话术；**不**内联阶段循环伪代码。  
 5. **CommonJS**：统一 **`.cjs`**；启动方式 **`node <skill_dir>/scripts/<name>.cjs ...`**。  
-6. **状态真源**：业务仓库内 **`<project_root>/.pipeline/stages.json`**；本机 **`registry.sqlite`** 仅为缓存与索引，须可从 **`stages.json`** 重建（**`input-spec.md` §3.2**）。
+6. **状态真源**：业务仓库内 **`<project_root>/.pipeline/stages.json`**；本机 **`<skills_root>/.pipeline/<project_id>/runtime.json`** 为后台运行态与多项目索引，须可从 **`stages.json`** 重建（**`input-spec.md` §3.2**、**`runtime-pipeline.md`**）。
 
 ---
 
@@ -91,7 +91,8 @@ ai-auto3/
     ├── gen-report.cjs         # report 生成器：读 stages + 日志索引，写报告文件 + stages.report
     ├── preflight.cjs          # 可选：从 autorun 拆出 §5.1 六项，便于单测
     ├── registry-sync.cjs      # 可选：project 导入/对齐 SQLite
-    ├── registry-export.cjs    # 只读导出 registry → JSON（供 ai-dash3 Web 等消费）
+    ├── lib/runtime-io.cjs     # 读写 <skills_root>/.pipeline/<project_id>/runtime.json
+    ├── registry-export.cjs    # 已废弃：registry → JSON（迁移期）
     └── lib/
         ├── paths.cjs          # --project 解析、docs/.pipeline/.agent-sessions 路径
         ├── stages-io.cjs      # 读合并写 stages.json；仅允许改写键见 §5.2
@@ -132,8 +133,9 @@ ai-auto3/
 | --- | --- |
 | **`node .../autorun.cjs run`** | 与无子命令同义，默认全序列。 |
 | **`node .../autorun.cjs preflight-only`** | 仅执行 **§5.1**，用于 CI 或 Agent 预检。 |
-| **`node .../autorun.cjs sync-registry`** | 仅执行 **§5.1#6 + §9**，不写 report。 |
-| **`node .../registry-export.cjs`** | 只读：stdout 单行 **`ai-auto3.registry-export.v1`** JSON（项目列表、**`project_runtime_state`**、**`active_runs`**）；供 **ai-dash3** 等消费，**不**写 DB。 |
+| **`node .../autorun.cjs sync-runtime`** | 仅执行 **§5.1#8 + §9**（初始化/对齐 **runtime.json**），不写 report。 |
+| **`node .../autorun.cjs sync-registry`** | **已废弃**；等价于 **`sync-runtime`**（迁移期别名）。 |
+| **`node .../registry-export.cjs`** | **已废弃**：请扫描 **`.pipeline/*/runtime.json`**；迁移期仍可读 SQLite。 |
 
 ---
 
@@ -151,7 +153,7 @@ ai-auto3/
 5. **密钥与 JSON 隔离**：对 **`config.dev.json` / `config.release.json`** 执行 **`security.forbidden_json_key_patterns`** 静态扫描（键名或值形态，规则来源以 **`config.*.json.template`** 为准），命中 → 失败。  
 6. **Git 工作区**：当前分支可解析；**`git status`** 无未提交单文件 **> 50 MB**；允许小改动但在 **report** 中 **warnings** 提示（**`input-spec.md` §4.3.1#4**）。  
 7. **PID 锁**：**`.agent-sessions/locks/pipeline.pid`** 不存在，或其中 PID 已不存活（**§8.1**）。  
-8. **registry 对齐**：若 **`registry.sqlite`** 无本项目 **`project_id`** 记录，则从 **`.pipeline/stages.json`** **导入或 upsert**（**§9**）；导入失败 → 退出码 **1**。
+8. **runtime 对齐**：若 **`<skills_root>/.pipeline/<project_id>/runtime.json`** 不存在，则从 **`.pipeline/stages.json`** **初始化** **`project`** 块（**§9**）；**`project.project_id`** 为空 → 退出码 **1**。
 
 **说明**：第 3 条中「与本期需要部署的端匹配」实现上可与 **`stages.prd.outputs.client_targets`** 或 **`client_targets.declared`** 交叉校验，细节以项目模板为准。**dev deploy 的 `pipeline.autorun.allow_destructive_deploy` 门闸**在**即将 spawn deploy** 时执行（**§5.4 步骤 4**），**不**作为本节开跑前的前置项（允许配置里 **`deploy.enabled=true`** 但本轮 autorun 不部署）。
 
@@ -377,26 +379,36 @@ ai-auto3/
 
 ---
 
-## 9. 本机 registry（`registry.sqlite`）
+## 9. 本机 runtime（`runtime.json`）
 
 ### 9.1 路径与职责
 
 | 项 | 约定 |
 | --- | --- |
-| **默认文件** | **`~/.cursor/skills/_registry/registry.sqlite`** |
-| **创建** | **ai-auto3**（或 **`registry-sync.cjs`**）首次需要时 **`mkdir -p`** 并初始化 DDL |
-| **表（v0）** | **`projects`**（`project_id` 索引）、**`pipeline_runs`**（`project_id, started_at`）、**`stage_events`**（`run_id, stage`）、**`phase_runs`**（`run_id, phase`）、**`project_runtime_state`**（`project_id` 当前 phase/stage 快照）（**`input-spec.md` §3.2**） |
-| **与 `stages.json` 冲突** | **以仓库内 `stages.json` 为准**；DB 在下次启动 **reconcile**（**`input-spec.md` §4.4**） |
+| **默认文件** | **`<skills_root>/.pipeline/<project_id>/runtime.json`** |
+| **模板** | **`docs/templates/runtime.json`** |
+| **规格** | **`docs/spec/runtime-pipeline.md`** |
+| **主写入方** | **ai-auto3**（**`orchestration`**、**`recent_runs`**、autorun **`processes`**）；**ai-soak3** / **ai-code3** 写 **`processes`** |
+| **与 `stages.json` 冲突** | **以业务仓 `stages.json` 为准**；runtime 在 **autorun** 开跑时 **reconcile** **`project.root_path`** |
 
-### 9.2 最小 DDL 建议（实现可调整，但须兼容「可重建」）
+### 9.2 字段映射（自原 registry.sqlite）
 
-- **`projects`**：`project_id`（PK）、`root_path`、`last_seen_at`、`stages_schema_version`。  
-- **`pipeline_runs`**：`run_id`（PK）、`project_id`、`session_id`、`started_at`、`ended_at`、`exit_code`、`stopped_at_stage`。  
-- **`stage_events`**：`id`（PK）、`run_id`、`stage`、`child_exit_code`、`duration_ms`、`skipped`（bool）、`notes`。  
-- **`phase_runs`**：`id`（PK）、`run_id`、`phase`、`priority_bucket`、`started_at`、`ended_at`、`result`。  
-- **`project_runtime_state`**：`project_id`（PK）、`active_run_id`、`current_phase`、`current_stage`、`pending_features_json`、`updated_at`（用于中断恢复）。
+| 原 SQLite | **runtime.json** |
+| --- | --- |
+| **`projects`** | **`project`** + 扫描目录列表 |
+| **`project_runtime_state`** | **`orchestration`**（**`pending_features`** 为数组，非 JSON 字符串） |
+| **`pipeline_runs`** | **`recent_runs[]`** |
+| **活跃子进程** | **`processes[]`** |
 
-**可重建性**：删除整个 **`registry.sqlite`** 后，下次运行须能仅从各项目的 **`stages.json`** 恢复 **`projects`** 行并继续工作。
+**实现模块**：**`ai-auto3/scripts/lib/runtime-io.cjs`**（**`readRuntime` / `writeRuntime` / `listProjectsFromRuntime`**）。
+
+### 9.3 `registry.sqlite`（已废弃）
+
+- 路径 **`~/.cursor/skills/_registry/registry.sqlite`** 不再作为规范真源。
+- **`sync-registry`**、**`registry-export.cjs`** 标记 deprecated；**ai-dash3** **不**依赖。
+- 迁移期 **autorun** 可同时写 SQLite（兼容）；新安装以 **runtime.json** 为准。
+
+**可重建性**：删除 **`<skills_root>/.pipeline/`** 后，下次 **autorun** 从 **`stages.json`** 重建 **`project`** 与空 **`orchestration`**。
 
 ---
 
@@ -446,7 +458,7 @@ ai-auto3/
 - [x] 子 skill **非 0** 时停跑且退出码行为符合 **§7**。  
 - [x] **`contract` + `human_approval.pending`** 时写 **`blocked`** 且**不**自动批准（与 **design3.md §8** 一致）。  
 - [x] **`gen-report.cjs`** 写入 **`stages.report`** 与报告文件；**`overall_result`** 与事实一致。  
-- [x] **`registry.sqlite`** 可删后重建；**`project_id`** 与 **`stages.json`** 一致。  
+- [x] **`<skills_root>/.pipeline/<project_id>/runtime.json`** 可删后由 **`stages.json`** 重建；**`project_id`** 一致。  
 - [x] **不**修改各阶段业务 **`outputs`**（**§5.2** 窄接口除外）。  
 - [x] **`deploy.enabled === true`** 时 **`pipeline.autorun.allow_destructive_deploy === true`** 才 spawn dev deploy；否则 **1** 且有 **report**（与 **`publish3.md` §5.1.1** 一致）。  
 - [x] 与 **`docs/templates/stages.json.template`** 中 **`report`**、**`pipeline`** 字段兼容。  

@@ -576,6 +576,11 @@ ai-code3/
 - 锁体：单行 JSON（**`pid`**、**`session_id`**、**`started_at`**、**`skill`**）。  
 - 同 scope 已运行 → **退出 1**；过期 PID 锁可清理。
 
+### A.5a 本机 runtime（`runtime-pipeline.md`）
+
+- 长时 **codegen / cursor-agent** 等后台子进程：经 **`ai-auto3/scripts/lib/runtime-io.cjs`** 向 **`<skills_root>/.pipeline/<project_id>/runtime.json` → `processes[]`** 登记 **`kind`**（如 **`codegen-agent`**）、**`pid`**、**`log_path`**；退出时标 **`exited`**。  
+- **不**写 **`orchestration`**（归 **ai-auto3**）；**不**写业务仓 **`stages.json`** 以外的新真源。
+
 ### A.6 超时默认值与心跳（§6.1）
 
 与本 skill 相关的默认阶段超时（秒）：**codegen 1800**；**typecheck 600**；**test 1800**；**code-review 600**；**merge-push 300**；**build 1800**（配置键见 **`config.dev.json.template`**）。  

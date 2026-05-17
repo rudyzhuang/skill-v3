@@ -2,7 +2,7 @@
 name: ai-auto3
 description: >-
   Skill V3 自动编排：自 design 起串联 ai-design3 / ai-code3 / ai-publish-dev3，含 checklist、
-  pipeline PID 锁、超时、registry.sqlite、末尾 gen-report。用户说「ai-auto3」「第三代自动编排」
+  pipeline PID 锁、超时、<skills_root>/.pipeline/<project_id>/runtime.json、末尾 gen-report。用户说「ai-auto3」「第三代自动编排」
   「autorun」「从设计自动跑到 dev 冒烟」时使用。
 disable-model-invocation: true
 ---
@@ -37,17 +37,17 @@ node ~/.cursor/skills/ai-auto3/scripts/autorun.cjs --project=$(pwd)
 node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/business/repo
 ```
 
-**安装依赖**（registry 需要 **SQLite**）：在 **`ai-auto3/`** 目录执行 **`npm install`**（安装 `better-sqlite3`）。
+**安装依赖**：**runtime.json** 读写**无** npm 依赖；若仍使用已废弃的 **`registry.sqlite`** 兼容路径，可在 **`ai-auto3/`** 执行 **`npm install`**（`better-sqlite3`，**非** dash 必需）。
 
 ## CLI
 
 | 调用 | 说明 |
 | --- | --- |
 | `node .../autorun.cjs [run] --project=<abs> [--from-stage=design] [--to-stage=report] [--force-rerun=<stage>] [--session-id=] [--features=id1,id2] [--dry-run]` | 默认按 **Phase 外循环**执行（首期通常 `mvp`）：当前 phase 先做完 `design→design-review`，再并行 code3 至 `deploy+smoke`+**`ui_e2e`**（`ui_e2e.enabled` 时），然后进入下一 phase（`to-stage=report` 时含 **gen-report**） |
-| `node .../autorun.cjs preflight-only --project=...` | 仅 **§5.1 checklist** + **registry upsert**（若检测到 `pipeline.pid` 仅告警，不阻断） |
-| `node .../autorun.cjs sync-registry --project=...` | 仅 **registry** 对齐（**§5.1#8 / §9**） |
+| `node .../autorun.cjs preflight-only --project=...` | 仅 **§5.1 checklist** + **runtime.json** 初始化（若检测到 `pipeline.pid` 仅告警，不阻断） |
+| `node .../autorun.cjs sync-runtime --project=...` | 仅从 **`stages.json`** 对齐 **`<skills_root>/.pipeline/<project_id>/runtime.json`** 的 **`project`** 块（**§9**） |
 | `node .../gen-report.cjs --project=... --session-id=... [--failure-reason=]` | 单独生成报告（通常由 autorun 末尾调用） |
-| `node .../registry-export.cjs` | 只读导出 **registry.sqlite** → JSON（**ai-dash3** Web 看板消费；须 **`npm install`**） |
+| `node .../registry-export.cjs` | **已废弃**：请用 **runtime 扫描**；保留仅为迁移期兼容 |
 
 **`--features`**：限定本期 **`ai-code3`** 段使用的 **`feature_id`** 子集（须 ⊆ **`prd_review.phase_plan`**）。
 对 **ai-design3**（design/contract/design-review）仅在 `--features` 解析后恰好 **1 个 feature_id** 时传 `--feature=<id>`；多 feature 时不下发该参数，避免把逗号串误传给 design3（design3 仅支持单 feature 过滤）。
@@ -85,10 +85,11 @@ node /path/to/skill-v3/ai-auto3/scripts/autorun.cjs --project=/abs/path/to/busin
 
 与 **`input-spec.md` §五** 对齐：子进程非 0 时 **autorun** 透传退出码；总超时映射 **3**。
 
-## **registry.sqlite**
+## **runtime.json**（本机运行态）
 
-默认 **`~/.cursor/skills/_registry/registry.sqlite`**（与 **ai-auto3** 兄弟的 **`_registry/`**）。可删后由下次 **upsert** 重建。
-除 `projects/pipeline_runs/stage_events` 外，需按项目持久化中间态（`current_phase`、`current_stage`、待处理 feature 队列、phase 结果），以支持中断恢复与多项目隔离。
+路径：**`~/.cursor/skills/.pipeline/<project_id>/runtime.json`**（模板 **`docs/templates/runtime.json`**，规格 **`docs/spec/runtime-pipeline.md`**）。
+
+**ai-auto3** 写入 **`orchestration`**、**`recent_runs`**、autorun **`processes`**；**ai-dash3** 只读（**`serve`** 可写 **`services.dash_serve`**）。删除整个 **`.pipeline/`** 后由下次 **autorun** 从业务仓 **`stages.json`** 重建 **`project`** 块。
 
 ## 与 **release**
 

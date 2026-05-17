@@ -6,7 +6,7 @@
 | --- | --- |
 | **唯一实现参考源** | 编写 **`ai-dash3/SKILL.md`**、**`ai-dash3/scripts/**/*.cjs`** 时，**以本文为规范来源**。看板行为不依赖口头约定。 |
 | **与 `docs/input-spec.md` 的关系** | 全流水线跨界语义（阶段链、**`stages.json` 真源**、退出码表、日志目录、**ai-auto3** 与 **ai-dash3** 职责边界等）以 **`docs/input-spec.md`** 为总纲。本文收束 **仅与 ai-dash3 相关**的可执行条款；若冲突，收束顺序：**先改 `input-spec` → 再改本文 → 再改 skill 实现**。 |
-| **与 `docs/spec/auto3.md` 的关系** | **自动推进**、**registry.sqlite** 写入、**PID 锁** 申请/释放、**`gen-report.cjs`** 调用均由 **ai-auto3** 负责（**`auto3.md`**）。**ai-dash3** **不得**重复实现上述能力；若用户需要「本机 registry 与项目对齐」，应指引其执行 **`ai-auto3` … `sync-registry`**（见 **`auto3.md`** CLI 表）。 |
+| **与 `docs/spec/auto3.md` 的关系** | **自动推进**、**`<skills_root>/.pipeline/<project_id>/runtime.json`** 写入（**`runtime-pipeline.md`**）、**PID 锁** 申请/释放、**`gen-report.cjs`** 调用均由 **ai-auto3** 负责（**`auto3.md`**）。**ai-dash3** **不得**重复实现上述能力；**不**读取 **`registry.sqlite`**。 |
 | **与上一版（v2）的关系** | 本版 **不**读取 v2 业务仓内 **`stages.json` 旧路径**、旧看板脚本或 v2 SQLite 作为默认真源。心智映射：**ai-dash3** ≈ **ai-dash2** 的**看板 / 状态洞察**职能；**不**包含 v2 **autorun**（本版归 **ai-auto3**）。 |
 
 **维护流程（需求变更时）**：
@@ -24,7 +24,7 @@
 | **目的** | 作为 **Cursor Agent Skill：`ai-dash3`** 的**详细规划与实施指引**：只读聚合 **`.pipeline/stages.json`**、**`.pipeline/reports/`** 与 **PID 锁文件**（若存在），向人与 Agent 输出**一眼可扫**的进度表、阻塞摘要与**建议的下一步命令**（**不**自动执行）。 |
 | **读者** | 实现与 review **ai-dash3** 的工程师或 Agent；在会话开场需要「当前卡在哪」快照的成员。 |
 | **自身完整性** | 未读 **`input-spec.md`** 的读者仍可依 **§2–§8** 完成 **MVP**；**§10** 为交叉索引。 |
-| **非目标** | **不**定义各业务阶段的 LLM prompt；**不**定义 **autorun** 循环、子进程超时、**registry** DDL；**不**替代 **ai-auto3** 的 checklist 真源（dash 可提供**只读**提示，**不得**声称已等价于 **preflight-only**）。 |
+| **非目标** | **不**定义各业务阶段的 LLM prompt；**不**定义 **autorun** 循环、子进程超时、**runtime.json** 写入算法（除 **`services.dash_serve`**）；**不**替代 **ai-auto3** 的 checklist 真源（dash 可提供**只读**提示，**不得**声称已等价于 **preflight-only**）。 |
 
 ---
 
@@ -32,7 +32,7 @@
 
 ### 2.1 一句话职责
 
-**ai-dash3** 提供 **pipeline 看板与诊断**：读取项目侧 **`stages.json`** 与 **`reports/`** 目录，**不** spawn 其它 **ai-*3**、**不**写 **`stages.*` 业务字段**、**不**申请 **PID 锁**、**不**写入 **registry.sqlite**。
+**ai-dash3** 提供 **pipeline 看板与诊断**：读取 **`<skills_root>/.pipeline/<project_id>/runtime.json`**（运行态）与业务仓 **`<project_root>/.pipeline/stages.json`**、**`reports/`**，**不** spawn 其它 **ai-*3**、**不**写 **`stages.*` 业务字段**、**不**申请 **PID 锁**、**不**写入 **`orchestration`**（可选写 **`services.dash_serve`**）。
 
 ### 2.2 显式禁止（实现时自检）
 
@@ -45,9 +45,9 @@
 
 ### 2.3 与 ai-auto3 的协作话术
 
-- 用户说「**只看进度、不要自动跑**」→ 使用 **`ai-dash3`**（**`status` / `json` / `write-md`**）。  
-- 用户说「**从 design 自动跑到 report**」→ 使用 **`ai-auto3`**（**`autorun.cjs`**）。  
-- 用户说「**本机 registry 与项目对齐**」→ 使用 **`ai-auto3`** 的 **`sync-registry`**（**`auto3.md`**），**不是** dash 的职责。
+- 用户说「**只看进度、不要自动跑**」→ 使用 **`ai-dash3`**（**`status` / `json` / `write-md` / `serve`**）。  
+- 用户说「**从 design 自动跑到 report**」→ 使用 **`ai-auto3`**（**`autorun.cjs`**）；运行态写入 **`<skills_root>/.pipeline/<project_id>/runtime.json`**。  
+- 用户说「**多项目列表为空**」→ 确认目标项目曾跑过 **autorun / soak**（会创建 runtime 文件），或 **`serve --project=<abs>`** 直链单项目。
 
 ---
 
@@ -60,7 +60,7 @@
 | **`ai-dash3/SKILL.md`** | 触发词、必读路径、一行命令、退出码指针；**不**内联算法。 |
 | **`ai-dash3/scripts/run.cjs`** | **唯一**对外 CLI 入口（含委派 **`serve`**）。 |
 | **`ai-dash3/scripts/serve.cjs`** | 本地 Web 看板 HTTP 服务（由 **`run.cjs serve`** 调用）。 |
-| **`ai-dash3/scripts/lib/*.cjs`** | 聚合逻辑（**`summary`**、**`features`**、**`dashboard`**、**`registry-bridge`**）。 |
+| **`ai-dash3/scripts/lib/*.cjs`** | 聚合逻辑（**`summary`**、**`features`**、**`dashboard`**、**`runtime-bridge`**（读 **`<skills_root>/.pipeline/*/runtime.json`**））。 |
 | **`ai-dash3/web/`** | 看板静态页与 **`/assets/*`**。 |
 | **`ai-dash3/scripts/smoke.cjs`** | 仓库内自检（**§9**）。 |
 | **`ai-dash3/package.json`** | 可为 **零依赖**（仅用 Node 内置 **`fs` / `path` / `child_process`**）；**禁止**为 dash 引入 **SQLite** 客户端。 |
@@ -93,9 +93,10 @@
 
 ### 3.4 本地 Web 看板（**`serve`**）
 
-- **职责**：在浏览器中展示 **当前项目** 阶段表、阻塞、**Feature 流水线状态**（待处理 / 处理中 / 已完成 / 失败 / 延期）、**ai-auto3** 运行态（registry **`project_runtime_state`** + **PID 锁**只读探测）、本机 **registry 项目列表**与最近 **autorun** 记录。
-- **数据边界**：**不**直接打开 **`registry.sqlite`**；多项目列表经 **`ai-auto3/scripts/registry-export.cjs`** 子进程只读导出（须在 **ai-auto3/** 安装 **`better-sqlite3`**）。
-- **禁止**：与 **§2.2** 相同——**不** spawn 编排、**不写** stages/registry。
+- **职责**：在浏览器中展示 **当前项目** 阶段表、阻塞、**Feature 流水线状态**、**`runtime.json` → `orchestration`**（phase/stage/pending_features）+ **PID 锁**只读探测、**`processes[]`** 后台进程列表；顶栏项目下拉来自扫描 **`<skills_root>/.pipeline/*/runtime.json`**。
+- **数据流**：选中 **`project_id`** → 读 **runtime.json** 得 **`root_path`** → 再读 **`<root_path>/.pipeline/stages.json`** 与 **`reports/`**（见 **`runtime-pipeline.md` §4**）。
+- **数据边界**：**不**打开 **`registry.sqlite`**；**不**调用 **`registry-export.cjs`**（已废弃）。
+- **禁止**：与 **§2.2** 相同——**不** spawn 编排、**不写** **`stages.json`** / **`orchestration`**。
 
 ---
 
@@ -184,10 +185,10 @@
 | **`GET /`** | **`index.html`** |
 | **`GET /assets/*`** | 静态 CSS/JS |
 | **`GET /api/config`** | **`{ schema: "ai-dash3.config.v1", default_project_root, serve: { pid, host, port } }`**（**`serve`** 为当前监听实例元数据） |
-| **`GET /api/registry`** | 项目列表 + **active_runs**（经 registry-export） |
-| **`GET /api/dashboard?project=<abs>`** | **`ai-dash3.dashboard.v1`**：含 **§7** 的 **`summary`**、**`features[]`**（**`pipeline_status`**）、**`runtime`**、**`recent_runs`**、**`overall`**、**`pipeline_stoppable`** |
+| **`GET /api/projects`** | **`ai-dash3.projects.v1`**：扫描 **`<skills_root>/.pipeline/*/runtime.json`** 的项目摘要列表（**`project_id`**、**`root_path`**、**`orchestration.active`**、**`updated_at`**）；**`GET /api/registry`** 可保留为**别名**（同响应，deprecated） |
+| **`GET /api/dashboard?project=<abs>`** | **`ai-dash3.dashboard.v1`**：含 **§7** 的 **`summary`**、**`features[]`**、**`runtime`**（来自 **runtime.json** + 现场 PID）、**`recent_runs`**、**`processes`**、**`overall`**、**`pipeline_stoppable`** |
 | **`POST /api/stop-serve`** | 优雅关闭**当前** ai-dash3 **serve**（**`server.close` + `process.exit`**）；响应 **`ai-dash3.stop-serve.v1`**（含 **`pid` / `host` / `port`**）。**不**终止 ai-auto3 子进程。端口仍被其它陈旧进程占用时，用户可在终端执行 **`lsof -ti :<port> \| xargs kill`**。 |
-| **`POST /api/stop?project=<abs>`** | **「停止所有后台任务」**：调用 **ai-auto3** **`stop-pipeline.cjs`**，对该项目的 **autorun / ai-code3 / cursor-agent** 等匹配进程 **SIGTERM→SIGKILL**，移除 **`pipeline.pid`** 锁（若可安全删除），结束 registry 未闭合 **run** 并 **clear** **`project_runtime_state`**。响应 **`ai-dash3.stop.v1`**；仍有存活进程时 HTTP **207**、**`ok: false`**。**不**关闭 ai-dash3 serve。 |
+| **`POST /api/stop?project=<abs>`** | **「停止所有后台任务」**：调用 **ai-auto3** **`stop-pipeline.cjs`**，终止匹配进程，清理 **`pipeline.pid`**，更新 **runtime.json**（**`orchestration.active=false`**、**`processes` exited**）。响应 **`ai-dash3.stop.v1`**；仍有存活进程时 HTTP **207**。**不**关闭 ai-dash3 serve。 |
 
 **`features[].pipeline_status`** 枚举：**`pending` | `in_progress` | `completed` | `failed` | `deferred`**（启发式，见实现 **`lib/features.cjs`**）。
 
@@ -202,7 +203,7 @@
 | **`pending`** | 其余：含 **codegen 已完成、待 test**（文案 **`codegen（已完成，待 test）`**）；**autorun 排队**；**脚手架 worktree**。**禁止**将 health-full 脚手架或仅 codegen 工件标为 **`completed`** |
 | **（实现分离）** | **`isFeatureCodegenDone`**（**`lib/features.cjs`**）仅用于 **autorun** **`filterRemainingCodegenQueue`**，与看板 **`completed`** 判定**不同** |
 
-**`pending_features_json`**（**`auto3.md`** registry）：表示**尚未完成 codegen 的排队列表**；**autorun** 在 codegen 波次中应随进度收缩为 **`filterRemainingCodegenQueue()`**，**不得**长期等于整期 **`phase_plan`** 全集否则看板会把全员标为处理中（旧行为）。
+**`orchestration.pending_features`**（**`runtime.json`**，原 registry **`pending_features_json`**）：表示**尚未完成 codegen 的排队列表**；**autorun** 在 codegen 波次中应随进度收缩，**不得**长期等于整期 **`phase_plan`** 全集否则看板会把全员标为处理中。
 
 ---
 
@@ -229,8 +230,8 @@
 - [x] **`write-md`** 默认路径 **`.pipeline/reports/dash-status.md`**，不覆盖 **`prd-implementation-summary.md`**。  
 - [x] **`smoke.cjs`** 对 fixtures 连续跑两轮子命令，均 **退出 0**。  
 - [x] **`serve`** 绑定默认 **`127.0.0.1`**；**`GET /api/dashboard`** 对非法 **`stages.json`** 返回 **400**（与 CLI 退出码 **1** 语义对齐）。  
-- [x] **`serve`** + **`web/`** 展示 **Feature `pipeline_status`** 与 **registry** 运行态（经 **`registry-export.cjs`**，dash **不**直连 SQLite）。  
-- [x] **依赖**：**零** npm 生产依赖或仅文档声明 **`engines.node`**；**无** `better-sqlite3`（registry 读取委托 **ai-auto3**）。
+- [x] **`serve`** + **`web/`** 展示 **Feature `pipeline_status`** 与 **runtime.json** 运行态（扫描 **`<skills_root>/.pipeline/`**，**不**使用 SQLite）。  
+- [x] **依赖**：**零** npm 生产依赖；**无** `better-sqlite3`。
 
 ---
 
@@ -239,7 +240,7 @@
 | 主题 | 文档 |
 | --- | --- |
 | 全流水线阶段链、**ai-dash3 / ai-auto3** 边界 | **`docs/input-spec.md` §4.2、§4.2.1、§4.3** |
-| **自动编排**、**registry**、**PID 锁**、**gen-report** | **`docs/spec/auto3.md`** |
+| **自动编排**、**runtime.json**、**PID 锁**、**gen-report** | **`docs/spec/auto3.md`**、**`docs/spec/runtime-pipeline.md`** |
 | **prd / prd-review** | **`docs/spec/prd3.md`** |
 | **contract 审批** | **`docs/spec/design3.md` §8** |
 | **字段真源** | **`docs/templates/stages.json.template`** |
