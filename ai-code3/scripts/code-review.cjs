@@ -244,7 +244,6 @@ async function run(ctx) {
       options.featureIds?.length > 0
         ? options.featureIds
         : featureStages.collectPhaseFeatureIds(doc);
-    const config = gitSync.loadConfigDev(projectRoot);
     for (const fid of crIds) {
       const gr = gitSync.syncAfterFeature(projectRoot, 'code_review', fid, { config });
       if (!gr.ok && !gr.skipped && gr.push_status === 'failed') return 7;
