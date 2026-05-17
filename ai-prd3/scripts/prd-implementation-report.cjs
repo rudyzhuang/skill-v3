@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs, requireProject, stagesPath } = require('./lib/paths.cjs');
-const { formatLocalTime } = require('../../../scripts/lib/local-time.cjs');
+const { formatLocalTime } = require('../../scripts/lib/local-time.cjs');
 
 const REPORT_REL = path.join('.pipeline', 'reports', 'prd-implementation-summary.md');
 

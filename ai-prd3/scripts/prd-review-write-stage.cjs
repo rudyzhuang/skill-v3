@@ -226,7 +226,7 @@ function main() {
   stages.pipeline.updated_by = 'ai-prd3';
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
-  featureStages.appendStageLog(projectRoot, {
+  featureStages.appendStageLog(root, {
     skill: 'ai-prd3',
     stageKey: 'prd_review',
     featureIds: reviewIds,
