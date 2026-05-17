@@ -19,7 +19,13 @@ function appendSessionLog(projectRoot, rec) {
     if (sid) {
       const safe = sid.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
       const logFile = path.join(dir, `${safe}.log`);
-      const msg = `[${ts}] ${String(rec.event || 'log')} exit=${rec.exit_code != null ? rec.exit_code : ''} sub=${String(rec.subcommand || '')} ${JSON.stringify(rec)}\n`;
+      const human =
+        rec.message ||
+        `${String(rec.event || 'log')}${rec.subcommand ? ` (${rec.subcommand})` : ''}${
+          rec.exit_code != null ? ` exit=${rec.exit_code}` : ''
+        }`;
+      const detail = rec.detail ? ` — ${rec.detail}` : rec.summary ? ` — ${rec.summary}` : '';
+      const msg = `[${ts}] [ai-prd3] ${human}${detail}\n`;
       fs.appendFileSync(logFile, msg, 'utf8');
     }
   } catch (_) {

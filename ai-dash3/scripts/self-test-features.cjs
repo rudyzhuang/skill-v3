@@ -129,10 +129,25 @@ docTestPass.stages.test = {
     per_feature: [{ feature_id: 'F-A', result: 'passed', passed: true, finished_at: '2026-01-01T00:00:00.000Z' }],
   },
 };
+const boardTestOnly = buildFeatureBoard(docTestPass, root, runtime, { alive: false });
+const fATestOnly = boardTestOnly.features.find((f) => f.feature_id === 'F-A');
+assert(
+  fATestOnly.feature_status === 'paused',
+  `F-A test pass without ui_e2e expected paused, got ${fATestOnly.feature_status}`
+);
+assert(
+  fATestOnly.hints.includes('awaiting_ui_e2e'),
+  `F-A should hint awaiting_ui_e2e: ${fATestOnly.hints}`
+);
+assert(
+  !fATestOnly.completed_stages.includes('ui_e2e'),
+  `ui_e2e must not be in completed_stages before project ui_e2e done`
+);
+
+docTestPass.stages.ui_e2e = { status: 'completed' };
 const boardDone = buildFeatureBoard(docTestPass, root, runtime, { alive: false });
 const fA = boardDone.features.find((f) => f.feature_id === 'F-A');
-assert(fA.pipeline_status === 'completed', `F-A with test pass expected completed, got ${fA.pipeline_status}`);
-assert(fA.pipeline_stage_label.includes('test'), `F-A completed label should mention test: ${fA.pipeline_stage_label}`);
+assert(fA.pipeline_status === 'completed', `F-A with test+ui_e2e expected completed, got ${fA.pipeline_status}`);
 assert(fA.feature_status === 'completed', `F-A feature_status expected completed, got ${fA.feature_status}`);
 assert(fA.current_stage_status !== 'completed', 'current_stage_status must not be completed');
 assert(
@@ -140,6 +155,10 @@ assert(
   `F-A completed_stages should include codegen: ${fA.completed_stages}`
 );
 assert(byId['F-B'].feature_status === 'in_progress', `F-B feature_status expected in_progress, got ${byId['F-B'].feature_status}`);
+assert(
+  byId['F-A'].stage_progress_pct >= 0 && byId['F-A'].stage_total_count === 15,
+  `F-A stage progress fields: pct=${byId['F-A'].stage_progress_pct} total=${byId['F-A'].stage_total_count}`
+);
 
 const docFailed = JSON.parse(JSON.stringify(doc));
 docFailed.stages.test = {
@@ -172,6 +191,24 @@ const fBRun = boardPrdRun.features.find((f) => f.feature_id === 'F-B');
 assert(
   fBRun.feature_status === 'in_progress',
   `F-B while prd running expected in_progress, got ${fBRun.feature_status}`
+);
+
+const docDesignRun = JSON.parse(JSON.stringify(doc));
+docDesignRun.stages.design = {
+  status: 'running',
+  outputs: {
+    per_feature: [{ feature_id: 'F-B', status: 'running', started_at: '2026-01-01T00:00:00.000Z' }],
+  },
+};
+const boardDesign = buildFeatureBoard(docDesignRun, root, {}, { alive: false });
+const fBDesign = boardDesign.features.find((f) => f.feature_id === 'F-B');
+assert(
+  fBDesign.current_stage_status === 'running',
+  `F-B design per_feature running expected current_stage_status=running, got ${fBDesign.current_stage_status}`
+);
+assert(
+  fBDesign.feature_status === 'in_progress',
+  `F-B design per_feature running expected in_progress, got ${fBDesign.feature_status}`
 );
 
 console.log('ai-dash3 self-test-features: ok');

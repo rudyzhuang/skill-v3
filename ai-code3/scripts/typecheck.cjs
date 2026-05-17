@@ -6,6 +6,7 @@ const stagesIo = require('./lib/stages-io.cjs');
 const summaryHash = require('./lib/summary-hash.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -93,6 +94,25 @@ async function run(ctx) {
     console.error(`[dry-run] typecheck cwd=${cwd} (tools not executed)`);
     return 0;
   }
+
+  const wtFeatureIds = (doc.stages?.codegen?.outputs?.worktrees || [])
+    .map((w) => String(w?.feature_id || '').trim())
+    .filter(Boolean);
+  doc = featureStages.backfillFeatureStages(doc);
+  const begun = featureStages.beginStageForFeatures(doc, {
+    stageKey: 'typecheck',
+    featureIds: wtFeatureIds.length ? wtFeatureIds : featureStages.collectPhaseFeatureIds(doc),
+    skill: 'ai-code3',
+    message: 'typecheck 静态检查开始',
+  });
+  doc = begun.doc;
+  stagesIo.writeStagesSync(projectRoot, doc);
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-code3',
+    stageKey: 'typecheck',
+    message: `typecheck 处理中（${begun.marked.length} 个 feature）`,
+    detail: `cwd=${cwd}`,
+  });
 
   const toolsOut = [];
   let ran = 0;
@@ -193,6 +213,15 @@ async function run(ctx) {
           exit_code: null,
           errors: [],
         }));
+
+  const tcIds = wtFeatureIds.length ? wtFeatureIds : featureStages.collectPhaseFeatureIds(doc);
+  if (passed) {
+    doc = featureStages.markFeaturesCompleted(doc, 'typecheck', tcIds, { message: 'typecheck 通过' });
+  } else {
+    doc = featureStages.markFeaturesFailed(doc, 'typecheck', tcIds, {
+      message: anyTimedOut ? 'typecheck 超时' : 'typecheck 工具报错',
+    });
+  }
 
   doc = stagesIo.updateStage(doc, 'typecheck', {
     status: ran === 0 ? 'completed' : anyFailed || anyTimedOut ? 'failed' : 'completed',

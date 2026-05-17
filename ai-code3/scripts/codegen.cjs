@@ -12,6 +12,7 @@ const healthFull = require('./lib/codegen-health-full-scaffold.cjs');
 const { invokeCodegenAgent } = require('./lib/invoke-codegen-agent.cjs');
 const { appendHeartbeat } = require('./lib/session-log.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -313,6 +314,24 @@ async function run(ctx) {
 
   const featureIds = resolveFeatureIds(doc, options);
   const hash = summaryHash.computeCodegenInputHash(doc, projectRoot, featureIds);
+  const sessionId = options.sessionId || '';
+
+  doc = featureStages.backfillFeatureStages(doc);
+  const begun = featureStages.beginStageForFeatures(doc, {
+    stageKey: 'codegen',
+    featureIds,
+    skill: 'ai-code3',
+    message: `codegen 开始，本波 feature：${featureIds.join('、')}`,
+  });
+  doc = begun.doc;
+  stagesIo.writeStagesSync(projectRoot, doc);
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-code3',
+    sessionId,
+    stageKey: 'codegen',
+    message: `已标记 ${begun.marked.length} 个 feature 为处理中`,
+    detail: begun.marked.length ? begun.marked.join(',') : 'none',
+  });
 
   if (options.dryRun) {
     console.error(`[dry-run] codegen ok; summary_hash would be ${hash}; features=${featureIds.join(',')}`);
@@ -329,7 +348,6 @@ async function run(ctx) {
       : soakStrictCodegen
         ? Math.max(120_000, Math.floor(codegenMs / 2))
         : Math.max(60_000, Math.floor(codegenMs / 4));
-  const sessionId = options.sessionId || '';
 
   const wtResult = worktreeLib.ensureAllFeatureWorktrees(projectRoot, featureIds, base);
   if (!wtResult.ok) {
@@ -471,6 +489,17 @@ async function run(ctx) {
         console.error(
           `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl begin timeout_ms=${subMs}`
         );
+        doc = featureStages.markFeatureStage(doc, 'codegen', row.feature_id, 'running', {
+          message: `impl Agent 执行中（${featureNo}）`,
+        });
+        stagesIo.writeStagesSync(projectRoot, doc);
+        featureStages.appendStageLog(projectRoot, {
+          skill: 'ai-code3',
+          sessionId,
+          stageKey: 'codegen',
+          featureId: row.feature_id,
+          message: `开始 impl Agent（${featureNo}）`,
+        });
         const ir = await invokeCodegenAgent({
           worktreePath: row.worktree_path,
           projectRoot,
@@ -588,6 +617,10 @@ async function run(ctx) {
           row.commit = commitResult.commit;
         }
         implStatus = 'completed';
+        doc = featureStages.markFeatureStage(doc, 'codegen', row.feature_id, 'completed', {
+          message: `impl 完成，commit=${commitResult.commit || 'unchanged'}`,
+        });
+        stagesIo.writeStagesSync(projectRoot, doc);
         console.error(
           `[ai-code3] codegen feature ${featureNo} feature_id=${row.feature_id} impl ok commit=${commitResult.commit || 'unchanged'}`
         );
@@ -664,6 +697,16 @@ async function run(ctx) {
       : !skipAgent &&
         implStatus === 'completed' &&
         testOk;
+
+  if (passed) {
+    doc = featureStages.markFeaturesCompleted(doc, 'codegen', featureIds, {
+      message: 'codegen 阶段全部完成',
+    });
+  } else {
+    doc = featureStages.markFeaturesFailed(doc, 'codegen', featureIds, {
+      message: `codegen 失败 impl=${implStatus} test=${testStatus}`,
+    });
+  }
 
   doc = stagesIo.updateStage(doc, 'codegen', {
     status: passed ? 'completed' : 'failed',

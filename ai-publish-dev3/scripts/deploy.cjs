@@ -11,6 +11,7 @@ const { collectConsumedArtifacts } = require('./lib/artifacts.cjs');
 const { stageTimeoutSeconds, heartbeatIntervalMs } = require('./lib/timeouts.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { appendSessionLog } = require('./lib/session-log.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 const LOCK_SCOPE = 'deploy-dev';
 
@@ -188,6 +189,24 @@ async function runDeploy(projectRoot, opts = {}) {
   );
 
   log(`deploy start provider=${providerRaw} session=${sessionId || 'none'}`);
+
+  updateStages(stPath, (doc) => {
+    featureStages.backfillFeatureStages(doc);
+    const ids = featureStages.collectPhaseFeatureIds(doc);
+    const begun = featureStages.beginStageForFeatures(doc, {
+      stageKey: 'deploy',
+      featureIds: ids,
+      skill: 'ai-publish-dev3',
+      message: `dev 部署开始（provider=${providerRaw}）`,
+    });
+    return begun.doc;
+  });
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-publish-dev3',
+    sessionId,
+    stageKey: 'deploy',
+    message: `deploy 处理中，provider=${providerRaw}`,
+  });
 
   try {
     if (allowExit8Test) {

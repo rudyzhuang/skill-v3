@@ -72,15 +72,32 @@
       <div class="feature-board" id="featureBoard"></div>
     </section>
 
-    <section class="card">
-      <h2>阶段表</h2>
-      <div class="table-wrap">
-        <table id="stageTable">
-          <thead>
-            <tr><th>阶段</th><th>状态</th><th>校验</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+    <section class="card" id="featureLogCard" hidden>
+      <h2>处理中 Feature 日志</h2>
+      <div class="feature-log-tabs" id="featureLogTabs" hidden></div>
+      <p class="feature-log-meta" id="featureLogMeta"></p>
+      <pre class="feature-log-view" id="featureLogView" aria-live="polite"></pre>
+    </section>
+
+    <section class="card collapsible collapsed" id="stageCard" data-card-id="stages" data-default-collapsed="true">
+      <header class="card-header">
+        <button type="button" class="card-toggle" aria-expanded="false" aria-controls="stageBody" title="展开/收起">
+          <span class="chevron" aria-hidden="true"></span>
+        </button>
+        <div class="card-heading">
+          <h2>阶段表</h2>
+          <p class="card-compact" id="stageCompact"></p>
+        </div>
+      </header>
+      <div class="card-body" id="stageBody">
+        <div class="table-wrap">
+          <table id="stageTable">
+            <thead>
+              <tr><th>阶段</th><th>状态</th><th>校验</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

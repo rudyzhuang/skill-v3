@@ -9,6 +9,7 @@ const { writeTerminal } = require('./lib/stage-terminal.cjs');
 const { invokeAiCode3Agent } = require('./lib/invoke-ai-code3-agent.cjs');
 const pipelineTooling = require('./lib/pipeline-ai-code3.cjs');
 const { evaluateWorktreeTestCoverage } = require('./lib/test-level-gate.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -131,6 +132,24 @@ async function run(ctx) {
   }
 
   const sessionId = options.sessionId || '';
+  const targetIds = targets.map((t) => t.feature_id);
+  doc = featureStages.backfillFeatureStages(doc);
+  const begun = featureStages.beginStageForFeatures(doc, {
+    stageKey: 'test',
+    featureIds: targetIds,
+    skill: 'ai-code3',
+    message: `test 开始，feature：${targetIds.join('、')}`,
+  });
+  doc = begun.doc;
+  stagesIo.writeStagesSync(projectRoot, doc);
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-code3',
+    sessionId,
+    stageKey: 'test',
+    message: `已标记 ${begun.marked.length} 个 feature 进入 test 处理中`,
+    detail: `cmd=${testCmd}`,
+  });
+
   let hb;
   if (sessionId) {
     const { appendHeartbeat } = require('./lib/session-log.cjs');
@@ -143,6 +162,10 @@ async function run(ctx) {
 
   try {
     for (const row of targets) {
+      doc = featureStages.markFeatureStage(doc, 'test', row.feature_id, 'running', {
+        message: '执行测试命令',
+      });
+      stagesIo.writeStagesSync(projectRoot, doc);
       const cwd = row.worktree_path;
       if (!fs.existsSync(cwd)) {
         console.error(`failed_stage=test feature_id=${row.feature_id} missing worktree_path=${cwd}`);
@@ -224,6 +247,13 @@ async function run(ctx) {
       }
 
       const passed = lastCode === 0 && !overallTimedOut;
+      doc = featureStages.markFeatureStage(
+        doc,
+        'test',
+        row.feature_id,
+        passed ? 'completed' : 'failed',
+        { message: passed ? '测试通过' : `测试失败 exit=${lastCode}` }
+      );
       perFeature.push({
         feature_id: row.feature_id,
         attempts,

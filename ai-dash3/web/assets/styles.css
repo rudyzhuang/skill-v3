@@ -349,6 +349,51 @@ main {
   color: #fbd38d;
 }
 
+.feature-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+}
+
+.feature-footer .badge {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.feature-progress {
+  flex: 1;
+  min-width: 0;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.feature-progress-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  transition: width 0.25s ease;
+  /* 在可见填充宽度内：左端最浅 → 右端最深 */
+  background-image: linear-gradient(
+    90deg,
+    #e8fcf2 0%,
+    #c8f5dc 10%,
+    #a0ebc4 22%,
+    #72dda4 38%,
+    #48cf88 55%,
+    #2bb86e 72%,
+    #159f56 88%,
+    #0a7d42 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 8px rgba(40, 200, 120, 0.4);
+}
+
 .feature-card .fid {
   font-weight: 600;
   font-size: 0.9rem;
@@ -372,6 +417,49 @@ main {
 .feature-card .muted-hint {
   opacity: 0.85;
   font-size: 0.7rem;
+}
+
+.feature-log-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.feature-log-tabs button {
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.7rem;
+  font-family: ui-monospace, monospace;
+}
+
+.feature-log-tabs button.active {
+  background: var(--run);
+  color: #fff;
+}
+
+.feature-log-meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.feature-log-view {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  max-height: 320px;
+  overflow: auto;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .badge {

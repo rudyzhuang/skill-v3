@@ -44,6 +44,12 @@ function displayStage(k) {
   return String(k || '').replace(/_/g, '-');
 }
 
+/** 进度条宽度（0–100）；渐变在 CSS 中按轨道全宽铺开，左浅右深 */
+function stageProgressWidth(pct) {
+  const p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  return { width: `${p}%`, fillPct: p };
+}
+
 function featureMatchesFilter(f, filterStatus) {
   if (filterStatus === 'all') return true;
   const status = f.feature_status || f.pipeline_status;
@@ -68,6 +74,7 @@ let registryProjects = [];
 let currentProjectRoot = '';
 let lastDashboard = null;
 let featureFilter = 'all';
+let activeFeatureLogId = null;
 let timer = null;
 
 const COLLAPSE_STORAGE_KEY = 'ai-dash3.collapsedCards';
@@ -105,7 +112,9 @@ function initCollapsibleCards() {
   const state = loadCollapsedState();
   for (const card of document.querySelectorAll('.card.collapsible')) {
     const id = card.dataset.cardId;
-    setCardCollapsed(card, !!state[id], false);
+    const defaultCollapsed = card.dataset.defaultCollapsed === 'true';
+    const collapsed = id && state[id] !== undefined ? !!state[id] : defaultCollapsed;
+    setCardCollapsed(card, collapsed, false);
     const header = card.querySelector('.card-header');
     const toggle = card.querySelector('.card-toggle');
     const onToggle = (e) => {
@@ -317,6 +326,11 @@ function renderFeatures(dash, filterStatus) {
     card.dataset.status = featureStatus;
     const badgeClass = featureStatus === 'in_progress' ? 'in_progress' : featureStatus;
     const badgeLabel = FEATURE_STATUS_LABEL[featureStatus] || featureStatus;
+    const progressPct = f.stage_progress_pct != null ? f.stage_progress_pct : 0;
+    const progressFill = stageProgressWidth(progressPct);
+    const progressTitle = escapeHtml(
+      `阶段进度 ${progressPct}%（${f.stage_completed_count != null ? f.stage_completed_count : '—'}/${f.stage_total_count != null ? f.stage_total_count : '—'}）`
+    );
     const startedLine = escapeHtml(formatLocalTime(f.stage_started_at));
     const elapsedLine = escapeHtml(formatDuration(f.stage_elapsed_ms));
     card.innerHTML = `
@@ -326,7 +340,12 @@ function renderFeatures(dash, filterStatus) {
       <div class="meta feature-stage">已完成阶段: <strong>${completedStages}</strong></div>
       <div class="meta feature-stage">当前阶段: <strong>${currentStage}</strong></div>
       <div class="meta feature-timing">开始: ${startedLine} · 已运行: ${elapsedLine}</div>
-      <span class="badge badge-${badgeClass}">${escapeHtml(badgeLabel)}</span>
+      <div class="feature-footer">
+        <span class="badge badge-${badgeClass}">${escapeHtml(badgeLabel)}</span>
+        <div class="feature-progress" role="progressbar" aria-valuenow="${progressPct}" aria-valuemin="0" aria-valuemax="100" title="${progressTitle}">
+          <div class="feature-progress-fill" style="width: ${progressFill.width}"></div>
+        </div>
+      </div>
     `;
     board.appendChild(card);
   }
@@ -340,7 +359,81 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+function stageCompactText(dash) {
+  const rows = dash.summary?.rows || [];
+  if (!rows.length) return '暂无阶段数据';
+  const done = rows.filter((r) => r.status === 'completed').length;
+  const failed = rows.filter((r) => r.status === 'failed');
+  const badVal = rows.filter((r) => r.validation_passed === false);
+  const cur = dash.summary?.pipeline?.current_stage;
+  const parts = [`${done}/${rows.length} 已完成`];
+  if (cur) parts.push(`当前 ${displayStage(cur)}`);
+  if (failed.length) parts.push(`${failed.length} 失败`);
+  else if (badVal.length) parts.push(`${badVal.length} 项校验未过`);
+  return parts.join(' · ');
+}
+
+function renderInProgressLogs(dash) {
+  const card = $('featureLogCard');
+  const tabs = $('featureLogTabs');
+  const meta = $('featureLogMeta');
+  const view = $('featureLogView');
+  const logs = dash.in_progress_logs || [];
+  if (!card || !view) return;
+
+  if (!logs.length) {
+    card.hidden = true;
+    activeFeatureLogId = null;
+    return;
+  }
+  card.hidden = false;
+
+  const ids = logs.map((l) => l.feature_id);
+  if (!activeFeatureLogId || !ids.includes(activeFeatureLogId)) {
+    activeFeatureLogId = ids[0];
+  }
+
+  if (tabs) {
+    if (logs.length > 1) {
+      tabs.hidden = false;
+      tabs.innerHTML = '';
+      for (const entry of logs) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = entry.feature_id;
+        btn.classList.toggle('active', entry.feature_id === activeFeatureLogId);
+        btn.addEventListener('click', () => {
+          activeFeatureLogId = entry.feature_id;
+          renderInProgressLogs(dash);
+        });
+        tabs.appendChild(btn);
+      }
+    } else {
+      tabs.hidden = true;
+      tabs.innerHTML = '';
+    }
+  }
+
+  const active = logs.find((l) => l.feature_id === activeFeatureLogId) || logs[0];
+  if (meta) {
+    const pathLine = active.log_path ? active.log_path : '未找到日志文件';
+    const stageLine = active.current_stage_label ? ` · ${active.current_stage_label}` : '';
+    const sessionLine = active.session_id ? ` · session ${active.session_id}` : '';
+    const truncLine = active.truncated ? ' · 仅显示末尾' : '';
+    meta.textContent = `${pathLine}${stageLine}${sessionLine}${truncLine}`;
+  }
+
+  if (!active.lines?.length) {
+    view.textContent = '暂无该 feature 的会话日志（等待 codegen 启动或检查 .agent-sessions/）';
+  } else {
+    view.textContent = active.lines.join('\n');
+  }
+  view.scrollTop = view.scrollHeight;
+}
+
 function renderStages(dash) {
+  const compact = $('stageCompact');
+  if (compact) compact.textContent = stageCompactText(dash);
   const tbody = $('stageTable').querySelector('tbody');
   tbody.innerHTML = '';
   const rows = dash.summary?.rows || [];
@@ -442,6 +535,7 @@ async function loadDashboard() {
     renderRuntime(dash);
     renderSummary(dash);
     renderFeatures(dash);
+    renderInProgressLogs(dash);
     renderStages(dash);
     renderBlockers(dash);
     renderRuns(dash);

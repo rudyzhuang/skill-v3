@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs, requireProject, stagesPath, skillDirFrom } = require('./lib/paths.cjs');
 const { deepMerge } = require('./lib/merge-stages.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function parseFeatureRowsFromFeatureList(md) {
   const m = md.match(/^##\s+Features\s*$/m);
@@ -90,7 +91,7 @@ function main() {
   }
 
   const stagesFile = stagesPath(root);
-  const stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
+  let stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8'));
   const prd = stages.stages?.prd;
   if (prd?.status !== 'completed' || !prd?.validation?.passed) {
     console.error('前置门闸：须先完成 prd（stages.prd.status=completed 且 validation.passed=true）');
@@ -188,6 +189,15 @@ function main() {
   if (payload.conditions) patch.conditions = payload.conditions;
 
   stages.stages.prd_review = deepMerge(base, patch);
+  stages = featureStages.backfillFeatureStages(stages);
+  const reviewIds = featureStages.collectPhaseFeatureIds(stages);
+  const reviewBegun = featureStages.beginStageForFeatures(stages, {
+    stageKey: 'prd_review',
+    featureIds: reviewIds.length ? reviewIds : undefined,
+    skill: 'ai-prd3',
+    message: 'prd-review 合并评审 JSON，进入处理中',
+  });
+  stages = reviewBegun.doc;
   stages.stages.prd_review.status = 'running';
   stages.stages.prd_review.validation = stages.stages.prd_review.validation || {};
   stages.stages.prd_review.validation.passed = false;

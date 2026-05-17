@@ -9,11 +9,21 @@ const FEATURE_GROUPS_LIB = path.resolve(
   __dirname,
   '../../../ai-auto3/scripts/lib/feature-groups.cjs'
 );
+const FEATURE_STAGES_LIB = path.resolve(
+  __dirname,
+  '../../../ai-auto3/scripts/lib/feature-stages.cjs'
+);
 let collectFeatureMeta;
+let featureStages;
 try {
   collectFeatureMeta = require(FEATURE_GROUPS_LIB).collectFeatureMeta;
 } catch {
   collectFeatureMeta = null;
+}
+try {
+  featureStages = require(FEATURE_STAGES_LIB);
+} catch {
+  featureStages = null;
 }
 
 function collectPhasePlans(doc) {
@@ -79,14 +89,33 @@ function collectFeatureWorktreeIds(doc, projectRoot) {
 }
 
 function loadStagesDoc(projectRoot, doc) {
-  if (doc && typeof doc === 'object') return doc;
+  if (doc && typeof doc === 'object') {
+    return featureStages ? featureStages.backfillFeatureStages(doc) : doc;
+  }
   const fp = path.join(projectRoot, '.pipeline', 'stages.json');
   if (!fs.existsSync(fp)) return null;
   try {
-    return JSON.parse(fs.readFileSync(fp, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    return featureStages ? featureStages.backfillFeatureStages(parsed) : parsed;
   } catch {
     return null;
   }
+}
+
+function featureStageStatus(doc, stageKey, featureId) {
+  if (!featureStages) return null;
+  const row = featureStages.getFeatureStageRow(doc, stageKey, featureId);
+  return row?.status ? String(row.status) : null;
+}
+
+/** 任一 stage 的 per_feature 为 running 时，返回最先匹配的阶段键 */
+function findFeatureRunningStage(doc, featureId) {
+  const fid = String(featureId || '').trim();
+  if (!fid || !featureStages) return null;
+  for (const key of STAGE_KEYS) {
+    if (featureStageStatus(doc, key, fid) === 'running') return key;
+  }
+  return null;
 }
 
 /** @returns {object|undefined} */
@@ -513,6 +542,14 @@ function projectStageIsRunning(doc, key) {
 function deriveCurrentStageStatus(doc, currentKey, ctx) {
   if (ctx.blockedInList) return 'failed';
   if (currentKey === 'deferred' || ctx.pipeline_status === 'deferred') return 'deferred';
+  const fid = String(ctx.fid || '').trim();
+  if (fid && featureStages) {
+    const explicit = featureStageStatus(doc, currentKey, fid);
+    if (explicit === 'running') return 'running';
+    if (explicit === 'failed') return 'failed';
+    if (explicit === 'deferred') return 'deferred';
+    if (explicit === 'completed') return 'pending';
+  }
   if (currentKey === 'codegen') {
     if (ctx.isActiveCodegen) return 'running';
     if (ctx.codegenDone) return 'pending';
@@ -557,6 +594,8 @@ function isAnyStageRunningForFeature(doc, ctx, currentStageStatus) {
   if (ctx.isActiveCodegen) return true;
   if (ctx.testRunning && ctx.codegenDone && !ctx.testPassed) return true;
   if (currentStageStatus === 'running') return true;
+  const fid = String(ctx.fid || '').trim();
+  if (fid && featureStages && featureStages.anyFeatureStageRunning(doc, fid)) return true;
   for (const key of STAGE_KEYS) {
     if (!projectStageIsRunning(doc, key)) continue;
     if (key === 'codegen') {
@@ -576,17 +615,17 @@ function isAnyStageRunningForFeature(doc, ctx, currentStageStatus) {
 
 /**
  * 整条 feature 状态：completed | pending | in_progress | paused
- * - 已完成：per-feature test 通过
+ * - 已完成：per-feature test 通过且项目 ui_e2e 已完成
  * - 待处理：prd 尚未开始且本 feature 未动工
  * - 处理中：任一相关阶段 running
- * - 暂停中：prd 已完成后、ui_e2e 完成前，且非处理中
+ * - 暂停中：prd 已完成后、ui_e2e 完成前（含 test 已通过待 ui_e2e），且非处理中
  */
 function deriveFeatureOverallStatus(doc, ctx, currentStageStatus) {
   if (ctx.pipeline_status === 'deferred') {
     return { feature_status: 'paused', feature_status_reason: 'deferred' };
   }
-  if (ctx.testPassed) {
-    return { feature_status: 'completed', feature_status_reason: 'test_passed' };
+  if (ctx.testPassed && isProjectUiE2eDone(doc)) {
+    return { feature_status: 'completed', feature_status_reason: 'test_and_ui_e2e_done' };
   }
   if (isAnyStageRunningForFeature(doc, ctx, currentStageStatus)) {
     return { feature_status: 'in_progress', feature_status_reason: 'stage_running' };
@@ -594,10 +633,21 @@ function deriveFeatureOverallStatus(doc, ctx, currentStageStatus) {
   if (isFeaturePrdNotStarted(doc, ctx)) {
     return { feature_status: 'pending', feature_status_reason: 'prd_not_started' };
   }
-  if (isStageDone(doc, 'prd') && !isProjectUiE2eDone(doc)) {
+  if (!isProjectUiE2eDone(doc)) {
     return { feature_status: 'paused', feature_status_reason: 'awaiting_ui_e2e' };
   }
   return { feature_status: 'paused', feature_status_reason: 'mid_pipeline' };
+}
+
+function computeStageProgress(completedStages) {
+  const total = STAGE_KEYS.length;
+  const done = Array.isArray(completedStages) ? completedStages.length : 0;
+  const stage_progress_pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return {
+    stage_progress_pct,
+    stage_total_count: total,
+    stage_completed_count: done,
+  };
 }
 
 /**
@@ -607,7 +657,9 @@ function deriveFeatureOverallStatus(doc, ctx, currentStageStatus) {
  * @param {object} ctx
  */
 function deriveFeatureStageProgress(doc, fid, stageFields, ctx) {
-  const currentKey = normalizeFeatureCurrentStageKey(stageFields.pipeline_stage, ctx, doc);
+  let currentKey = normalizeFeatureCurrentStageKey(stageFields.pipeline_stage, ctx, doc);
+  const runningKey = findFeatureRunningStage(doc, fid);
+  if (runningKey) currentKey = runningKey;
   const currentIdx = STAGE_KEYS.indexOf(currentKey);
   const completed = [];
   if (currentKey === 'deferred') {
@@ -619,6 +671,7 @@ function deriveFeatureStageProgress(doc, fid, stageFields, ctx) {
       current_stage_status: 'deferred',
       feature_status: 'paused',
       feature_status_reason: 'deferred',
+      ...computeStageProgress([]),
     };
   }
   for (const key of STAGE_KEYS) {
@@ -635,6 +688,7 @@ function deriveFeatureStageProgress(doc, fid, stageFields, ctx) {
     current_stage_label: displayStageKey(currentKey),
     current_stage_status,
     ...overall,
+    ...computeStageProgress(completed),
   };
 }
 
@@ -701,9 +755,15 @@ function buildFeatureBoard(doc, projectRoot, runtime, pidLock) {
       } else if (projectFailed && (pendingQueue.has(fid) || phase === currentPhase)) {
         pipeline_status = 'failed';
         hints.push('project_stage_failed');
-      } else if (testPassed) {
+      } else if (testPassed && isProjectUiE2eDone(doc)) {
         pipeline_status = 'completed';
         hints.push('test_per_feature_passed');
+        hints.push('ui_e2e_done');
+        if (codegenDone) hints.push('codegen_done');
+      } else if (testPassed) {
+        pipeline_status = 'pending';
+        hints.push('test_per_feature_passed');
+        hints.push('awaiting_ui_e2e');
         if (codegenDone) hints.push('codegen_done');
       } else if (codegenDone && testRunning) {
         pipeline_status = 'in_progress';

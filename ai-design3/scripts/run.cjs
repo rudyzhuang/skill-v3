@@ -16,6 +16,7 @@ const { scanProjectConfigKeys } = require('./lib/secret-scan.cjs');
 const { createValidators, validateJson } = require('./lib/schema-validate.cjs');
 const { featureDeclaredInLists } = require('./lib/feature-list.cjs');
 const { appendSessionLog } = require('./lib/session-log.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 const { runStyleScan } = require('./lib/style-scan.cjs');
 const { runLibResearch } = require('./lib/lib-research.cjs');
 const {
@@ -590,10 +591,32 @@ function main() {
         finish(EXIT.OK, { skipped: true });
       }
     }
+    if (!parsed.dryRun) {
+      stages = featureStages.backfillFeatureStages(stages);
+      const begun = featureStages.beginStageForFeatures(stages, {
+        stageKey: 'design',
+        featureIds: ids,
+        skill: 'ai-design3',
+        message: `validate-design 开始校验 ${ids.length} 个 feature 的设计规格`,
+      });
+      stages = begun.doc;
+      featureStages.appendStageLog(root, {
+        skill: 'ai-design3',
+        stageKey: 'design',
+        message: `design 阶段：${begun.marked.length} 个 feature 已进入处理中`,
+        detail: begun.marked.join(','),
+      });
+    }
+
     const errors = [];
     const now = isoNow();
     let anyRisks = false;
     for (const fid of ids) {
+      if (!parsed.dryRun) {
+        stages = featureStages.markFeatureStage(stages, 'design', fid, 'running', {
+          message: `正在校验 ${fid} 的 design.json`,
+        });
+      }
       const decl = featureDeclaredInLists(root, fid);
       if (!decl.ok) {
         errors.push(
@@ -630,8 +653,29 @@ function main() {
     if (errors.length) {
       stages.stages.design.status = 'failed';
       stages.stages.design.blocking_issues = errors;
+      if (!parsed.dryRun) {
+        stages = featureStages.markFeaturesFailed(stages, 'design', ids, {
+          message: `校验失败：${errors.slice(0, 3).join('; ')}`,
+        });
+        featureStages.appendStageLog(root, {
+          skill: 'ai-design3',
+          stageKey: 'design',
+          level: 'error',
+          message: `design 校验未通过（${errors.length} 项问题）`,
+        });
+      }
     } else {
       stages.stages.design.blocking_issues = [];
+      if (!parsed.dryRun) {
+        stages = featureStages.markFeaturesCompleted(stages, 'design', ids, {
+          message: 'design 规格校验通过',
+        });
+        featureStages.appendStageLog(root, {
+          skill: 'ai-design3',
+          stageKey: 'design',
+          message: 'design 校验全部通过',
+        });
+      }
     }
     logDryRunSlice(parsed, {
       design: {

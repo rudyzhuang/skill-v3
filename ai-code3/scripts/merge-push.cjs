@@ -7,6 +7,7 @@ const summaryHash = require('./lib/summary-hash.cjs');
 const mergeGit = require('./lib/merge-git.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
 const { writeTerminal } = require('./lib/stage-terminal.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function loadDevConfig(projectRoot) {
   const p = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -380,7 +381,25 @@ async function run(ctx) {
         allow_push: allowPush,
       },
     });
+    const mpIds = (options.featureIds?.length ? options.featureIds : featureStages.collectPhaseFeatureIds(doc)).map(
+      String
+    );
+    doc = featureStages.backfillFeatureStages(doc);
+    const mpBegun = featureStages.beginStageForFeatures(doc, {
+      stageKey: 'merge_push',
+      featureIds: mpIds,
+      skill: 'ai-code3',
+      message: `merge-push 开始合并到 ${targetBranch}`,
+    });
+    doc = mpBegun.doc;
     stagesIo.writeStagesSync(projectRoot, doc);
+    featureStages.appendStageLog(projectRoot, {
+      skill: 'ai-code3',
+      sessionId: options.sessionId,
+      stageKey: 'merge_push',
+      message: `merge-push 处理中，目标分支 ${targetBranch}`,
+      detail: mpIds.join(','),
+    });
 
     let mergeResult;
     if (featureBranches.length === 0) {

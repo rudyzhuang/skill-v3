@@ -9,6 +9,7 @@ const { parseClientTargets, tryLegacyYaml } = require('./prd-parse-client-target
 const { deepMerge } = require('./lib/merge-stages.cjs');
 const { fillMissingFromTemplate, wouldFillChange } = require('./lib/config-fill.cjs');
 const { resolveRawInputFilePath, loadRawInputContent } = require('./lib/raw-input.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function getGitRemoteUrl(root) {
   try {
@@ -364,8 +365,26 @@ function main() {
   stages.stages.prd.started_at = stages.stages.prd.started_at || now;
   stages.stages.prd.outputs = stages.stages.prd.outputs || {};
   stages.stages.prd.outputs.client_targets = parse.slugs.slice();
+  stages = featureStages.backfillFeatureStages(stages);
+  const prdIds = featureStages.collectPhaseFeatureIds(stages);
+  if (prdIds.length) {
+    stages = featureStages.beginStageForFeatures(stages, {
+      stageKey: 'prd',
+      featureIds: prdIds,
+      skill: 'ai-prd3',
+      message: 'bootstrap：prd 阶段处理中',
+    }).doc;
+  } else {
+    stages = featureStages.markStageRunning(stages, 'prd', 'ai-prd3');
+  }
 
   fs.writeFileSync(stagesFile, `${JSON.stringify(stages, null, 2)}\n`, 'utf8');
+  featureStages.appendStageLog(projectRoot, {
+    skill: 'ai-prd3',
+    stageKey: 'prd',
+    message: `bootstrap 完成，prd=running，端=${parse.slugs.join(',')}`,
+    detail: prdIds.length ? `features=${prdIds.join(',')}` : 'no phase_plan yet',
+  });
 
   for (const f of [cfgDev, cfgRel]) {
     const j = JSON.parse(fs.readFileSync(f, 'utf8'));

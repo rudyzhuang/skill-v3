@@ -196,7 +196,7 @@
 
 | 状态 | 条件（按优先级） |
 | --- | --- |
-| **`completed`** | **`stages.test.outputs.per_feature[]`** 该 **`feature_id`** 通过（**唯一**「已完成」） |
+| **`completed`** | **`stages.test.outputs.per_feature[]`** 该 **`feature_id`** 通过 **且** 项目 **`stages.ui_e2e.status=completed`**（**唯一**「已完成」） |
 | **`in_progress`** | 与本 feature 相关的任一阶段 **`running`**（含 active codegen、test running、项目 prd running 等） |
 | **`pending`** | 项目 **`prd`** 尚未开始，且本 feature 未动工 |
 | **`paused`** | **`prd`** 已完成且项目 **`ui_e2e`** 未完成，且非 **`in_progress`**（含 codegen 完待 test、test 失败待处理、延期等） |

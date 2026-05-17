@@ -224,8 +224,18 @@ function smokeFeatures() {
   }
 }
 
+function smokeFeatureLogs() {
+  const r = spawnSync(process.execPath, [path.join(__dirname, 'self-test-feature-logs.cjs')], {
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) {
+    throw new Error(r.stderr || r.stdout || 'self-test-feature-logs failed');
+  }
+}
+
 Promise.resolve()
   .then(() => smokeFeatures())
+  .then(() => smokeFeatureLogs())
   .then(() => smokeServe())
   .then(() => smokeStopServe())
   .then(() => smokeServeInvalidJson())

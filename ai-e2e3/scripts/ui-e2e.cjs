@@ -10,6 +10,7 @@ const { writeUiE2eReport } = require('./lib/ui-e2e-report.cjs');
 const { sha256Stable, uiE2eSummaryInput } = require('./lib/summary-hash.cjs');
 const { invokeE2eAgent } = require('./lib/invoke-e2e-agent.cjs');
 const { runWithTimeout } = require('./lib/run-with-timeout.cjs');
+const featureStages = require('../../ai-auto3/scripts/lib/feature-stages.cjs');
 
 function stageTimeoutS(config) {
   const v = config?.timeouts?.stages?.ui_e2e_s;
@@ -69,6 +70,26 @@ async function runUiE2e(projectRoot, opts = {}) {
   const doc0 = readStages(stPath);
   if (uiE2eCompleted(doc0.stages?.ui_e2e, expectedHash, forceRerun) && !dryRun) {
     return { code: 0, message: 'ui_e2e: skipped (already completed)' };
+  }
+
+  if (!dryRun) {
+    updateStages(stPath, (doc) => {
+      featureStages.backfillFeatureStages(doc);
+      const ids = featureStages.collectPhaseFeatureIds(doc);
+      const begun = featureStages.beginStageForFeatures(doc, {
+        stageKey: 'ui_e2e',
+        featureIds: ids,
+        skill: 'ai-e2e3',
+        message: `UI E2E 开始，共 ${scenarios.length} 个场景`,
+      });
+      return begun.doc;
+    });
+    featureStages.appendStageLog(projectRoot, {
+      skill: 'ai-e2e3',
+      sessionId,
+      stageKey: 'ui_e2e',
+      message: `ui_e2e 处理中，场景数=${scenarios.length}`,
+    });
   }
 
   if (!scenarios.length) {

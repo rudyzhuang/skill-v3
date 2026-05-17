@@ -150,6 +150,7 @@
       },
       "outputs": {
         "design_specs": [],
+        "per_feature": [],
         "summary": "",
         "needs_human_review": false,
         "duration_ms": null,
@@ -191,6 +192,7 @@
           "approved_at": null,
           "notes": ""
         },
+        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null
@@ -281,6 +283,7 @@
         ],
         "impl_codegen_status": "pending",
         "test_codegen_status": "pending",
+        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null,
@@ -334,6 +337,7 @@
           }
         ],
         "skip_reason": "",
+        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null
@@ -362,6 +366,7 @@
         "log_path": "",
         "failure_summary": "",
         "bug_signature": "",
+        "per_feature": [],
         "duration_ms": null,
         "timed_out": false,
         "timeout_reason": null

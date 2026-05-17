@@ -3,6 +3,7 @@
 const path = require('path');
 const { buildJsonSummary, readStages, pidLockInfo } = require('./summary.cjs');
 const { buildFeatureBoard } = require('./features.cjs');
+const { buildInProgressFeatureLogs } = require('./feature-logs.cjs');
 const {
   fetchRuntimeExport,
   runtimeForProject,
@@ -100,6 +101,7 @@ function buildDashboard(projectRoot, registryExport) {
     active_codegen_feature_id: featureBoard.active_codegen_feature_id || null,
     pipeline_stoppable: pid?.alive === true || registryRunActive,
     recent_runs: recentRuns,
+    in_progress_logs: buildInProgressFeatureLogs(projectRoot, featureBoard.features),
     generated_at: new Date().toISOString(),
   };
 }
