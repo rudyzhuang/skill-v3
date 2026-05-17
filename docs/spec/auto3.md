@@ -324,6 +324,22 @@ ai-auto3/
 
 **动机**：避免「上一轮 ui_e2e/deploy 已完成」掩盖 req 变更后的错站、错 App、假 PASS。
 
+### 6.5 按 feature 作用域重跑（req 增量，RFC §2.5）
+
+当 **`detect-raw-input`** 或 Agent 分类给出 **`impacted_feature_ids` / `new_feature_ids`** 时：
+
+| 集合 | 行为 |
+| --- | --- |
+| **`new_feature_ids`（O/N）** | 仅对这批 id spawn **ai-design3** / **ai-code3**（`--feature=` 逗号列表）；**不**重置其他 id 的 stage 完成态 |
+| **`impacted_feature_ids`（I）** | 同上，且 **codegen 须 incremental**（**`AI_CODE3_CODEGEN_MODE=incremental`**，见 **code3 §7.13**）；完成后 **delta-review ×2** + 该 id **全量 code-review** |
+| **未列出 id** | **禁止** `--force-rerun` 整链；保持 §6.1 跳过规则（非 strict 时） |
+
+**CLI（实现 backlog）**：`--force-rerun-features=NOTE-LIST-001,MOB-BRAND-024` 仅失效所列 id 在 **`stages.codegen.outputs.worktrees[]`** 及下游相关校验；**全局** `design`/`contract` 仅在「全部 feature 的 design 输入哈希变更」时重跑。
+
+**共享阶段**（`merge-push` / `build` / `deploy` / `smoke` / `ui_e2e`）：仅当本轮变更的 **`client_targets`** 或部署产物指纹受影响时重跑；**C 类**（仅 config）可只重跑 **deploy+smoke**。
+
+**禁止**：因 req 新增一个正交 feature 而对全部 22 个 feature 重跑 codegen。
+
 ---
 
 ## 7. 退出码（编排层契约）

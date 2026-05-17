@@ -1,6 +1,6 @@
 ---
 name: ai-soak3
-version: "0.3.0"
+version: "0.3.1"
 description: >-
   Skill V3 Unattended Soak Agent：在目标业务项目中无人值守地执行 ai-prd3 → ai-auto3
   全链路压测，直至项目完整实现（含服务端部署上线、mobile 编译安装到模拟器、测试全通过）。
@@ -156,7 +156,8 @@ export http_proxy=http://127.0.0.1:1087 https_proxy=http://127.0.0.1:1087
 node ~/.cursor/skills/ai-prd3/scripts/run.cjs bootstrap --project=PROJECT_ROOT [--force]
 node ~/.cursor/skills/ai-prd3/scripts/run.cjs validate-prd --project=PROJECT_ROOT
 # 若 validate-prd JSON 含 requires_agent:true 或 functional_requirements_changed:true：
-#   必须先按 prompts/raw-input-impact.md 更新 prd-spec（含品牌名/图标 feature）再 write-prd
+#   必须先按 prompts/raw-input-impact.md 做 C/O/I/N 四类分流并落盘（功能→prd-spec，配置→config.*）
+#   正交新 feature 不得影响无关 feature 的 pipeline；受影响 feature 用 incremental codegen + 双评审
 node ~/.cursor/skills/ai-prd3/scripts/run.cjs apply-raw-input-config --project=PROJECT_ROOT
 node ~/.cursor/skills/ai-prd3/scripts/run.cjs write-prd --project=PROJECT_ROOT [--force]
 node ~/.cursor/skills/ai-prd3/scripts/run.cjs finalize-prd-review --project=PROJECT_ROOT --json=<path> [--force]

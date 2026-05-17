@@ -1,6 +1,6 @@
 ---
 name: ai-prd3
-version: "0.2.7"
+version: "0.2.8"
 description: >-
   Skill V3 第三代 PRD 与 **AI 自动 prd-review**（不设单独人工签审节点）：维护 docs/prd-spec.md 为唯一总源头，派生各端 prd.md / feature_list.md；
   Agent 按 prompts 产出评审 JSON 后由脚本合并并终检；**门闸结果与分期摘要**汇总在 **.pipeline/reports/prd-implementation-summary.md**（亦可 stdout）。
@@ -13,7 +13,7 @@ description: >-
 
 实现与脚本行为以仓库内 **`ai-prd3/docs/spec/prd3.md`** 为唯一规范来源；本 `SKILL.md` 仅保留编排与触发说明。
 
-**ai-soak3 衔接**：`validate-prd` 若输出 **`requires_agent`** / **`functional_requirements_changed`**，须先按 **`prd3.md` §1.4** 更新 prd-spec（含品牌名、图标 feature）再 `write-prd`（见 **`docs/spec/rfc-soak3-req-fidelity.md`**）。
+**ai-soak3 衔接**：`validate-prd` 若输出 **`requires_agent`** / **`functional_requirements_changed`**，须先按 **`prompts/raw-input-impact.md`** 做 **C/O/I/N 分流**（**`prd3.md` §1.5**、**`rfc-soak3-req-fidelity.md` §2.5**）：功能→prd-spec，配置→`config.*`；正交新增不扰动无关 feature；受影响 feature 走 incremental codegen 与双评审。
 
 ## 1. 覆盖范围
 

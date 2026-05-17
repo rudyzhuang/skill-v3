@@ -286,10 +286,13 @@ bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh <PROJECT_ROOT> [CHEC
 
 当 `validate-prd` / `detect-raw-input` 输出 **`requires_agent: true`** 或 **`functional_requirements_changed: true`** 时：
 
-1. Agent **必须**按 `prompts/raw-input-impact.md` 更新 `docs/prd-spec.md` 与各端 `feature_list.md`。
-2. **必须**为 req 中的 **应用显示名/英文名**、**图标与启动图** 增加或更新 feature（语义 ID 见 **`ai-prd3/docs/spec/prd3.md` §1.4**）。
-3. 运行 `apply-raw-input-config` → `write-prd`（必要时 `--force`）→ `finalize-prd-review`。
-4. **禁止**在仅执行 `validate-prd-review` 且 prd-spec 未更新时进入 B 阶段。
+1. Agent **必须**按 **`prompts/raw-input-impact.md`** 先做 **四类分流（C/O/I/N）**（见 **`docs/spec/rfc-soak3-req-fidelity.md` §2.5**）。
+2. **功能需求** → **`docs/prd-spec.md` §6** + 派生稿；**配置类** → **`apply-raw-input-config`** 写入 `config.*.json` 对应区。
+3. **正交新 feature（O/N）**：**不得**影响无关 feature 的源码、契约与 `stages` 已完成态。
+4. **受影响 feature（I）**：仅对命中 id 重跑 pipeline；codegen **incremental**；**增量评审 ×2** + **该 feature 全量评审 ×1**。
+5. **全新 feature（N）**：该 id 从 design 起完整阶段链。
+6. 运行 `validate-prd` → `write-prd`（必要时 `--force`）→ `finalize-prd-review`。
+7. **禁止**在仅执行 `validate-prd-review` 且 prd-spec 未更新时进入 B 阶段。
 
 ---
 
@@ -300,3 +303,4 @@ bash ~/.cursor/skills/ai-soak3/scripts/start-and-monitor.sh <PROJECT_ROOT> [CHEC
 | 0.1.0 | 2026-05-16 | 从 `inputs/agent-prompt.md` 迁出，提升为正式 skill |
 | 0.2.0 | 2026-05-16 | 新增：退出条件重新定义（成功=真正跑通）、不可解阻塞 §5.2、部署与端完整验证 §6、skill 评估步骤、mobile 模拟器安装冒烟要求 |
 | 0.3.0 | 2026-05-17 | RFC soak3-req-fidelity：§5.0 strict、§6.2.1/§6.3.1、§7、§10 手工门闸、§11 req 漂移 |
+| 0.3.1 | 2026-05-17 | RFC §2.5：req 四类分流 C/O/I/N；§11 与 prd3/auto3/code3 衔接 |

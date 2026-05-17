@@ -265,6 +265,22 @@ ai-code3/
 - **超时**：单相 Agent 调用须有**子超时**（环境变量或 `config.dev.json` 的 **`timeouts.subcommand.*`**）；**所有**子调用累计须在 **`timeouts.stages.codegen_s`** 内结束，否则 **退出码 3**，并写 **`outputs.timed_out=true`**。  
 - **跳过 Agent**：**`AI_CODE3_SKIP_AGENT=1`**（或兼容 **`AI_CODEGEN_SKIP_AGENT=1`**）时**不得**调用外部 Agent；仅执行 worktree + 骨架（若启用）；**`outputs.agent.skipped=true`** 与 **`skip_reason`** 写入 **`stages.json`**（见模板）；**`impl_codegen_status` / `test_codegen_status`** 不得假装 **`success`**——应 **`failed`** 或 **`skipped`**（与 **`input-spec.md` §7.1** 枚举一致），除非团队显式允许「骨架即完成」（须在 **`SKILL.md`** 声明为实验模式）。  
 - **`AI_SOAK3_STRICT=1`**：**禁止**设置 **`AI_CODE3_SKIP_AGENT=1`** 完成 soak；若 agent 被跳过 → **autorun/codegen 退出 4**，**`stages.codegen.validation.passed=false`**（见 **`docs/spec/auto3.md` §6.4**、**`rfc-soak3-req-fidelity.md`**）。
+
+### 7.13 增量 codegen（`incremental`，RFC §2.5 规则 3）
+
+当 **ai-auto3** 或 Agent 将 feature 标为 **受影响（I）** 时：
+
+| 项 | 约定 |
+| --- | --- |
+| **模式** | **`AI_CODE3_CODEGEN_MODE=incremental`**（默认 `greenfield` 仅用于无旧实现的 **N**） |
+| **行为** | 在既有 worktree / `src/` 上 **补丁式** 实现新 req；保留未涉及模块与测试 |
+| **禁止** | 删除主路径后整文件重写；**禁止**用 Health 等模板 **覆盖** 已有业务实现 |
+| **Agent 提示** | 须含：**Read existing files first; apply minimal diff; do not replace unrelated features** |
+| **评审 1** | **增量评审 ×2**：仅针对「本轮 req 引入的变更」的 checklist（实现 backlog：`codegen-delta-review.cjs` 或 Agent 两轮 sign-off） |
+| **评审 2** | **全量 feature 评审 ×1**：对该 **`feature_id`** 再跑 **`code-review.cjs`**（含契约、单测、ui 场景回归） |
+| **写回** | `outputs.per_feature[]` 须记录 **`codegen_mode: incremental`**、**`delta_review_passed: true`**（两轮）、**`full_feature_review_passed: true`** 后方可 merge-push |
+
+**正交新 feature（O/N）**：不得修改**其他** `feature_id` 的 worktree；**不得**在 merge-push 中带入无关 feature 的半成品 worktree。
 - **日志**：每次 Agent 调用将 **request id / session 片段 / 失败摘要** 写入 **`.agent-sessions/`**；stdout/stderr 须含 **`failed_stage=codegen`** 与 **`feature_id=`**（多 feature 时）。
 
 ### 7.9 分相流程（推荐实现顺序）

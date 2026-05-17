@@ -50,6 +50,21 @@
 
 **禁止**：仅 `apply-raw-input-config` 改 URL 而不增 feature 即视为 PRD 完成。
 
+### 1.5 新增需求四类分流（与 RFC §2.5 一致）
+
+`detect-raw-input` 后，Agent **必须**在改稿前列出分类（实现后写入 **`raw-input-drift.json`** → **`feature_impacts[]`**）：
+
+| 类型 | 代号 | prd / config 动作 | 是否重跑他 feature 的 pipeline |
+| --- | --- | --- | --- |
+| 仅配置 | **C** | `apply-raw-input-config`；prd-spec 部署节同步 | **否**（仅 deploy/smoke 按需） |
+| 正交新 feature | **O** | prd-spec §6 **新增行** + 派生稿；**不修改**无关既有 feature 行 | **否** |
+| 受影响既有 feature | **I** | prd-spec **改**既有行 + 更新该 id 的 design/contract | **仅 I 的 id**（见 ai-auto3 §6.5） |
+| 全新 feature（完整链） | **N** | 同 **O**，且须完整 design→contract→… | **仅 N 的 id** 全流程 |
+
+**配置类需求**（域名、URL、smoke 路径、云平台名）：**不得**只写进 prd 散文；须映射到 **`config.*.json`** 具体键，并在 prd-spec **业务约束/部署** 节保留人类可读说明。
+
+**正交性判定（Agent 自检）**：若新增「应用图标」只新增 `APP-ICON-*`，而 `NOTE-LIST-001` 的文件计划无交叉 → **O/N**，**不得** `bootstrap --force` 重写全部 `feature_list.md` 导致无关 id 漂移。
+
 ## 2. 子命令（节选）
 
 | 子命令 | 说明 |
