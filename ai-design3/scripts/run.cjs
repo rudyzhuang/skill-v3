@@ -35,6 +35,17 @@ const {
   computeContractInputHash,
   computeDesignReviewInputHash,
 } = require('./lib/input-hash.cjs');
+const { runDeterministicAlignForFeature } = require('./lib/design-review-align.cjs');
+const {
+  validateDesignReviewPayload,
+  expandFeaturePayloads,
+  mergeDesignReviewIntoStages,
+  isBlockingGap,
+} = require('./lib/design-review-payload.cjs');
+const {
+  shouldInvokeDesignReviewAgent,
+  runDesignReviewAgentForFeature,
+} = require('./lib/design-review-agent.cjs');
 const YAML = require('yaml');
 
 const SUBCOMMANDS = new Set([
@@ -52,6 +63,8 @@ const SUBCOMMANDS = new Set([
   'mark-contract-not-required',
   'hash-contract-inputs',
   'validate-design-review',
+  'merge-design-review',
+  'finalize-design-review',
   'write-design-review',
   'hash-design-review-inputs',
 ]);
@@ -84,6 +97,8 @@ function parseArgs(argv) {
     force: false,
     forceRerun: null,
     dryRun: false,
+    json: null,
+    sessionId: process.env.AI_SESSION_ID || '',
   };
   if (!args.length) return out;
   out.cmd = args.shift();
@@ -105,8 +120,12 @@ function parseArgs(argv) {
         process.exit(EXIT.PRECHECK);
       }
       out.forceRerun = String(n).trim();
-    } else if (a === '--force') out.force = true;
+    }     else if (a === '--force') out.force = true;
     else if (a === '--dry-run') out.dryRun = true;
+    else if (a.startsWith('--json=')) out.json = a.slice('--json='.length);
+    else if (a === '--json') out.json = args[++i];
+    else if (a.startsWith('--session-id=')) out.sessionId = a.slice('--session-id='.length);
+    else if (a === '--session-id') out.sessionId = args[++i];
     else {
       console.error(`Unknown argument: ${a}`);
       process.exit(EXIT.PRECHECK);
@@ -1193,8 +1212,106 @@ function main() {
     finish(EXIT.OK);
   }
 
+  if (parsed.cmd === 'merge-design-review') {
+    const jsonPath = parsed.json || process.env.AI_DESIGN_DESIGN_REVIEW_JSON;
+    if (!jsonPath) {
+      console.error('merge-design-review requires --json=<path> or AI_DESIGN_DESIGN_REVIEW_JSON');
+      finish(EXIT.PRECHECK, { reason: 'missing_json' });
+    }
+    const abs = path.isAbsolute(jsonPath) ? jsonPath : path.join(root, jsonPath);
+    if (!fs.existsSync(abs)) {
+      console.error(`merge-design-review: file not found: ${abs}`);
+      finish(EXIT.PRECHECK, { reason: 'json_not_found' });
+    }
+    let payload;
+    try {
+      payload = readJson(abs);
+    } catch (e) {
+      console.error(`merge-design-review: invalid JSON: ${e.message}`);
+      finish(EXIT.PRECHECK, { reason: 'invalid_json' });
+    }
+    const pv = validateDesignReviewPayload(payload, skillRoot());
+    if (!pv.ok) {
+      console.error(JSON.stringify({ ok: false, schema_errors: pv.errors }, null, 2));
+      finish(EXIT.QUALITY, { reason: 'schema_invalid' });
+    }
+    const expanded = expandFeaturePayloads(payload);
+    const replaceIds = expanded.map((r) => r.feature_id).filter(Boolean);
+    stages = mergeDesignReviewIntoStages(stages, expanded, {
+      replaceGapsForFeatures: new Set(replaceIds),
+    });
+    if (!parsed.dryRun) writeStages(root, stages, false);
+    console.log(JSON.stringify({ ok: true, merged_features: replaceIds }, null, 2));
+    finish(EXIT.OK);
+  }
+
+  let chainFinalizeDesignReview = false;
+  if (parsed.cmd === 'finalize-design-review') {
+    if (!parsed.json) {
+      console.error('finalize-design-review requires --json=<path>');
+      finish(EXIT.PRECHECK, { reason: 'missing_json' });
+    }
+    const jsonPath = parsed.json;
+    const abs = path.isAbsolute(jsonPath) ? jsonPath : path.join(root, jsonPath);
+    let payload;
+    try {
+      payload = readJson(abs);
+    } catch (e) {
+      console.error(`finalize-design-review: invalid JSON: ${e.message}`);
+      finish(EXIT.PRECHECK, { reason: 'invalid_json' });
+    }
+    const pv = validateDesignReviewPayload(payload, skillRoot());
+    if (!pv.ok) {
+      console.error(JSON.stringify({ ok: false, schema_errors: pv.errors }, null, 2));
+      finish(EXIT.QUALITY, { reason: 'schema_invalid' });
+    }
+    const expanded = expandFeaturePayloads(payload);
+    stages = mergeDesignReviewIntoStages(stages, expanded, {
+      replaceGapsForFeatures: new Set(expanded.map((r) => r.feature_id)),
+    });
+    writeStages(root, stages, false);
+    chainFinalizeDesignReview = true;
+    parsed.cmd = 'validate-design-review';
+    parsed.json = null;
+  }
+
   if (parsed.cmd === 'validate-design-review') {
     const drIds = filterFeatures(unionFeatureIds(stages), parsed.feature) || [];
+    const ha = stages.stages.contract?.outputs?.human_approval?.status;
+    if (ha !== 'approved' && ha !== 'not_required') {
+      console.error(`validate-design-review blocked: human_approval.status=${ha}`);
+      finish(EXIT.PRECHECK, { reason: 'human_approval_not_ready', human_approval: ha });
+    }
+    if (!stages.stages.contract?.validation?.passed) {
+      console.error('validate-design-review blocked: contract.validation.passed is false');
+      finish(EXIT.PRECHECK, { reason: 'contract_validation_failed' });
+    }
+    if (stages.stages.contract?.status !== 'completed' && !(parsed.force || parsed.forceRerun === 'contract')) {
+      console.error('validate-design-review blocked: contract.status is not completed');
+      finish(EXIT.PRECHECK, { reason: 'contract_not_completed' });
+    }
+
+    const importJson = parsed.json || process.env.AI_DESIGN_DESIGN_REVIEW_JSON;
+    if (importJson && !chainFinalizeDesignReview) {
+      const abs = path.isAbsolute(importJson) ? importJson : path.join(root, importJson);
+      if (fs.existsSync(abs)) {
+        try {
+          const payload = readJson(abs);
+          const pv = validateDesignReviewPayload(payload, skillRoot());
+          if (pv.ok) {
+            const expanded = expandFeaturePayloads(payload);
+            stages = mergeDesignReviewIntoStages(stages, expanded, {
+              replaceGapsForFeatures: new Set(expanded.map((r) => r.feature_id)),
+            });
+          } else {
+            console.error(`validate-design-review: import JSON schema invalid: ${pv.errors.join('; ')}`);
+          }
+        } catch (e) {
+          console.error(`validate-design-review: import JSON failed: ${e.message}`);
+        }
+      }
+    }
+
     if (!parsed.dryRun && drIds.length) {
       stages = featureStages.backfillFeatureStages(stages);
       const drBegun = featureStages.beginStageForFeatures(stages, {
@@ -1212,86 +1329,181 @@ function main() {
         message: 'design-review 对齐校验开始',
       });
     }
-    const ha = stages.stages.contract?.outputs?.human_approval?.status;
-    if (ha !== 'approved' && ha !== 'not_required') {
-      console.error(`validate-design-review blocked: human_approval.status=${ha}`);
-      finish(EXIT.PRECHECK, { reason: 'human_approval_not_ready', human_approval: ha });
+
+    const allArts = stages.stages.contract?.outputs?.artifacts || [];
+    const arts = allArts.filter((a) => drIds.includes(String(a?.feature_id || '').trim()));
+    const errors = [];
+    const passedFeatures = [];
+    const failedFeatures = [];
+    const invokeAgent = shouldInvokeDesignReviewAgent();
+    const skRoot = skillRoot();
+
+    for (const fid of drIds) {
+      if (!parsed.dryRun) {
+        stages = featureStages.markFeatureStage(stages, 'design_review', fid, 'running', {
+          message: invokeAgent ? `design-review 确定性校验 + AI 评审 (${fid})` : `design-review 确定性校验 (${fid})`,
+        });
+        writeStages(root, stages, false);
+      }
+
+      const art = arts.find((a) => String(a?.feature_id || '').trim() === fid);
+      const spec = stages.stages.design?.outputs?.design_specs?.find((d) => d.feature_id === fid);
+      const det = runDeterministicAlignForFeature({
+        projectRoot: root,
+        featureId: fid,
+        art,
+        designSpecRow: spec,
+        readJson,
+        validateDesignSnapshot: v.validateDesignSnapshot,
+        validateJson,
+      });
+      errors.push(...det.errors);
+
+      let mergeOutputs = { decision: det.errors.length ? 'failed' : 'pending' };
+      const mergeGaps = [...det.gaps];
+
+      if (invokeAgent && !parsed.dryRun) {
+        const ar = runDesignReviewAgentForFeature({
+          projectRoot: root,
+          worktreePath: root,
+          featureId: fid,
+          sessionId: parsed.sessionId,
+          skillRoot: skRoot,
+        });
+        if (ar.ran && ar.ok && ar.outputPath) {
+          try {
+            const agentPayload = readJson(ar.outputPath);
+            const pv = validateDesignReviewPayload(agentPayload, skRoot);
+            if (pv.ok) {
+              const expanded = expandFeaturePayloads(agentPayload);
+              const row = expanded.find((r) => r.feature_id === fid) || expanded[0];
+              if (row?.outputs) mergeOutputs = { ...mergeOutputs, ...row.outputs };
+              if (row?.gaps?.length) mergeGaps.push(...row.gaps);
+            } else {
+              errors.push(`[${fid}] agent output schema: ${pv.errors.join('; ')}`);
+            }
+            try {
+              fs.unlinkSync(ar.outputPath);
+            } catch {
+              /* ignore */
+            }
+          } catch (e) {
+            errors.push(`[${fid}] agent output read failed: ${e.message}`);
+          }
+        } else if (ar.ran && !ar.ok) {
+          errors.push(`[${fid}] design-review agent failed: ${ar.reason || 'unknown'}`);
+        }
+      }
+
+      stages = mergeDesignReviewIntoStages(
+        stages,
+        [{ feature_id: fid, outputs: mergeOutputs, gaps: mergeGaps }],
+        { replaceGapsForFeatures: new Set([fid]) }
+      );
+
+      let featureBlocking = det.errors.length > 0;
+      for (const g of mergeGaps) {
+        if (isBlockingGap(g)) featureBlocking = true;
+      }
+      const dec = String(stages.stages.design_review?.outputs?.decision || 'pending').toLowerCase();
+      if (dec === 'failed' || dec === 'needs_design_fix' || dec === 'needs_contract_fix') {
+        featureBlocking = true;
+      }
+
+      if (!parsed.dryRun) {
+        if (featureBlocking) {
+          stages = featureStages.markFeatureStage(stages, 'design_review', fid, 'failed', {
+            message: `design-review 未通过 (${fid})`,
+          });
+          failedFeatures.push(fid);
+        } else {
+          stages = featureStages.markFeatureStage(stages, 'design_review', fid, 'completed', {
+            message: `design-review 通过 (${fid})`,
+          });
+          passedFeatures.push(fid);
+        }
+        writeStages(root, stages, false);
+        featureStages.appendStageLog(root, {
+          skill: 'ai-design3',
+          stageKey: 'design_review',
+          featureIds: [fid],
+          level: featureBlocking ? 'error' : 'info',
+          message: featureBlocking ? `feature ${fid} design-review 失败` : `feature ${fid} design-review 通过`,
+        });
+      } else if (featureBlocking) {
+        failedFeatures.push(fid);
+      } else {
+        passedFeatures.push(fid);
+      }
     }
-    if (!stages.stages.contract?.validation?.passed) {
-      console.error('validate-design-review blocked: contract.validation.passed is false');
-      finish(EXIT.PRECHECK, { reason: 'contract_validation_failed' });
-    }
-    if (stages.stages.contract?.status !== 'completed' && !(parsed.force || parsed.forceRerun === 'contract')) {
-      console.error('validate-design-review blocked: contract.status is not completed');
-      finish(EXIT.PRECHECK, { reason: 'contract_not_completed' });
-    }
+
     const gaps = stages.stages.design_review?.outputs?.gaps;
     let blocking = 0;
     if (Array.isArray(gaps)) {
       for (const g of gaps) {
-        if (g && (g.blocking === true || g.severity === 'blocking')) blocking += 1;
+        if (isBlockingGap(g)) blocking += 1;
       }
     }
-    const arts = stages.stages.contract?.outputs?.artifacts || [];
-    const errors = [];
-    for (const art of arts) {
-      const snapRel = art.design_snapshot;
-      if (!snapRel) {
-        errors.push(`[${art.feature_id}] missing design_snapshot path`);
-        continue;
-      }
-      const snapAbs = path.join(root, ...snapRel.split('/'));
-      let snap;
-      try {
-        snap = readJson(snapAbs);
-      } catch (e) {
-        errors.push(`${snapRel}: ${e.message}`);
-        continue;
-      }
-      const vr = validateJson(v.validateDesignSnapshot, snap, snapRel);
-      if (!vr.ok) errors.push(...vr.errors);
-      const spec = stages.stages.design?.outputs?.design_specs?.find((d) => d.feature_id === art.feature_id);
-      if (spec && snap.feature_id && spec.feature_id && snap.feature_id !== spec.feature_id) {
-        errors.push(`snapshot/design_specs feature_id mismatch for ${art.feature_id}`);
-      }
-      if (spec && snap.client_target && spec.client_target && snap.client_target !== spec.client_target) {
-        errors.push(`snapshot/design_specs client_target mismatch for ${art.feature_id}`);
-      }
+    if (blocking > 0 && !errors.some((e) => e.startsWith('blocking_gaps_count='))) {
+      errors.push(`blocking_gaps_count=${blocking}`);
     }
-    if (blocking > 0) errors.push(`blocking_gaps_count=${blocking}`);
+
     stages.stages.design_review = stages.stages.design_review || {};
     stages.stages.design_review.validation = stages.stages.design_review.validation || {};
     stages.stages.design_review.validation.checked_at = isoNow();
     stages.stages.design_review.validation.blocking_gaps_count = blocking;
-    stages.stages.design_review.validation.passed = errors.length === 0 && blocking === 0;
-    stages.stages.design_review.validation.summary = errors.length ? errors.join('; ') : 'design-review checks OK';
-    if (stages.stages.design_review.validation.passed) {
+    const stagePassed =
+      errors.length === 0 && blocking === 0 && failedFeatures.length === 0 && passedFeatures.length === drIds.length;
+    stages.stages.design_review.validation.passed = stagePassed;
+    stages.stages.design_review.validation.summary = errors.length
+      ? errors.join('; ')
+      : `design-review OK (${passedFeatures.length} feature(s); agent=${invokeAgent ? 'on' : 'off'})`;
+    if (stagePassed) {
       stages.stages.design_review.outputs = stages.stages.design_review.outputs || {};
       if (!String(stages.stages.design_review.outputs.alignment_summary || '').trim()) {
         stages.stages.design_review.outputs.alignment_summary = stages.stages.design_review.validation.summary;
       }
-    }
-    if (!stages.stages.design_review.validation.passed) {
+      if (!stages.stages.design_review.outputs.decision || stages.stages.design_review.outputs.decision === 'pending') {
+        stages.stages.design_review.outputs.decision = 'passed';
+      }
+    } else {
       stages.stages.design_review.status = 'failed';
+      if (!stages.stages.design_review.outputs?.decision || stages.stages.design_review.outputs.decision === 'pending') {
+        stages.stages.design_review.outputs = stages.stages.design_review.outputs || {};
+        stages.stages.design_review.outputs.decision = 'failed';
+      }
     }
+
     if (!parsed.dryRun) {
       featureStages.appendStageLog(root, {
         skill: 'ai-design3',
         stageKey: 'design_review',
         featureIds: drIds,
-        level: errors.length || blocking > 0 ? 'error' : 'info',
-        message:
-          errors.length || blocking > 0
-            ? `design-review 校验未通过（${errors.length} 项）`
-            : 'design-review 校验通过',
+        level: stagePassed ? 'info' : 'error',
+        message: stagePassed
+          ? `design-review 校验通过（${passedFeatures.length}/${drIds.length} feature）`
+          : `design-review 校验未通过（失败 feature: ${failedFeatures.join(', ') || 'n/a'}）`,
       });
     }
+
     logDryRunSlice(parsed, {
-      design_review: { validation: stages.stages.design_review.validation, status: stages.stages.design_review.status },
+      design_review: {
+        validation: stages.stages.design_review.validation,
+        status: stages.stages.design_review.status,
+        features_passed: passedFeatures,
+        features_failed: failedFeatures,
+      },
     });
     writeStages(root, stages, parsed.dryRun);
-    if (errors.length || blocking > 0) finish(EXIT.QUALITY, { blocking_gaps_count: blocking });
-    finish(EXIT.OK);
+
+    if (errors.length || blocking > 0 || failedFeatures.length) finish(EXIT.QUALITY, { blocking_gaps_count: blocking });
+
+    if (chainFinalizeDesignReview) {
+      parsed.cmd = 'write-design-review';
+      chainFinalizeDesignReview = false;
+    } else {
+      finish(EXIT.OK);
+    }
   }
 
   if (parsed.cmd === 'write-design-review') {
@@ -1315,6 +1527,10 @@ function main() {
     stages.stages.design_review.completed_at = isoNow();
     if (!parsed.dryRun) {
       const wdrIds = filterFeatures(unionFeatureIds(stages), parsed.feature) || [];
+      stages = featureStages.backfillFeatureStages(stages);
+      stages = featureStages.markFeaturesCompleted(stages, 'design_review', wdrIds, {
+        message: 'write-design-review 完成，可进入 codegen',
+      });
       const gitCode = syncGitForFeatureIds(root, 'design_review', wdrIds);
       if (gitCode !== 0) finish(gitCode, { reason: 'git_sync_failed' });
       featureStages.appendStageLog(root, {

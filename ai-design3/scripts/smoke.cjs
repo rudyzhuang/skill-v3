@@ -84,7 +84,7 @@ function main() {
     status: 'ready_for_contract',
     risks: [],
     shared_changes: [],
-    api_outline: [{ handler: 'smokeHandler', method: 'GET', path: '/smoke' }],
+    api_outline: [{ handler: 'smokeHandler', method: 'GET', path: '/ping' }],
     file_plan: { new_files: ['src/website/components/SmokeWidget.tsx'] },
   };
   write(path.join(tmp, 'docs', 'designs', `${fid}.design.json`), JSON.stringify(designDoc, null, 2));
@@ -94,7 +94,13 @@ function main() {
     `import React from 'react';\nexport function SmokeWidget() { return null; }\n`
   );
 
-  const snap = { feature_id: fid, client_target: 'website', snapshot_version: 1 };
+  const snap = {
+    feature_id: fid,
+    client_target: 'website',
+    snapshot_version: 1,
+    api_outline: [{ method: 'GET', path: '/ping' }],
+    file_plan: { new_files: ['src/website/components/SmokeWidget.tsx'] },
+  };
   write(path.join(tmp, 'docs', 'contracts', fid, `${fid}.design.snapshot.json`), JSON.stringify(snap, null, 2));
   write(path.join(tmp, 'docs', 'contracts', fid, `${fid}.types.ts`), 'export const smokeMarker = 1;\n');
   write(

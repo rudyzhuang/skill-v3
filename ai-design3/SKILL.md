@@ -55,7 +55,11 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `AI_DESIGN_LIB_RESEARCH_USE_STUB=1` | **不**调外部 Agent，直接写 stub + 回写 design（**smoke 默认注入**，避免 CI 挂起） |
 | `AI_DESIGN_LIB_RESEARCH_WEB_SEARCH` / `AI_DESIGN_LIB_RESEARCH_READ_DOCS` | 写入 Agent prompt 的控制位（默认 `1`） |
 | `AI_DESIGN_LIB_RESEARCH_CACHE_TTL_DAYS` | 项目级缓存 TTL 天（默认 `30`） |
-| `AI_CODEGEN_AGENT_BIN` / `AI_CODEGEN_AGENT_TIMEOUT_MS` / `AI_CODEGEN_AGENT_MODEL` | 外部 Agent 可执行文件与超时 |
+| `AI_CODEGEN_AGENT_BIN` / `AI_CODEGEN_AGENT_TIMEOUT_MS` / `AI_CODEGEN_AGENT_MODEL` | 外部 Agent 可执行文件与超时（`lib-research` 与 design-review Agent 共用） |
+| `AI_DESIGN_DESIGN_REVIEW_USE_AGENT=1` | **显式开启** design-review 外部 Agent（默认仅确定性校验） |
+| `AI_DESIGN_DESIGN_REVIEW_SKIP_AGENT=1` / `AI_DESIGN_SKIP_AGENT=1` | 跳过 design-review Agent |
+| `AI_DESIGN_DESIGN_REVIEW_USE_STUB=1` | 不调 Agent，写 stub JSON（CI） |
+| `AI_DESIGN_DESIGN_REVIEW_JSON=<path>` | 导入已产出的评审 JSON（等同 `merge-design-review` 输入） |
 
 **推荐顺序**（在 `validate-design` 之前）：`scan-design-style` → `lib-research` → `validate-design` → `write-design` …
 
@@ -76,8 +80,10 @@ node <skill_dir>/scripts/run.cjs <子命令> --project=<业务项目根绝对路
 | `reject-contract` | `--project`、`--notes` | `human_approval.status → rejected` |
 | `mark-contract-not-required` | `--project` | `human_approval.status → not_required` |
 | `hash-contract-inputs` | `--project` | 写入 `stages.contract.inputs.summary_hash` |
-| `validate-design-review` | `--project` | 门闸：`human_approval`、`contract.validation.passed`、`contract.status===completed`（`--force` 或 `--force-rerun=contract` 可绕过最后一项）；快照 AJV + 与 `design_specs` 对齐；`gaps` 阻塞计数；通过且尚无 `alignment_summary` 时写入确定性摘要 |
-| `write-design-review` | `--project` | 在 `validate-design-review` 通过后写 `stages.design_review` 完成态、`decision`、`can_enter_codegen`、`timed_out`/`timeout_reason`、`alignment_summary`（若仍为空则用校验摘要） |
+| `validate-design-review` | `--project` | 门闸 + **按 feature** 确定性对齐（快照 AJV、`api_outline`↔OpenAPI、`file_plan` 等）；**逐 feature** 维护 `stages.design_review.features[]`（`running`→`completed`/`failed`）。可选 **`AI_DESIGN_DESIGN_REVIEW_USE_AGENT=1`** 调外部 Agent（见 `prompts/design-review.md`）；亦可先 **`merge-design-review --json=`** 合并 AI 产出 |
+| `merge-design-review` | `--project`、`--json=` | 将结构化 JSON（`design-review-output.v1.schema.json`）合并入 `stages.design_review.outputs`（**不写** `completed`） |
+| `finalize-design-review` | `--project`、`--json=` | `merge-design-review` + `validate-design-review` + `write-design-review` + 写 `inputs.summary_hash` |
+| `write-design-review` | `--project` | 在 `validate-design-review` 通过后写阶段完成态；**同步**将本期 feature 标为 `features[].status=completed` |
 | `hash-design-review-inputs` | `--project` | 写入 `stages.design_review.inputs.summary_hash` |
 
 ## 退出码（与 input-spec §5 对齐）
