@@ -8,7 +8,11 @@
 
 ## 脚本
 
-`create-ui-scenarios.cjs`（编排器）、`create-ui-scenarios-bootstrap.cjs`（步骤1）、`create-ui-scenarios-validate.cjs`（步骤3）；步骤2 为按 **feature** 并发的 Agent 池。与 `codegen.cjs` 复合编排时支持 **`--tick`**（单次调度后返回，由 `run-pipeline.cjs` 轮询）。
+路径前缀 **`ai-std3/scripts/lib/`**：`create-ui-scenarios.cjs`、`create-ui-scenarios-bootstrap.cjs`、`create-ui-scenarios-validate.cjs`；步骤 2 为按 **feature** 并发的 Agent 池；与 `codegen.cjs` 复合编排时支持 **`--tick`**。
+
+```bash
+node ai-std3/scripts/lib/create-ui-scenarios.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+```
 
 > **不**评审、**不**改写 `design.json` / `docs/contracts/`；只产出 `docs/ui-scenarios/<feature_id>.scenarios.yaml`。
 
@@ -171,7 +175,7 @@ effective_parallel = min(
 
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
-| stage 启动 | `stage_start` | INFO | `run_id`, `project`, `started_at`, `parallel_with: ["codegen"]` |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间）, `parallel_with: ["codegen"]` |
 | 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.create_ui_scenarios） |
 | 步骤1：禁用跳过 | `stage_skipped` | INFO | `reason: "ui_e2e disabled"`, `exit_code: 0` |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `pending_feature_ids[]`, `skipped_feature_ids[]`, `blocking_feature_ids[]` |
@@ -191,8 +195,18 @@ effective_parallel = min(
 | 步骤3：门闸未通过 | `validation_fail` | ERROR | `decision: "failed"`, `failed_feature_ids[]`, `exit_code: 4` |
 | 步骤3：门闸通过 | `validation_pass` | INFO | `decision: "passed" \| "partial"`, `coverage` |
 | 步骤3：写完成态 | `file_updated` | INFO | `status: "completed"`, `release_bundle_hash` |
-| stage 完成 | `stage_complete` | INFO | `duration_ms`, `features_total`, `effective_parallel`, `scenarios_total` |
-| 任意步骤失败 | `stage_failed` | ERROR | `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+| stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `features_total`, `scenarios_total` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+
+## 退出码（本 stage）
+
+| 码 | 场景 |
+| ---: | --- |
+| 0 | 成功；`ui_e2e.enabled=false` 整段 `skipped`；hash 跳过 |
+| 1 | 上游门闸未满足 |
+| 3 | 单 feature Agent 超时 |
+| 4 | 全部 release feature 均 `failed` 或校验失败 |
+| 5 | 检测到 `stop.signal` |
 
 ## 输出
 
