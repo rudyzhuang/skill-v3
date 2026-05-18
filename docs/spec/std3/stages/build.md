@@ -18,6 +18,10 @@
 
 > 实现目录前缀：`ai-std3/scripts/`（与 [§3 编排映射](../std3.md#3-run-pipelinecjs-编排映射) 一致）。
 
+```bash
+node ai-std3/scripts/lib/build.cjs --project=<业务项目根绝对路径>
+```
+
 ## 上游门闸
 
 | 粒度 | 条件 |

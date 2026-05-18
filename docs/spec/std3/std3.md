@@ -56,6 +56,7 @@ docs/spec/std3/
   - [report](stages/report.md)
 - [2. 门闸链汇总](#2-门闸链汇总)
 - [3. `run-pipeline.cjs` 编排映射](#3-run-pipelinecjs-编排映射)
+  - [3.3 流水线收尾（report 之后）](#33-流水线收尾report-之后)
 - [4. Agent 卡点速查](#4-agent-卡点速查)
 - [5. prompts 文件清单（待建）](#5-prompts-文件清单待建)
 - [6. 附录：模板文件](#6-附录模板文件)
@@ -269,6 +270,9 @@ setup
 | `git_push_failed` | ERROR | git push 失败 | `remote`, `branch`, `error`, `exit_code: 7` |
 | `pipeline_stop` | INFO | 检测到 stop.signal，开始优雅停止 | `stage`, `reason`, `current_agent_id`（若有）, `stopped_at`（本地时间） |
 | `pipeline_stopped` | INFO | 优雅停止完成 | `stage`, `stopped_at`（本地时间）, `exit_code: 5` |
+| `pipeline_teardown_start` | INFO | report 后开始结束子进程 | `session_id`, `targets[]` |
+| `pipeline_teardown_complete` | INFO | 收尾完成 | `killed_count`, `duration_ms`, `errors[]` |
+| `pipeline_complete` | INFO | 整条流水线会话结束 | `overall`, `report_path`, `process_exit_code` |
 
 ---
 
@@ -290,7 +294,7 @@ setup
 | 发布 | `build` | 探测框架、并行构建各端产物并输出报告 | [stages/build.md](stages/build.md) |
 | 发布 | `deploy` | Cloudflare 部署 + 内联部署后 smoke + 失败分诊 | [stages/deploy.md](stages/deploy.md) |
 | 验证 | `ui_e2e` | MCP 场景并行 + 失败分诊与 feature 修复子链 | [stages/ui_e2e.md](stages/ui_e2e.md) |
-| 验证 | `report` | 汇总报告 | [stages/report.md](stages/report.md) |
+| 验证 | `report` | 人话总报告 + 错误日志 Agent 摘要 + 流水线收尾 | [stages/report.md](stages/report.md) |
 
 脚本路径前缀：`ai-std3/scripts/`（`lib/` 下为 stage 脚本，setup 见 [§3](#3-run-pipelinecjs-编排映射)）。
 
@@ -307,7 +311,7 @@ setup
 | create-ui-scenarios | `stages.design_review.outputs.can_enter_codegen=true`（stage 可启动）；**单 feature** 另需 `stages.design_review.features.<id>.can_enter_codegen=true`；`config.dev.json.ui_e2e.enabled=true`（否则整段 `skipped`） |
 | codegen | `stages.design_review.outputs.can_enter_codegen=true`；**单 feature** 另需 `stages.design_review.features.<id>.can_enter_codegen=true`。**与 create-ui-scenarios 无相互门闸**，两者按 [§3.2](#32-codegen--create-ui-scenarios-并行编排) 并行 |
 | code-review | `stages.codegen.status=completed` |
-| merge_push | `stages.code_review.decision ≠ failed` |
+| merge_push | `stages.code_review.status=completed` 且 `outputs.decision=passed` |
 | build | `stages.merge_push.status=completed` |
 | deploy | `stages.build.status=completed` |
 | ui_e2e | `stages.deploy.status ∈ {completed, skipped}`；`ui_e2e.enabled=true`；**且** `stages.create_ui_scenarios.status ∈ {completed, skipped}`；若 `ui_e2e.require_deploy_smoke_passed=true`（默认）则另需 `stages.deploy.outputs.inline_smoke_passed=true`（deploy 内联 smoke，见 [deploy](stages/deploy.md)） |
@@ -430,6 +434,42 @@ sum_inflight(codegen) + sum_inflight(create_ui_scenarios) ≤ pipeline.autorun.f
 - `ui_e2e` 启动前：`create_ui_scenarios.status ∈ {completed, skipped}` **且** `deploy.status ∈ {completed, skipped}`；若 `ui_e2e.require_deploy_smoke_passed=true` 则 `deploy.outputs.inline_smoke_passed=true`（与门闸表一致）。
 
 > **不修改 codegen.md / ui_e2e.md / create-ui-scenarios.md 之外的 stage 脚本正文**；并行调度逻辑由 `run-pipeline.cjs` 集中实现。
+
+### 3.3 流水线收尾（report 之后）
+
+**`report` 是整条流水线的终点**。`report.cjs` 正常退出后，`run-pipeline.cjs` **必须**调用 **`pipeline-teardown.cjs`**（除非 `report --no-teardown`），在本 session 内结束全部由本流水线启动或托管的子进程与 detached 进程，然后主进程退出。
+
+```text
+after report.cjs exit 0:
+  pipeline-teardown.cjs --project=... --session-id=...
+  write pipeline.pipeline_complete_at（本地时间）
+  write logs: pipeline_teardown_start / pipeline_teardown_complete
+  exit run-pipeline with process exit code derived from stages.report.outputs.overall
+```
+
+**须收尾的对象**（登记于 `<项目根>/.pipeline/session-<session_id>.json` 或由编排器内存表维护）：
+
+| 类型 | 说明 | 收尾动作 |
+| --- | --- | --- |
+| **detached** `run-dash.cjs` | 启动看板 | SIGTERM → 等待 5s → SIGKILL |
+| **design_phase** | `design.cjs` / `design-review.cjs` 在途 tick | 不再发起新 `--tick`；SIGTERM 在途子进程 |
+| **build_phase** | `codegen.cjs` / `create-ui-scenarios.cjs` tick + codegen 长驻 worker | 停止 worker 池；SIGTERM 在途 Agent |
+| **stage 子进程** | build / deploy / ui_e2e 并行子进程 | 按 `.pipeline/locks/*.pid` 结束 |
+| **ui_e2e 修复子链** | `ui-e2e-repair-chain` 嵌套 stage | 标记 `repair_chain_interrupted`，SIGTERM |
+
+**禁止**：teardown 时 `git reset --hard`、删除 `worktrees/`、`logs/` 或 `.pipeline/reports/`。
+
+**`run-pipeline.cjs` 进程退出码**（由 `stages.report.outputs.overall` 推导）：
+
+| `overall` | 退出码 |
+| --- | ---: |
+| `success` / `partial` | **0** |
+| `failed` | **4** |
+| `blocked` | **9** |
+| `stopped` | **5** |
+| report 未生成 | **1** |
+
+详见 [report 阶段](stages/report.md)。
 
 ---
 

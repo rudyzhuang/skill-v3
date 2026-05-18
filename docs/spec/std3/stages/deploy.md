@@ -26,6 +26,10 @@
 
 > 实现目录前缀：`ai-std3/scripts/`。
 
+```bash
+node ai-std3/scripts/lib/deploy.cjs --project=<业务项目根绝对路径> [--explicit-confirm]
+```
+
 ## 上游门闸
 
 | 粒度 | 条件 |

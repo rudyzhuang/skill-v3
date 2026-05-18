@@ -18,6 +18,10 @@
 
 > 实现目录前缀：`ai-std3/scripts/`。
 
+```bash
+node ai-std3/scripts/lib/report.cjs --project=<业务项目根绝对路径> [--session-id=] [--no-teardown]
+```
+
 ## 上游门闸
 
 **无硬性门闸**——`run-pipeline.cjs` 在 stage 链末尾**总是**调用 report（成功、失败、`stopped`、用户中断后 best-effort 均应生成报告）。
@@ -244,7 +248,7 @@ codegen, code_review, merge_push, build, deploy, ui_e2e
 
 | event | LEVEL | 关键 meta |
 | --- | --- | --- |
-| `stage_start` | INFO | `session_id`, `datetime`, `has_errors` |
+| `stage_start` | INFO | `stage`, `run_id`, `session_id`, `datetime`, `has_errors` |
 | `file_created` | INFO | `path`（error excerpt / collect json / autorun md） |
 | `agent_start` | INFO | `agent_id: "report-author"`, `prompt`, `excerpt_bytes` |
 | `agent_complete` | INFO | `agent_id`, `duration_ms`, `output_files[]` |
