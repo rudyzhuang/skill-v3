@@ -10,17 +10,19 @@
 
 | 脚本 | 职责 |
 | --- | --- |
-| `report.cjs` | 编排：collect →（可选）Agent 撰写失败摘要 → render → teardown 触发 |
-| `lib/report-collect.cjs` | 只读聚合 `stages.json`、子报告路径、结构化日志中的 ERROR/WARN |
-| `lib/report-log-extract.cjs` | 从 `logs/**` 抽取**失败/错误**行，写入 `.pipeline/reports/.report-error-excerpt-<datetime>.txt`（供 Agent，**禁止**整文件灌入 prompt） |
-| `lib/report-render.cjs` | 将 `collected` + Agent 产出合并为最终 Markdown |
-| `lib/pipeline-teardown.cjs` | 由 `run-pipeline.cjs` 在 report 成功后调用：结束本 session 全部子进程/线程 |
+| `stages/report.cjs` | 编排：collect →（可选）Agent 撰写失败摘要 → render → teardown 触发 |
+| `libs/report-collect.cjs` | 只读聚合 `stages.json`、子报告路径、结构化日志中的 ERROR/WARN |
+| `libs/report-log-extract.cjs` | 从 `logs/**` 抽取**失败/错误**行，写入 `.pipeline/reports/.report-error-excerpt-<datetime>.txt`（供 Agent，**禁止**整文件灌入 prompt） |
+| `libs/report-render.cjs` | 将 `collected` + Agent 产出合并为最终 Markdown |
+| `libs/pipeline-teardown.cjs` | 由 `run-pipeline.cjs` 在 report 成功后调用：结束本 session 全部子进程/线程 |
 
-> 实现目录前缀：`ai-std3/scripts/`。
+> 实现目录前缀：`ai-std3/scripts/`（`stages/` 为主脚本，`libs/` 为子脚本）。
 
 ```bash
-node ai-std3/scripts/lib/report.cjs --project=<业务项目根绝对路径> [--session-id=] [--no-teardown]
+node ai-std3/scripts/stages/report.cjs --project=<业务项目根绝对路径> [--session-id=] [--no-teardown]
 ```
+
+> **重复运行（幂等）**：report 总是重新生成，覆盖当次 `<datetime>` 对应的报告文件（新文件使用更新后的 `<datetime>-<session_id>`）；`stages.report.status=completed` **不**导致跳过，无需 hash 门控（重新生成无副作用）。
 
 ## 上游门闸
 
@@ -70,10 +72,10 @@ node ai-std3/scripts/lib/report.cjs --project=<业务项目根绝对路径> [--s
 - **run**：`session_id`、`datetime`、`started_at`、`ended_at`、`duration_ms`、`from_stage`
 - **project**：`name`、`root_path`、`git.remote_url`、`final_commit`（`merge_push.outputs.final_commit`）
 - **overall**（见 [overall 推导](#overall-推导)）
-- **stages[]**：固定顺序 13 个核心 stage 各一条：`status`（人话标签）、`duration_ms`、`validation.summary`、关键 outputs 摘要
+- **stages[]**：固定顺序 12 个核心 stage 各一条：`status`（人话标签）、`duration_ms`、`validation.summary`、关键 outputs 摘要
 - **features[]**：合并 `prd.outputs.features[]` 与各 stage `features.<id>`：
   - design / design-review / codegen / code-review / create-ui-scenarios / ui_e2e 状态
-- **completed_tasks[]`** / **`failed_tasks[]`** / **`skipped_tasks[]`**：人话 bullet（见 [任务归类规则](#任务归类规则)）
+- **`completed_tasks[]`** / **`failed_tasks[]`** / **`skipped_tasks[]`**：人话 bullet（见 [任务归类规则](#任务归类规则)）
 - **artifacts**：`build.outputs.artifacts[]`、`deploy.outputs.services[]`（URL）
 - **ui_e2e**：通过/失败场景数、`blocked_features[]`、截图根目录
 - **sub_reports[]`**：`{ path, exists, stage }`
@@ -226,7 +228,7 @@ codegen, code_review, merge_push, build, deploy, ui_e2e
 | 2 | `merge_push.outputs.conflict_features[]` 非空 | `blocked` |
 | 3 | `deploy.outputs.decision=blocked` 或退出码 **9** 残留 | `blocked` |
 | 4 | `--failure-reason=` 非空；或任一核心 stage `failed`；或 `completed` 且 `validation.passed=false` | `failed` |
-| 5 | `ui_e2e.enabled=true` 且 ui_e2e 未跑到终态；或 deploy/build 等 `skipped` 导致链路不完整 | `partial` |
+| 5 | `ui_e2e.enabled=true` 且 ui_e2e `status ∉ {completed, skipped, failed}`（即 `running` / `pending` / 未启动）；或多个核心 stage `skipped` 但下游仍有 `failed` | `partial` |
 | 6 | 全部核心 stage ∈ `{completed, skipped}` 且无失败 | `success` |
 | 7 | 其余 | `partial` |
 
