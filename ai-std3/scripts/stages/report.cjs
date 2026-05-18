@@ -437,7 +437,7 @@ async function invokeReportAgent(collectJsonPath, excerptPath, datetime) {
     };
 
     const runPromise = (async () => {
-      const agent = Agent.create(agentOptions);
+      const agent = await Agent.create(agentOptions);
       try {
         const run = await agent.send(promptContent);
         if (run.supports && run.supports('stream')) {

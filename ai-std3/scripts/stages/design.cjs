@@ -567,7 +567,7 @@ async function invokeDesignAgent({ featureId, featureMeta, model, timeoutMs }) {
     }
 
     const runPromise = (async () => {
-      const agent = Agent.create({ apiKey, model: { id: model || 'composer-2' }, local: { cwd: projectRoot } });
+      const agent = await Agent.create({ apiKey, model: { id: model || 'composer-2' }, local: { cwd: projectRoot } });
       try {
         const run = await agent.send(finalPrompt);
         agentRunId = run.id || null;

@@ -956,7 +956,7 @@ async function main() {
         process.exit(1);
       }
 
-      const agentObj = Agent.create({ apiKey, model: { id: config.model || 'composer-2' }, local: { cwd: wtPath } });
+      const agentObj = await Agent.create({ apiKey, model: { id: config.model || 'composer-2' }, local: { cwd: wtPath } });
       let sdkHangDetected = false;
       const runPromise = (async () => {
         const run = await agentObj.send(finalPrompt);

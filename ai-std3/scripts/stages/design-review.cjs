@@ -598,7 +598,7 @@ async function invokeReviewAgent({ featureId, featureMeta, stagesObj, model, tim
     }
 
     const runPromise = (async () => {
-      const agent = Agent.create({ apiKey, model: { id: model || 'composer-2' }, local: { cwd: projectRoot } });
+      const agent = await Agent.create({ apiKey, model: { id: model || 'composer-2' }, local: { cwd: projectRoot } });
       try {
         const run = await agent.send(finalPrompt);
         agentRunId = run.id || null;

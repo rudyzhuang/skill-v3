@@ -246,29 +246,10 @@ function readConfig() {
 }
 
 // ── Ajv 校验 ──────────────────────────────────────────────────────
-let _ajv = null;
-function getAjv() {
-  if (_ajv) return _ajv;
-  const Ajv = require('ajv');
-  const addFormats = require('ajv-formats');
-  _ajv = new Ajv({ allErrors: true, strict: false });
-  addFormats(_ajv);
-  return _ajv;
-}
-
-function loadSchema(schemaName) {
-  const p = path.join(skillsRoot, 'ai-std3', 'schemas', schemaName);
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
-}
+const { validatePrdClientJson } = require('../libs/ajv-prd-client.cjs');
 
 function validateJson(data, schemaName) {
-  const schema = loadSchema(schemaName);
-  if (!schema) return { valid: true, errors: [] }; // schema 不存在时宽松通过
-  const ajv = getAjv();
-  const validate = ajv.compile(schema);
-  const valid = validate(data);
-  return { valid, errors: validate.errors || [] };
+  return validatePrdClientJson({ skillsRoot, schemaName, data });
 }
 
 // ── Agent 调用（通过 @cursor/sdk） ────────────────────────────────
@@ -335,7 +316,7 @@ async function invokeAgent(opts) {
     };
 
     const runPromise = (async () => {
-      const agent = Agent.create(agentOptions);
+      const agent = await Agent.create(agentOptions);
       try {
         const run = await agent.send(finalPrompt);
         agentRunId = run.id || null;

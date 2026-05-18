@@ -3,3 +3,10 @@ _projects/
 # 旧路径（迁移后应为空，勿再写入）
 .pipeline/
 _registry/
+.memory.sqlite
+.memory.sqlite-shm
+.memory.sqlite-wal
+AGENTS.md
+skills-lock.json
+.agents/
+.cursor/

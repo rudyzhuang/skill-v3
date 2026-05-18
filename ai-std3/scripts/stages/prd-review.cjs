@@ -234,8 +234,11 @@ function readConfig() {
   return { timeoutS, maxRetries, model, featureMaxParallel, autoCommit };
 }
 
-// ── Ajv 校验 ──────────────────────────────────────────────────────
+// ── Ajv 校验（并发 Agent 输出校验，缓存 compile 避免重复注册 schema）──
 let _ajv = null;
+/** @type {Map<string, import('ajv').ValidateFunction>} */
+const _validators = new Map();
+
 function getAjv() {
   if (_ajv) return _ajv;
   const Ajv = require('ajv');
@@ -245,17 +248,15 @@ function getAjv() {
   return _ajv;
 }
 
-function loadSchema(schemaName) {
-  const p = path.join(skillsRoot, 'ai-std3', 'schemas', schemaName);
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
-}
-
 function validateJson(data, schemaName) {
-  const schema = loadSchema(schemaName);
-  if (!schema) return { valid: true, errors: [] }; // schema 不存在时宽松通过
-  const ajv = getAjv();
-  const validate = ajv.compile(schema);
+  const schemaPath = path.join(skillsRoot, 'ai-std3', 'schemas', schemaName);
+  if (!fs.existsSync(schemaPath)) return { valid: true, errors: [] };
+  let validate = _validators.get(schemaName);
+  if (!validate) {
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+    validate = getAjv().compile(schema);
+    _validators.set(schemaName, validate);
+  }
   const valid = validate(data);
   return { valid, errors: validate.errors || [] };
 }
@@ -314,7 +315,7 @@ async function invokeAgent(opts) {
     };
 
     const runPromise = (async () => {
-      const agent = Agent.create(agentOptions);
+      const agent = await Agent.create(agentOptions);
       try {
         const run = await agent.send(finalPrompt);
         agentRunId = run.id || null;

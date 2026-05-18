@@ -460,7 +460,7 @@ async function invokeAgent(opts) {
     };
 
     const runPromise = (async () => {
-      const agent = Agent.create(agentOptions);
+      const agent = await Agent.create(agentOptions);
       try {
         const run = await agent.send(finalPrompt);
         agentRunId = run.id || null;
