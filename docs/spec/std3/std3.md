@@ -300,7 +300,7 @@ setup
 | stage | 前置条件（缺失则退出码 1 或 4） |
 | --- | --- |
 | setup | — |
-| prd | `verify-req` 退出 0 |
+| prd | `stages.setup.status=completed` 且 `stages.setup.validation.passed=true` |
 | prd-review | `stages.prd.status=completed` |
 | design | `stages.prd_review.outputs.decision=passed` |
 | design-review | `stages.prd_review.outputs.decision=passed` 且 design bootstrap 已完成；**单 feature** 另需 `stages.design.features.<id>.status=completed`（**不要求** design stage 整体 completed） |
@@ -320,7 +320,7 @@ setup
 
 | stage | 脚本 |
 | --- | --- |
-| setup | `scripts/setup-inputs.cjs` + `scripts/verify-inputs.cjs` + `scripts/sync-config-env.cjs` |
+| setup | `scripts/lib/setup.cjs`（内联依次调用 `setup-inputs.cjs`、`verify-inputs.cjs`、`sync-config-env.cjs`、`register-project.cjs`） |
 | prd | `scripts/lib/prd.cjs` |
 | prd-review | `scripts/lib/prd-review.cjs` |
 | design | `scripts/lib/design.cjs` |

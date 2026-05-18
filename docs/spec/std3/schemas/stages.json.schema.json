@@ -53,7 +53,7 @@
     },
     "stageStatus": {
       "type": "string",
-      "enum": ["started", "running", "completed", "failed", "skipped"]
+      "enum": ["started", "running", "completed", "failed", "skipped", "stopped"]
     },
     "validation": {
       "type": "object",
