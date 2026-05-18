@@ -765,22 +765,56 @@ async function doTick(stagesObj, config, featureFilterId) {
     ? targetFeatureIds.filter(id => id === featureFilterId)
     : targetFeatureIds;
 
-  // 第一步：对 pending feature 做 hash 门控（design.json 已存在且 hash 命中 → 标 completed）
+  // 第零步：上轮 tick 被中断时，遗留的 running 无对应 Agent，须重置为 pending 才能再次调度
+  const zombieResetList = [];
+  for (const fid of scopeIds) {
+    if (featureStatuses[fid] && featureStatuses[fid].status === 'running') {
+      featureStatuses[fid].status = 'pending';
+      zombieResetList.push(fid);
+    }
+  }
+  if (zombieResetList.length > 0) {
+    writeStagesJson(stagesObj);
+    log.warn('zombie_reset', `design tick 重置 ${zombieResetList.length} 个僵尸 running feature`, {
+      feature_ids: zombieResetList,
+    });
+  }
+
+  // 第一步：对 pending feature 做 hash / 磁盘门控（design.json 已存在且有效 → 标 completed）
   let hashGateChanged = false;
   for (const fid of scopeIds) {
     if (!featureStatuses[fid] || featureStatuses[fid].status !== 'pending') continue;
     if (forceRerun) continue;
 
     const designFile  = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    if (!fs.existsSync(designFile)) continue;
+
     const storedHash  = featureStatuses[fid].design_hash;
     const currentHash = fileSha256(designFile);
+    if (!currentHash) continue;
 
-    if (storedHash && currentHash && storedHash === currentHash) {
-      featureStatuses[fid].status = 'completed';
-      if (!featureStatuses[fid].design_file) featureStatuses[fid].design_file = designFile;
+    let skipReason = null;
+    if (storedHash && storedHash === currentHash) {
+      skipReason = 'design_hash matched';
+    } else if (!storedHash) {
+      try {
+        const data = JSON.parse(fs.readFileSync(designFile, 'utf8'));
+        const { valid } = validateDesignJson(data);
+        if (valid && Array.isArray(data.acceptance) && data.acceptance.length >= 3) {
+          skipReason = 'design_file on disk';
+        }
+      } catch (_) { /* 无效文件，继续走 Agent */ }
+    }
+
+    if (skipReason) {
+      featureStatuses[fid].status       = 'completed';
+      featureStatuses[fid].design_file  = designFile;
+      featureStatuses[fid].design_hash  = currentHash;
+      featureStatuses[fid].completed_at = featureStatuses[fid].completed_at || formatLocalTimeShort();
+      featureStatuses[fid].error        = null;
       hashGateChanged = true;
-      log.info('agent_skipped', `feature ${fid} hash 门控命中，跳过 Agent`, {
-        agent_id: `design-agent-${fid}`, feature_id: fid, reason: 'design_hash matched',
+      log.info('agent_skipped', `feature ${fid} 门控命中，跳过 Agent`, {
+        agent_id: `design-agent-${fid}`, feature_id: fid, reason: skipReason,
       });
     }
   }
