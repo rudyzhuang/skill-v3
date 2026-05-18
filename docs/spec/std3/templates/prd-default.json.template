@@ -1,0 +1,18 @@
+{
+"client_target": "",
+"project_name": "",
+"features": [
+    {
+    "feature_id": "",
+    "name": "",
+    "priority": "P0",
+    "phase": "mvp",
+    "description": "",
+    "acceptance": [],
+    "api_hints": []
+    }
+],
+"deploy": { "domain": "", "service_type": "" },
+"auth": { "type": "none", "notes": "" },
+"constraints": []
+}

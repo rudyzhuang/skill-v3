@@ -1,0 +1,119 @@
+{
+"pipeline": {
+    "autorun": {
+    "allow_destructive_deploy": false,
+    "feature_max_parallel": 3
+    },
+    "stages": {
+    "design": {
+        "feature_max_parallel": 3
+    },
+    "design_review": {
+        "feature_max_parallel": 3
+    },
+    "codegen": {
+        "feature_max_parallel": 3,
+        "attempt_max_s": null,
+        "agent_hang_threshold_s": 180,
+        "fs_idle_threshold_s": 240,
+        "stdout_idle_threshold_s": 120,
+        "heartbeat_interval_s": 30,
+        "max_resume_attempts": 2,
+        "graceful_kill_s": 15,
+        "self_check": {
+        "enabled": false,
+        "commands": {},
+        "timeout_s": 300
+        }
+    },
+    "create_ui_scenarios": {
+        "feature_max_parallel": 3,
+        "max_scenarios_per_feature": 10
+    },
+    "code_review": {
+        "feature_max_parallel": 3,
+        "max_retries": 2,
+        "file_plan_strict": false
+    }
+    }
+},
+"git": {
+    "remote": "origin",
+    "default_branch": "main",
+    "auto_commit": false
+},
+"build": {
+    "client_targets": [],
+    "commands": {
+    "website": "npm run build",
+    "admin":   "npm run build",
+    "backend": "npm run build",
+    "mobile":  "flutter build apk --release"
+    }
+},
+"deploy": {
+    "enabled": false,
+    "provider": "cloudflare",
+    "services": [
+    {
+        "name": "website",
+        "client_target": "website",
+        "type": "pages",
+        "domain": "",
+        "url": ""
+    },
+    {
+        "name": "backend",
+        "client_target": "backend",
+        "type": "workers",
+        "domain": "",
+        "url": ""
+    }
+    ]
+},
+"smoke": {
+    "checks": [
+    {
+        "url": "{deploy.services.website.url}/",
+        "method": "GET",
+        "expected_status": 200,
+        "body_contains": null,
+        "safe": true
+    },
+    {
+        "url": "{deploy.services.backend.url}/health",
+        "method": "GET",
+        "expected_status": 200,
+        "body_contains": null,
+        "safe": true
+    }
+    ]
+},
+"ui_e2e": {
+    "enabled": false,
+    "require_smoke_passed": true,
+    "web": {
+    "base_url_from": "deploy.services.website.url"
+    },
+    "mobile": {
+    "bundle_id": "",
+    "device": "emulator"
+    },
+    "commands": {
+    "ui_test_max_fix_attempts": 3
+    }
+},
+"timeouts": {
+    "stages": {
+    "design_s":  1200,
+    "design_review_s": 900,
+    "create_ui_scenarios_s": 600,
+    "build_s":   300,
+    "codegen_s": 1800,
+    "code_review_s": 600,
+    "deploy_s":  600,
+    "smoke_s":   120,
+    "ui_e2e_s":  1800
+    }
+}
+}

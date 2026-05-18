@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "stop.signal.schema.json",
+  "title": "stop.signal",
+  "description": "流水线停止信号文件",
+  "type": "object",
+  "required": ["requested_at", "reason", "requested_by"],
+  "additionalProperties": false,
+  "properties": {
+    "requested_at": {
+      "type": "string",
+      "description": "本地时间，格式 YYYY-MM-DD HH:mm:ss ±HHMM"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "停止原因，默认 user_request"
+    },
+    "requested_by": {
+      "type": "string",
+      "enum": ["run-dash", "stop-pipeline-cmd", "user"],
+      "description": "发起方"
+    }
+  }
+}
