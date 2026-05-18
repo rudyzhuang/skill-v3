@@ -8,10 +8,10 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/lib/`**：`design.cjs`（编排）、`design-bootstrap.cjs`（步骤 1）、`design-validate.cjs`（步骤 3）；步骤 2 为按 **feature** 并发的 Agent 池。与 `design-review.cjs` 复合编排时支持 **`--tick`**（由 `run-pipeline.cjs` 轮询）。
+脚本根目录前缀 **`ai-std3/scripts/`**：`stages/design.cjs`（编排入口）、`libs/design-bootstrap.cjs`（步骤 1）、`libs/design-validate.cjs`（步骤 3）；步骤 2 为按 **feature** 并发的 Agent 池。与 `stages/design-review.cjs` 复合编排时支持 **`--tick`**（由 `run-pipeline.cjs` 轮询）。
 
 ```bash
-node ai-std3/scripts/lib/design.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+node ai-std3/scripts/stages/design.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
 ```
 
 ## 上游门闸
@@ -106,11 +106,16 @@ pipeline.autorun.feature_max_parallel
 ## 处理逻辑
 
 1. **`design-bootstrap.cjs`（bootstrap）**：
-- 初始化 `stages.design` 骨架（若不存在），含 `inputs.feature_ids[]`、`inputs.dependency_groups[]`、`features.<feature_id>.status`（`pending`）、`features.<feature_id>.group_id`、`outputs.design_specs[]`。
-- 从 `phase_plan` 展开 `feature_ids[]`，与 `stages.prd.outputs.features[]` 交叉校验；缺失则退出码 **1**。
-- 计算 `dependency_groups[]`（见上节）与各 `features.<id>.group_id`。
-- 计算 `phase_plan_hash`（`review.phase_plan` 稳定序列化后 SHA-256）与 `prd_spec_hash`（`docs/prd-spec.md`）。
-- 若 `phase_plan_hash` 与 `stages.design.inputs.phase_plan_hash` 一致且 `stages.design.status=completed` 且全部目标 feature 的 `design.json` 哈希未变，则**跳过步骤 2**，直接进入步骤 3。
+- 从 `stages.prd_review.review.phase_plan` 展开 `feature_ids[]`，与 `stages.prd.outputs.features[]` 交叉校验；缺失则退出码 **1**。
+- **先读旧值**：读取 `stages.design.inputs.phase_plan_hash`（骨架不存在则旧值为 `null`）与 `stages.design.inputs.prd_spec_hash`（同）。
+- **计算新值**：`phase_plan_hash_new`（`review.phase_plan` 的稳定序列化 SHA-256：按 `phase` 升序后取各项 `phase + feature_ids[]`（feature_ids 内部字典序排序），`JSON.stringify` 后 SHA-256）；`prd_spec_hash_new`（`docs/prd-spec.md` 文件 SHA-256）。
+- **hash 门控**（在写入前比对）：若 `phase_plan_hash_new == 旧值` **且** `stages.design.status=completed` **且** 全部目标 feature 的 `docs/designs/<feature_id>.design.json` 存在且文件 SHA-256 等于各自 `features.<id>.design_hash`，则**整段跳过**（写 `stage_skipped` + 退出码 0，**不修改** stages.design）。
+- **骨架处理 + 写入新值**（非跳过路径，以下三种情况均在最后将 `phase_plan_hash_new`/`prd_spec_hash_new` 落盘到 `stages.design.inputs`）：
+  - 若 `stages.design` 骨架**不存在**（首次运行）：在 stages.json 中初始化 `stages.design` 全部字段，含 `inputs.feature_ids[]`、`inputs.dependency_groups[]`、`inputs.phase_plan_hash = phase_plan_hash_new`、`inputs.prd_spec_hash = prd_spec_hash_new`、`features.<feature_id>.status=pending`、`features.<feature_id>.group_id`、`outputs.design_specs[]`。
+  - 若骨架**已存在**但 `phase_plan_hash` 变化（phase_plan 被 prd-review 重跑修改）：**清空全部 feature 状态**（每个 feature 重置为 `pending`，清除 `design_hash`）；写入新 hash 值；不清空已有 `design.json` 文件（下轮 bootstrap 按 feature hash 决定是否跳过）。
+  - 若骨架已存在且 `phase_plan_hash` 未变：将任何状态为 `running` 的 feature 重置为 `pending`（防止上次崩溃遗留 zombie 状态）；已 `completed` / `failed` 的 feature 保持不变；更新 `prd_spec_hash`（prd-spec 可能被修改）。
+- 计算 `dependency_groups[]`（见上节）与各 `features.<id>.group_id`；重新计算后写入 `stages.design.inputs.dependency_groups[]`。
+- 循环依赖 → 退出码 **1**，`cycle_feature_ids[]`。
 - 写 `stages.design.status=running`；日志记录 `effective_parallel`、`feature_ids[]`、`dependency_groups[]`、`groups_count`。
 
 2. **Agent-Design（按 feature 并发，组感知 + 拓扑调度）**：
@@ -186,7 +191,7 @@ pipeline.autorun.feature_max_parallel
 - 每个 `dependencies[]` 条目须在 `feature_ids[]` 内且对应 `design.json` 存在。
 - 汇总 `outputs.design_specs[]`：`{ feature_id, client_target, phase, new_files_count, modify_files_count, design_hash }`。
 - 若有 feature `failed` → `stages.design.status=failed`、`validation.passed=false`，退出码 **4**（可 `--feature=` 重跑）。
-- 全部通过 → `status=completed`、`validation.passed=true`、`inputs.phase_plan_hash`、`inputs.prd_spec_hash`、更新各 `features.<id>.design_hash`。
+- 全部通过 → `status=completed`、`validation.passed=true`（`phase_plan_hash` 与 `prd_spec_hash` 已由 bootstrap 写入，此处确认一致）、更新各 `features.<id>.design_hash`（若步骤 2 已逐个写入则无需再算）。
 - 可选 git commit+push（`config.dev.json.git.auto_commit=true`）。
 
 ## 日志事件（design）
@@ -196,7 +201,7 @@ pipeline.autorun.feature_max_parallel
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
-| 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.design） |
+| 步骤1：初始化/更新 | `file_created` / `file_updated` | INFO | `path`（stages.design），`phase_plan_hash_changed`（bool），`zombie_features_reset`（list） |
 | 步骤1：展开 phase_plan | `validation_pass` | INFO | `feature_ids[]`, `phase_plan_hash`, `groups_count`, `dependency_groups[]`, `effective_parallel` |
 | 步骤2：单 feature 可评审 | `feature_design_ready` | INFO | `feature_id`, `group_id`, `design_hash` |
 | 步骤1：循环依赖 | `validation_fail` | ERROR | `cycle_feature_ids[]`, `exit_code: 1` |
@@ -217,13 +222,14 @@ pipeline.autorun.feature_max_parallel
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 成功；`--tick` 单轮调度完成；或 hash 跳过 |
-| 1 | prd-review 门闸未满足、循环依赖、feature 不在索引真源 |
-| 3 | 单 feature Agent 超时（`timeouts.stages.design_s`） |
-| 4 | 校验失败或存在 `failed` feature（可 `--feature=` 重跑） |
-| 5 | 检测到 `stop.signal` |
+| 码 | 场景 | stages.design.status |
+| ---: | --- | --- |
+| 0 | 成功（批量）或 `--tick` 单轮调度完成 | `completed` / `running` |
+| 0 | 全局 hash 命中整段跳过 | `completed`（不变） |
+| 1 | prd-review 门闸未满足、循环依赖、feature 不在索引真源 | `failed` |
+| 3 | 单 feature Agent 超时（`timeouts.stages.design_s`） | feature 级 `failed`；stage 级视全局结果 |
+| 4 | 校验失败或存在 `failed` feature（可 `--feature=` 重跑） | `failed`（`validation.passed=false`） |
+| 5 | 检测到 `stop.signal` | `stopped` |
 
 ## 输出
 
