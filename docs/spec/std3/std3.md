@@ -111,10 +111,10 @@ ai-std3 是一个**独立的全量流水线 Skill**，借鉴 V3 各 skill 的思
 setup
 → prd
 → prd-review
-→ design ─┐（复合编排 `design_phase`：与 design-review 流水线并行，按 dependency group 放行下游）
-→ design-review ─┘
-→ create-ui-scenarios
-→ codegen
+→ design ──────────┐（复合编排 `design_phase`：与 design-review 流水线并行，按 dependency group 放行下游）
+→ design-review ───┘
+→ create-ui-scenarios ─┐（复合编排 `build_phase`：两条独立 track 并行；无相互门闸）
+→ codegen ─────────────┘
 → code-review
 → merge_push
 → build
@@ -150,7 +150,7 @@ setup
 | 2 | 用户中断或门闸需人工填写 | setup：`req.md` / `config.env` 未填完 |
 | 3 | 超时（可重试） | codegen / build / deploy 等子进程或 Agent 挂钟超阈；含内联 smoke 子命令超时 |
 | 4 | 质量门或未自动修复的失败（**可**经 Agent/改代码后重跑本 stage） | prd-review、design、codegen（含内联 smoke 失败）、code-review；deploy 分诊 `fix_script` 用尽 |
-| 5 | 契约被破坏 / diff-guard | codegen 改动契约路径（ai-std3 无 contract stage 时较少触发） |
+| 5 | 流水线停止（**stop.signal** 已检测） | 任意 stage 启动时或 Agent 派发前检测到 `stop.signal`；优雅停止后退出 |
 | 6 | Git **合并冲突** | `merge_push`：`conflict_features[]` 非空 |
 | 7 | Git **推送**失败 | `merge_push`：push 非零 |
 | 8 | **云平台 / 托管 API**失败（可重试或改配置后再 deploy） | deploy：CF API 非 2xx、5xx、瞬态错误；`retry_deploy` 用尽 |
@@ -188,11 +188,13 @@ setup
 
 ```json
 {
-"requested_at": "2026-05-18 08:30:15 +0800",
-"reason": "user_request",
-"requested_by": "run-dash | stop-pipeline-cmd | user"
+  "requested_at": "2026-05-18 08:30:15 +0800",
+  "reason": "user_request",
+  "requested_by": "stop-pipeline-cmd"
 }
 ```
+
+> `requested_by` 枚举值：`"run-dash"` | `"stop-pipeline-cmd"` | `"user"`
 
 ### 信号检查点
 
@@ -231,7 +233,7 @@ setup
 
 ### 日志行格式
 
-每行为一条结构化记录（方便 report 脚本用 JSON.parse 逐行读取）：
+每行为一条结构化文本记录，末段 `<JSON meta>` 是合法单行 JSON 对象（report 脚本按此格式解析行结构后，用 `JSON.parse` 提取 meta 字段）：
 
 ```
 [本地时间 YYYY-MM-DD HH:mm:ss.SSS Z] [LEVEL] [<stage>] <event> | <human message> | <JSON meta>
@@ -264,7 +266,7 @@ setup
 | `agent_batch_complete` | INFO | 并发 Agent 批次结束 | `batch_id`, `agents_succeeded[]`, `agents_failed[]`, `agents_skipped[]`, `duration_ms` |
 | `agent_start` | INFO | 启动 Agent 调用 | `agent_id`, `prompt`, `input_files[]`, `model`；并发场景另含 `client_target` |
 | `agent_complete` | INFO | Agent 调用结束 | `agent_id`, `duration_ms`, `output_files[]`；并发场景另含 `client_target`, `decision` |
-| `agent_skipped` | INFO | 单端哈希命中，跳过该 Agent | `agent_id`, `client_target`, `reason` |
+| `agent_skipped` | INFO | 单端哈希命中，跳过该 Agent | `agent_id`, `reason`；并发场景另含 `client_target` |
 | `agent_retry` | WARN | Agent 校验失败，触发重试 | `agent_id`, `attempt`（1-based）, `reason`；并发场景另含 `client_target` |
 | `agent_failed` | ERROR | Agent 超过重试次数或单端失败 | `agent_id`, `max_attempts`, `last_error`；并发场景另含 `client_target` |
 | `git_commit` | INFO | git commit 完成 | `branch`, `commit_hash`, `files_changed` |
