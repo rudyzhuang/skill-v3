@@ -10,15 +10,15 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/lib/`**：`codegen.cjs`（**`--tick`**）、`codegen-bootstrap.cjs`、`codegen-worker.cjs`（长驻 worker）、`codegen-validate.cjs`、`http-smoke.cjs`（内联 smoke）。
+脚本根目录前缀 **`ai-std3/scripts/`**：`stages/codegen.cjs`（编排入口，支持 **`--tick`**）、`libs/codegen-bootstrap.cjs`、`libs/codegen-worker.cjs`（长驻 worker）、`libs/codegen-validate.cjs`、`libs/http-smoke.cjs`（内联 smoke）。
 
 ```bash
-node ai-std3/scripts/lib/codegen.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+node ai-std3/scripts/stages/codegen.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
 ```
 
 > **不**派发 UI 场景、**不**评审代码；只产出 worktree 代码与 git commit。
 >
-> **内联 smoke（无独立 smoke stage）**：每个 feature 在 Agent 实现完成、可选 self-check 通过后，由 worker 调用 `lib/http-smoke.cjs` 执行与该 feature 相关的 `smoke.checks[]`（见 [§2.4.1](#241-内联-smoke)）；失败按 `self_check_failed` 同类处理（可 resume），**不**单独占用流水线 stage。
+> **内联 smoke（无独立 smoke stage）**：每个 feature 在 Agent 实现完成、可选 self-check 通过后，由 worker 调用 `libs/http-smoke.cjs` 执行与该 feature 相关的 `smoke.checks[]`（见 [§2.4.1](#241-内联-smoke)）；失败按 `self_check_failed` 同类处理（可 resume），**不**单独占用流水线 stage。
 
 ## 上游门闸
 
@@ -80,15 +80,23 @@ effective_parallel = min(
 ## 处理逻辑
 
 1. **`codegen-bootstrap.cjs`（bootstrap + 增量门控）**：
-   - 初始化 `stages.codegen` 骨架（若不存在），含 `features.<feature_id>.{status, group_id, branch, worktree_path, design_hash, commit, files_changed[], attempts_used, hang_history[], file_signatures, last_phase, duration_ms, last_error}`、`outputs.feature_artifacts[]`、`outputs.released_groups_seen[]`、`outputs.decision=pending`。
-   - 对每个待 codegen feature 创建 git worktree：`<项目根>/.pipeline/worktrees/v3-<feature_id>/`，分支 `features/v3-<feature_id>`（**从 base 分支 fork**）；记录 `branch` / `worktree_path` / `base_commit`。
+   - **先读旧值**：读取 `stages.codegen.inputs.release_bundle_hash`（骨架不存在则为 `null`）与 `inputs.design_bundle_hash`。
+   - **计算新值**：
+     - `release_bundle_hash_new`：取 `stages.design_review.features.<id>.can_enter_codegen=true` 的 feature_id 按字典序排列各自 `docs/designs/<id>.design.json` SHA-256，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与其他 stage 一致）。
+     - `design_bundle_hash_new`：同上，但范围为所有 `design.features.<id>.status=completed` feature 的 `design.json` SHA-256 列表。
+   - **hash 门控（全段跳过）**：若两个新值均等于旧值 **且** `stages.codegen.status=completed` **且** 全部目标 feature 已 `status=completed` **且** 各 worktree HEAD == `features.<id>.commit`，则**整段跳过**（写 `stage_skipped` + 退出码 0，不启动任何 worker）。
+   - **骨架处理 + 写入新值**（非跳过路径）：
+     - 若骨架**不存在**：初始化 `stages.codegen`，含 `inputs.release_bundle_hash = release_bundle_hash_new`、`inputs.design_bundle_hash = design_bundle_hash_new`、`features.<feature_id>.{status=pending, group_id, branch, worktree_path=null, ...}`、`outputs.feature_artifacts[]`、`outputs.released_groups_seen[]`、`outputs.decision=pending`。
+     - 若骨架**已存在**：写入新 hash 值；不重置已 `completed` feature 的状态。
+   - **worktree 管理**（非跳过路径，对每个待 codegen feature）：
+     - 若 worktree 路径 `<项目根>/.pipeline/worktrees/v3-<feature_id>/` **不存在**：`git worktree add` 创建，分支 `features/v3-<feature_id>`（**从 base 分支 fork**）；记录 `branch` / `worktree_path` / `base_commit`。
+     - 若 worktree **已存在**（续跑/resume）：验证分支与 `features.<id>.branch` 一致；若不一致或 worktree 损坏则重建（删除旧 worktree 后重新 fork，**保留原 state.json 的 hang_history 与 progress 信息**）。
    - 按 `design.json.file_plan.new_files[]` 预建空文件与目录骨架；**保留已存在文件不动**（兼容续跑 / resume 场景）。
-   - 计算 `release_bundle_hash`（当前 `features.<id>.can_enter_codegen=true` 的 feature_id 排序后拼接 SHA-256）与 `design_bundle_hash`（当前已就绪 feature 的 `design.json` 按 `feature_id` 排序拼接 SHA-256），与 `stages.codegen.inputs.release_bundle_hash` / `inputs.design_bundle_hash` 比对；若两 hash 命中且全部目标 feature 已 `status=completed` 且对应 worktree HEAD == `features.<id>.commit` → 整体跳过步骤 2，直接进入步骤 3（`stage_skipped`）。否则按 feature 增量调度（单 feature hash 命中且上次 `completed` 的跳过 worker）。
    - **确定性预检**（不调用 Agent，命中则该 feature **不**入池）：
      - `design.json.file_plan.new_files.length == 0` 且 `modify_files.length == 0` → `blocking`（无实现目标）；
      - `dependencies[]` 中某 id 对应 `stages.codegen.features.<dep>.status` ≠ `completed` 且本期亦未在 release → `pending_dep`（等依赖完成，由调度器按 group 拓扑序后续重试）。
-   - 清理上一次运行的**僵尸 worker state**：扫 `.pipeline/workers/codegen/*.state.json`，若 `status=running` 但 `pid` 不存活 → 标 `crashed`，后续步骤 2 调度时按 `failed` / 可重试处理。
-   - 写 `stages.codegen.status=running`；日志记录 `effective_parallel`、`pending_feature_ids[]`、`pending_dep_feature_ids[]`、`blocking_feature_ids[]`。
+   - **清理僵尸 worker state**：扫 `.pipeline/workers/codegen/*.state.json`，若 `status=running` 但对应 `pid` 不存活 → 将 state 文件标为 `crashed`，**同时**更新 `stages.codegen.features.<feature_id>.status=crashed`（使后续 tick 收割逻辑能识别）。
+   - 写 `stages.codegen.status=running`；日志记录 `effective_parallel`、`pending_feature_ids[]`、`pending_dep_feature_ids[]`、`blocking_feature_ids[]`、`zombie_features_reset[]`。
 
 2. **`codegen-worker.cjs`（单 feature 长驻 worker，feature 并发 + 看门狗 + 心跳 + resume）**：
 
@@ -243,7 +251,7 @@ effective_parallel = min(
       - 未声明 `client_targets` 且 `check.scope=codegen`（或缺省视为 codegen 阶段可用）；
       - 排除仅含 `{deploy.services.*}` 占位符、且无 `codegen.base_url` / 绝对 URL 的项（留给 deploy 内联）。
    2. 解析 `base_url`：优先 `smoke.codegen.base_url`；否则 `check.url` 中的绝对 URL；否则 `http://127.0.0.1:<port>`（`port` 来自 worker 记录的 `local_dev_port`，若无则跳过并 `WARN`）。
-   3. 调用 `lib/http-smoke.cjs`（与 publish3 同语义：GET/HEAD 或 `safe=true` 的 POST）；超时 `smoke.codegen.timeout_s`。
+   3. 调用 `libs/http-smoke.cjs`（与 publish3 同语义：GET/HEAD 或 `safe=true` 的 POST）；超时 `smoke.codegen.timeout_s`。
    4. 结果写入 `features.<feature_id>.smoke_checks[]`：`{ name, url, status_code, passed, body_snippet }`；汇总 `smoke_passed`（bool）。
    5. 任一必检项失败 → `hang_kind=smoke_failed`（等同质量门），按 §2.2 resume；stage 级退出码 **4**。
    6. 打 `smoke_inline_complete`（INFO）或 `smoke_inline_failed`（ERROR）。
@@ -301,7 +309,7 @@ effective_parallel = min(
    - **门闸（两级）**：
      - **feature 级**：worker 终态 `failed` → `features.<id>.status=failed`，记 `last_error`、`hang_history[]`、`attempts_used`；该 feature **不**回滚 create-ui-scenarios（已并行进行），但其 `code-review` 必然失败 → 由 [report](report.md) 按 feature 标记。
      - **stage 级**：全部目标 feature `completed` → `status=completed`、`outputs.decision=passed`、`validation.passed=true`；存在任何 `failed` → `status=failed`、`outputs.decision=needs_fix`、退出码 **4**（按卡点速查重跑 `--from-stage=codegen --feature=<id>`）。
-   - 写 `inputs.release_bundle_hash`、`inputs.design_bundle_hash`、`outputs.total_attempts`、`outputs.resume_count`。
+   - 写 `outputs.total_attempts`、`outputs.resume_count`（`inputs.release_bundle_hash` / `design_bundle_hash` 已由 bootstrap 写入，此处无需重算）。
    - 生成 `.pipeline/reports/codegen-summary.md`（每 feature 一行：分支、commit、`attempts_used`、`hang_history` 摘要、耗时；含全 stage `total_attempts` / `resume_count` / `failed_count`）。
    - 失败时：`--from-stage=codegen --feature=<id>` 重跑（worker 会读取上次 state，自动以 resume 方式继续，**不**清空 worktree）。
 
@@ -312,7 +320,7 @@ effective_parallel = min(
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间）, `parallel_with: ["create_ui_scenarios"]` |
-| 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.codegen） |
+| 步骤1：初始化/更新 | `file_created` / `file_updated` | INFO | `path`（stages.codegen），`zombie_features_reset[]` |
 | 步骤1：worktree 准备 | `file_created` | INFO | `feature_id`, `worktree_path`, `branch`, `base_commit` |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `pending_feature_ids[]`, `blocking_feature_ids[]`, `pending_dep_feature_ids[]` |
 | 步骤1：bundle 哈希 | `hash_check` | INFO | `release_bundle_hash`, `design_bundle_hash`, `stored_hash`, `computed_hash`, `hit` |
@@ -343,13 +351,15 @@ effective_parallel = min(
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 成功；`--tick` 单轮完成 |
-| 1 | 上游门闸未满足、worktree 创建失败 |
-| 3 | 单 feature 累计挂钟超 `codegen_s` |
-| 4 | 存在 `failed` feature、内联 smoke 失败、resume 用尽 |
-| 5 | 检测到 `stop.signal`（完成当前原子操作后中止） |
+| 码 | 场景 | stages.codegen.status |
+| ---: | --- | --- |
+| 0 | 成功（所有 feature completed） | `completed` |
+| 0 | `--tick` 单轮完成（部分在途） | `running` |
+| 0 | 全局 hash 命中整段跳过 | `completed`（不变） |
+| 1 | 上游门闸未满足、worktree 创建失败 | `failed` |
+| 3 | 单 feature 累计挂钟超 `codegen_s` | feature 级 `failed`；stage 级视全局 |
+| 4 | 存在 `failed` feature、内联 smoke 失败、resume 用尽 | `failed` |
+| 5 | 检测到 `stop.signal`（完成当前原子操作后中止） | `stopped` |
 
 ## 输出
 
