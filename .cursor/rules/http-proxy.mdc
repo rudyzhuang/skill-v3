@@ -8,14 +8,14 @@ alwaysApply: true
 在执行**任何需要访问外网的 shell 命令**之前（包括但不限于 `git push` / `git pull` / `git fetch`、`gh`、`curl`、`npm install`、远程下载），**必须先**在同一 shell 会话中设置代理：
 
 ```bash
-export http_proxy=http://127.0.0.1:7890
-export https_proxy=http://127.0.0.1:7890
+export http_proxy=http://127.0.0.1:1087
+export https_proxy=http://127.0.0.1:1087
 ```
 
 可与实际命令写在同一行，例如：
 
 ```bash
-export http_proxy=http://127.0.0.1:7890 https_proxy=http://127.0.0.1:7890 && git push -u origin HEAD
+export http_proxy=http://127.0.0.1:1087 https_proxy=http://127.0.0.1:1087 && git push -u origin HEAD
 ```
 
 未设置代理导致连接 GitHub 等失败时，应带上上述 `export` 后重试，而不是直接放弃。
