@@ -8,7 +8,11 @@
 
 ## 脚本
 
-`code-review.cjs`（编排器，循环调度 Worker 池直至全部 feature 终态）、`code-review-bootstrap.cjs`（步骤1）、`code-review-validate.cjs`（步骤3）；步骤2 为按 **feature** 并发的 Agent 池。
+路径前缀 **`ai-std3/scripts/lib/`**：`code-review.cjs`（内部循环直至全部 feature 终态）、`code-review-bootstrap.cjs`、`code-review-validate.cjs`。
+
+```bash
+node ai-std3/scripts/lib/code-review.cjs --project=<业务项目根绝对路径> [--feature=<feature_id>]
+```
 
 > 与 [design-review](design-review.md) 同款 review-stage 结构（bootstrap → 并发 Agent → validate），但 **不**跨 stage 并行（上游 codegen 已 `completed`），故**不**提供 `--tick`，单次 `code-review.cjs` 运行内部自循环直至全部 feature 终态。
 
@@ -202,7 +206,7 @@ effective_parallel = min(
 
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
-| stage 启动 | `stage_start` | INFO | `run_id`, `project`, `started_at` |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
 | 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.code_review） |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `feature_ids[]`, `deterministic_blocking_count`, `deterministic_warning_count`, `out_of_plan_files[]`, `empty_commit_features[]` |
 | 步骤1：bundle 哈希 | `hash_check` | INFO | `review_bundle_hash`, `stored_hash`, `computed_hash`, `hit` |
@@ -223,8 +227,18 @@ effective_parallel = min(
 | 步骤3：门闸通过 | `validation_pass` | INFO | `decision: "passed" \| "passed_with_warnings"`, `critical_issues_total: 0`, `warnings_total` |
 | 步骤3：写完成态 | `file_updated` | INFO | `status: "completed"`, `review_bundle_hash` |
 | 步骤3：生成报告 | `file_created` | INFO | `path: ".pipeline/reports/code-review-summary.md"` |
-| stage 完成 | `stage_complete` | INFO | `duration_ms`, `features_total`, `effective_parallel`, `decision`, `critical_issues_total`, `warnings_total` |
-| 任意步骤失败 | `stage_failed` | ERROR | `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+| stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `decision`, `critical_issues_total` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+
+## 退出码（本 stage）
+
+| 码 | 场景 |
+| ---: | --- |
+| 0 | 全部 feature `passed` |
+| 1 | codegen 未完成或门闸未满足 |
+| 3 | 单 feature 评审 Agent 超时 |
+| 4 | `outputs.decision=failed` 或存在 `critical_issues` |
+| 5 | 检测到 `stop.signal` |
 
 ## 输出
 

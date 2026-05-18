@@ -10,7 +10,11 @@
 
 ## 脚本
 
-`codegen.cjs`（编排器，**`--tick`** 单轮调度后退出）、`codegen-bootstrap.cjs`（步骤1）、`codegen-worker.cjs`（步骤2：单 feature 长驻 worker，托管 Agent + 看门狗 + resume 调度）、`codegen-validate.cjs`（步骤3）。
+路径前缀 **`ai-std3/scripts/lib/`**：`codegen.cjs`（**`--tick`**）、`codegen-bootstrap.cjs`、`codegen-worker.cjs`（长驻 worker）、`codegen-validate.cjs`、`http-smoke.cjs`（内联 smoke）。
+
+```bash
+node ai-std3/scripts/lib/codegen.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+```
 
 > **不**派发 UI 场景、**不**评审代码；只产出 worktree 代码与 git commit。
 >
@@ -307,7 +311,7 @@ effective_parallel = min(
 
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
-| stage 启动 | `stage_start` | INFO | `run_id`, `project`, `started_at`, `parallel_with: ["create_ui_scenarios"]` |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间）, `parallel_with: ["create_ui_scenarios"]` |
 | 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.codegen） |
 | 步骤1：worktree 准备 | `file_created` | INFO | `feature_id`, `worktree_path`, `branch`, `base_commit` |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `pending_feature_ids[]`, `blocking_feature_ids[]`, `pending_dep_feature_ids[]` |
@@ -334,8 +338,18 @@ effective_parallel = min(
 | 步骤3：门闸未通过 | `validation_fail` | ERROR | `decision: "needs_fix"`, `failed_feature_ids[]`, `exit_code: 4` |
 | 步骤3：门闸通过 | `validation_pass` | INFO | `decision: "passed"`, `features_total` |
 | 步骤3：写完成态 | `file_updated` | INFO | `status: "completed"`, `release_bundle_hash` |
-| stage 完成 | `stage_complete` | INFO | `duration_ms`, `features_total`, `effective_parallel`, `total_attempts`, `resume_count`, `failed_count` |
-| 任意步骤失败 | `stage_failed` | ERROR | `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+| stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `features_total`, `failed_count` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+
+## 退出码（本 stage）
+
+| 码 | 场景 |
+| ---: | --- |
+| 0 | 成功；`--tick` 单轮完成 |
+| 1 | 上游门闸未满足、worktree 创建失败 |
+| 3 | 单 feature 累计挂钟超 `codegen_s` |
+| 4 | 存在 `failed` feature、内联 smoke 失败、resume 用尽 |
+| 5 | 检测到 `stop.signal`（完成当前原子操作后中止） |
 
 ## 输出
 
