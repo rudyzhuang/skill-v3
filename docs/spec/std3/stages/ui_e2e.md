@@ -14,18 +14,18 @@
 
 | 脚本 | 职责 |
 | --- | --- |
-| `ui-e2e.cjs` | 编排：bootstrap → 场景并行执行 → validate；失败时触发分诊与子链 |
-| `ui-e2e-bootstrap.cjs` | 门闸、展开场景队列、MCP/设备预检、写 `running` |
-| `lib/ui-e2e-runner.cjs` | **单场景**执行：解析 YAML 步骤、调 MCP、写日志与截图、判定 `expect[]` |
-| `lib/ui-e2e-triage.cjs` | 失败时派发 Agent，产出 `ui-e2e-triage-<feature_id>.json`，驱动修复 |
-| `lib/ui-e2e-repair-chain.cjs` | 对单 feature 顺序 spawn：`code-review` → `merge_push` → `build` → `deploy` → `ui-e2e` |
-| `lib/skill-prompt-publish.cjs` | **仅**在 `fix_prompt` 路径：于 **ai-std3 skill 目录** git commit + push 提示词变更（**不**动业务仓） |
-| `ui-e2e-validate.cjs` | 汇总场景结果、报告、stage 门闸 |
+| `stages/ui-e2e.cjs` | 编排：bootstrap → 场景并行执行 → validate；失败时触发分诊与子链 |
+| `libs/ui-e2e-bootstrap.cjs` | 门闸、展开场景队列、MCP/设备预检、写 `running` |
+| `libs/ui-e2e-runner.cjs` | **单场景**执行：解析 YAML 步骤、调 MCP、写日志与截图、判定 `expect[]` |
+| `libs/ui-e2e-triage.cjs` | 失败时派发 Agent，产出 `ui-e2e-triage-<feature_id>.json`，驱动修复 |
+| `libs/ui-e2e-repair-chain.cjs` | 对单 feature 顺序 spawn：`code-review` → `merge_push` → `build` → `deploy` → `ui-e2e` |
+| `libs/skill-prompt-publish.cjs` | **仅**在 `fix_prompt` 路径：于 **ai-std3 skill 目录** git commit + push 提示词变更（**不**动业务仓） |
+| `libs/ui-e2e-validate.cjs` | 汇总场景结果、报告、stage 门闸 |
 
-> 实现目录前缀：`ai-std3/scripts/`。
+> 实现目录前缀：`ai-std3/scripts/`（`stages/` 为主脚本，`libs/` 为子脚本）。
 
 ```bash
-node ai-std3/scripts/lib/ui-e2e.cjs --project=<业务项目根绝对路径> [--feature=<id>] [--scenario=<id>]
+node ai-std3/scripts/stages/ui-e2e.cjs --project=<业务项目根绝对路径> [--feature=<id>] [--scenario=<id>]
 ```
 
 ## 上游门闸
@@ -89,21 +89,28 @@ effective_parallel = min(
 
 ### 1. `ui-e2e-bootstrap`
 
-1. PID 锁：`<项目根>/.pipeline/locks/ui_e2e.pid`。
-2. 校验 [上游门闸](#上游门闸)；`ui_e2e.enabled=false` → `stage_skipped`。
+1. **PID 锁**：路径 `.pipeline/locks/ui_e2e.pid`；检查现有锁 PID 是否存活——不存活则清除过期锁并继续；若存活则退出码 1。
+2. 校验 [上游门闸](#上游门闸)；`ui_e2e.enabled=false` → 写 `stages.ui_e2e.status=skipped`，打 `stage_skipped`，退出码 0。
 3. 从 `stages.create_ui_scenarios.outputs.scenario_files[]` 与磁盘 YAML 展开 **`scenario_queue[]`**：
    - 每项：`{ scenario_id, feature_id, client_target, platform, yaml_path, base_url, mcp: "browser"|"dart"|"none" }`；
    - `platform=web` → `mcp=browser`；`android|ios` → `mcp=dart`；`desktop` 或未知 → `mcp=none`，`status=skipped`；
-   - `scenario_id` 全局唯一；重复 → 退出 **1**。
+   - `scenario_id` 全局唯一；重复 → 退出码 **1**。
 4. 解析 `base_url`：按 `ui_e2e.web.website.base_url_from` 等从 `deploy.outputs.services[]` 取值；失败则该 web 场景 `blocked` 或 `skipped`（依 `strict_urls`）。
-5. MCP 预检：Browser / Dart 各打 `mcp_preflight` 日志；不可用 → web 或 mobile 队列整体标记不可跑。
-6. 初始化 `stages.ui_e2e`：`status=running`、`outputs.scenarios[]` 占位、`outputs.scenario_total`。
-7. `stage_start`（`meta.scenario_total`、`effective_parallel`）。
+5. **先读旧值**：读取 `stages.ui_e2e.inputs.scenario_bundle_hash`（骨架不存在则为 `null`）。
+6. **计算新值**：`scenario_bundle_hash_new` = SHA-256(规范化 JSON 包含 `stages.create_ui_scenarios.inputs.release_bundle_hash`、`stages.deploy.inputs.summary_hash`、目标 YAML 文件各自 SHA-256 按 `scenario_id` 字典序排列的列表，hash-of-hashes 方式)。
+7. **hash 门控（全段跳过）**：若 `scenario_bundle_hash_new == 旧值` **且** `stages.ui_e2e.status=completed` **且** `outputs.failed_count == 0`（无失败场景）→ 整段跳过（写 `stage_skipped`，退出码 0）。
+8. **骨架处理 + 写入新值**（非跳过路径）：
+   - 写入 `inputs.scenario_bundle_hash = scenario_bundle_hash_new`。
+   - 若骨架**不存在**：初始化 `stages.ui_e2e`，含 `status=running`、`outputs.scenarios[]` 占位（每条 `status=pending`）、`outputs.scenario_total`。
+   - 若骨架**已存在**：写入新 hash；保留 `status=completed` / `status=skipped` 的场景（续跑幂等，已通过/已跳过的场景不重跑）；`status=failed` / `timed_out` / `pending` 的场景重置为 `pending`；新增场景初始化为 `pending`。
+9. MCP 预检：Browser / Dart 各打 `mcp_preflight` 日志；不可用 → web 或 mobile 队列整体标记不可跑。
+10. 写 `stages.ui_e2e.status=running`；写入 PID 锁；打 `stage_start`（`meta.scenario_total`、`effective_parallel`）。
 
 ### 2. 场景并行执行（`lib/ui-e2e-runner.cjs`）
 
 对每个 `pending` 场景（线程池 `effective_parallel`）：
 
+0. 若 `outputs.scenarios[<scenario_id>].status ∈ {completed, skipped}`（bootstrap 续跑保留）→ 打 `ui_scenario_skipped`（INFO，`reason: "already_completed"`）并跳过。
 1. **`ui_scenario_start`**（INFO）：`scenario_id`、`feature_id`、`platform`、`base_url`、`mcp`。
 2. 创建日志：
    - 场景专用：`<项目根>/logs/stages/ui_e2e/<datetime>-<scenario_id>.log`（**完整** MCP 往返、步骤、expect 判定）；
@@ -171,9 +178,9 @@ effective_parallel = min(
 **范围**：仅允许修改 **`ai-std3` skill 安装目录** 下 `prompts/**`（如 `codegen-impl.md`、`codegen-impl-resume.md`），**禁止**改业务项目内任何文件。
 
 1. 分诊 Agent 或紧随步骤写入 patch 内容（或 unified diff 说明）。
-2. 调用 **`lib/skill-prompt-publish.cjs`**（在 **skill 根目录**执行 git，非业务 `project`）：
+2. 调用 **`libs/skill-prompt-publish.cjs`**（在 **skill 根目录**执行 git，非业务 `project`）：
    ```bash
-   node ai-std3/scripts/lib/skill-prompt-publish.cjs \
+   node ai-std3/scripts/libs/skill-prompt-publish.cjs \
      --skill-root=<ai-std3 绝对路径> \
      --message "fix(ui-e2e): <feature_id> triage <reason 摘要>"
    ```
@@ -228,7 +235,10 @@ ui_e2e_repair_chain(feature_id):
 
 | event | LEVEL | 触发时机 | meta 必填字段 |
 | --- | --- | --- | --- |
+| `stage_start` | INFO | stage 启动 | `run_id`, `stage`, `project`, `scenario_total`, `effective_parallel` |
+| `stage_skipped` | INFO | hash 命中或配置跳过 | `reason`, `exit_code: 0` |
 | `mcp_preflight` | INFO | Browser/Dart 预检 | `mcp`, `ok`, `reason` |
+| `ui_scenario_skipped` | INFO | 续跑时已通过场景跳过 | `scenario_id`, `reason: "already_passed"` |
 | `ui_scenario_start` | INFO | 场景开跑 | `scenario_id`, `feature_id`, `platform`, `mcp`, `base_url` |
 | `ui_scenario_step` | DEBUG | 单步完成 | `scenario_id`, `step_index`, `action`, `duration_ms` |
 | `ui_scenario_snapshot` | INFO | 截图已写 | `scenario_id`, `path`, `step_index` |
@@ -243,6 +253,19 @@ ui_e2e_repair_chain(feature_id):
 | `repair_chain_failed` | ERROR | 子链中断 | `feature_id`, `failed_stage`, `exit_code`, `reason` |
 | `repair_chain_complete` | INFO | 子链成功 | `feature_id`, `duration_ms` |
 | `ui_e2e_blocked` | ERROR | `decision=blocked` | `feature_id`, `reason`, `exit_code: 9` |
+
+## 退出码（本 stage）
+
+| 码 | 场景 | stages.ui_e2e.status |
+| ---: | --- | --- |
+| 0 | 全部目标场景通过 | `completed` |
+| 0 | hash 命中整段跳过 | `completed`（不变） |
+| 0 | `ui_e2e.enabled=false` 配置跳过 | `skipped` |
+| 1 | 上游门闸未满足 / PID 锁占用 / `scenario_id` 重复 | `failed` |
+| 3 | 单场景超时（`ui_e2e_scenario_s`）且无其它失败 | `failed` |
+| 4 | 分诊/子链用尽仍有失败场景；或 smoke 失败 | `failed` |
+| 5 | `stop.signal` | `stopped` |
+| 9 | `decision=blocked`（须人工介入） | `failed` |
 
 ## 输出
 
