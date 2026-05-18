@@ -451,6 +451,14 @@ async function main() {
           { stdio: 'ignore', detached: true, env: process.env }
         );
         dashProc.unref();
+        // 写 run-dash.pid 供 pipeline-teardown.cjs 收尾时查找
+        try {
+          fs.writeFileSync(
+            path.join(pipelineDir, 'run-dash.pid'),
+            String(dashProc.pid),
+            'utf8'
+          );
+        } catch (_) { /* 写失败不影响流水线 */ }
         log.info('stage_start', `已自动启动 run-dash 看板（pid: ${dashProc.pid}）`, {
           stage:      'pipeline',
           dash_script: dashScript,
