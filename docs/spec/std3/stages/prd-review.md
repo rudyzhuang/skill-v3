@@ -6,18 +6,18 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/lib/`**。
+脚本根目录前缀 **`ai-std3/scripts/`**。
 
 | 脚本 | 职责 |
 | --- | --- |
-| `prd-review.cjs` | **编排入口**；步骤 2 为各端 Agent **并发** |
-| `prd-review-bootstrap.cjs` | 步骤 1：骨架、hash 门控 |
-| `prd-review-validate.cjs` | 步骤 3：合并、门闸、写 `stages.prd_review` |
-| `prd-implementation-report.cjs` | 生成 `prd-implementation-summary.md` |
-| `check-hash.cjs` | 文件哈希比对（复用） |
+| `stages/prd-review.cjs` | **编排入口**；步骤 2 为各端 Agent **并发** |
+| `libs/prd-review-bootstrap.cjs` | 步骤 1：骨架、hash 门控 |
+| `libs/prd-review-validate.cjs` | 步骤 3：合并、门闸、写 `stages.prd_review` |
+| `libs/prd-implementation-report.cjs` | 生成 `prd-implementation-summary.md` |
+| `libs/check-hash.cjs` | 文件哈希比对（复用） |
 
 ```bash
-node ai-std3/scripts/lib/prd-review.cjs --project=<业务项目根绝对路径>
+node ai-std3/scripts/stages/prd-review.cjs --project=<业务项目根绝对路径>
 ```
 
 ## 上游门闸
@@ -41,7 +41,7 @@ node ai-std3/scripts/lib/prd-review.cjs --project=<业务项目根绝对路径>
 ```json
     {
       "status": "started",
-      "started_at": <当前时间戳>,
+      "started_at": "<当前本地时间>",
       "completed_at": null,
       "inputs": {
         "prd_spec_hash": null,
@@ -79,18 +79,17 @@ node ai-std3/scripts/lib/prd-review.cjs --project=<业务项目根绝对路径>
       }
     }
 ```
-- 调用 `check_hash.cjs`：计算 `docs/prd-spec.md` 的 SHA-256，与 `stages.prd_review.inputs.prd_spec_hash` 比对；若哈希一致且 `stages.prd_review.status=completed` 且 `outputs.decision=passed`，且各端 `per_target_hashes` 与当前各 `docs/prd-<client_target>.json` 一致，则**跳过步骤 2（全部各端 Agent）**，直接进入步骤 3；否则对需重评的端继续步骤 2。
-- 写 `stages.prd_review.status=running`。
+- 调用 `check-hash.cjs`：计算 `docs/prd-spec.md` 的 SHA-256，与 `stages.prd_review.inputs.prd_spec_hash` 比对；若哈希一致 **且** `stages.prd_review.status=completed` **且** `outputs.decision=passed` **且** 各端 `per_target_hashes` 与当前各 `docs/prd-<client_target>.json` SHA-256 均一致 **且** `.pipeline/prd-review-output.json` 与 `.pipeline/reports/prd-implementation-summary.md` 存在，则**整段跳过**（写 `stage_skipped` + 退出码 0）；否则写 `stages.prd_review.status=running`，对需重评的端继续步骤 2（各端 `per_target_hash` 命中且上次 `decision=passed` 的端单独跳过）。
 
-2. **Agent-Review（各端评审，每端一个 Agent 并发）**：脚本按 `stages.prd.outputs.client_targets[]` 同时启动 N 个 Agent；**每个 Agent 仅评审本端**，使用**该端专属提示词**（见下表），产出 **`<业务项目根绝对路径>/.pipeline/prd-review-<client_target>.json`**（Agent **不得**直接改写 `stages.json` 全文）。
+2. **Agent-Review（各端评审，每端一个 Agent 并发）**：脚本按 `stages.prd.outputs.client_targets[]` 同时启动 N 个 Agent；每端 Agent 受 `config.dev.json` 的 `timeouts.stages.prd_review_s`（默认 300 s）约束，超时记该端 `agent_failed`，退出码 **4**；**每个 Agent 仅评审本端**，使用**该端专属提示词**（见下表），产出 **`<业务项目根绝对路径>/.pipeline/prd-review-<client_target>.json`**（Agent **不得**直接改写 `stages.json` 全文）。
 
 | 端标识 | 提示词模板 | 产出文件 |
 | --- | --- | --- |
 | `web` / `website` / `frontend` | `ai-std3/prompts/prd-review-web.md` | `.pipeline/prd-review-<逻辑端名>.json`（如 `prd-review-website.json`；**不**强制 `-web` 后缀，与 `stages.prd.outputs.client_targets[]` 项一致） |
-| `backend` / `server` / `api` | `prompts/prd-review-backend.md` | `.pipeline/prd-review-backend.json` |
-| `mobile` / `ios` / `android` | `prompts/prd-review-mobile.md` | `.pipeline/prd-review-mobile.json` |
-| `admin` | `prompts/prd-review-admin.md` | `.pipeline/prd-review-admin.json` |
-| 其余端 | `prompts/prd-review-default.md` | `.pipeline/prd-review-<client_target>.json` |
+| `backend` / `server` / `api` | `ai-std3/prompts/prd-review-backend.md` | `.pipeline/prd-review-backend.json` |
+| `mobile` / `ios` / `android` | `ai-std3/prompts/prd-review-mobile.md` | `.pipeline/prd-review-mobile.json` |
+| `admin` | `ai-std3/prompts/prd-review-admin.md` | `.pipeline/prd-review-admin.json` |
+| 其余端 | `ai-std3/prompts/prd-review-default.md` | `.pipeline/prd-review-<client_target>.json` |
 
 **单端 Agent 输入**（每次调用仅读下列文件）：
 - `<业务项目根绝对路径>/docs/prd-spec.md`（全文，理解跨端背景）
@@ -173,10 +172,10 @@ node ai-std3/scripts/lib/prd-review.cjs --project=<业务项目根绝对路径>
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
-| 步骤1：初始化骨架 | `file_created` / `file_skipped` | INFO | `path`（stages.json 中 stages.prd_review） |
+| 步骤1：初始化骨架 | `file_created` / `file_updated` | INFO | `path`（stages.json 中 stages.prd_review），首次 `file_created`；已存在 `file_updated` |
 | 步骤1：全局哈希比对 | `hash_check` | INFO | `file`（prd-spec.md）, `stored_hash`, `computed_hash`, `hit` |
 | 步骤1：按端哈希比对 | `hash_check` | INFO | `client_target`, `file`（prd-<client_target>.json）, `stored_hash`, `computed_hash`, `hit`, `skip_agent`（bool） |
-| 哈希命中，跳过全部 Agent | `stage_skipped` | INFO | `reason: "prd_spec_hash and all per_target_hashes matched"` |
+| 全局哈希命中，整段 stage 跳过 | `stage_skipped` | INFO | `reason: "prd_spec_hash and all per_target_hashes matched, output files exist"`, `exit_code: 0` |
 | 步骤1：写 running | `file_updated` | INFO | `path`（stages.json）, `status: "running"` |
 | 步骤2：并发批次开始 | `agent_batch_start` | INFO | `batch_id: "prd-review-agents"`, `client_targets[]`, `agents_total`, `agents_skipped[]` |
 | 步骤2：单端 Agent 启动 | `agent_start` | INFO | `agent_id: "prd-review-agent-<client_target>"`, `client_target`, `prompt`（如 `prd-review-web.md`）, `input_files: ["prd-spec.md","prd-<client_target>.json","feature_list-<client_target>.md"]`, `features_in_scope[]` |
@@ -197,12 +196,14 @@ node ai-std3/scripts/lib/prd-review.cjs --project=<业务项目根绝对路径>
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 成功；或全局/按端哈希命中跳过 Agent 后校验通过 |
-| 1 | prd 门闸未满足、缺少 `features[]` |
-| 4 | 任一端 Agent 失败、合并冲突、覆盖门闸或 schema 失败 |
-| 5 | 检测到 `stop.signal` |
+| 码 | 场景 | stages.prd_review.status |
+| ---: | --- | --- |
+| 0 | 成功（含 hash 跳过） | `completed` |
+| 0 | 全局 hash 命中整段跳过 | `completed`（不变） |
+| 1 | prd 门闸未满足、缺少 `features[]`、`stages.json` 写入失败 | `failed` |
+| 3 | 某端 Agent 超时 | `failed` |
+| 4 | 任一端 Agent 失败、合并冲突、覆盖门闸或 schema 失败 | `failed` |
+| 5 | 检测到 `stop.signal` | `stopped` |
 
 ## 输出
 
