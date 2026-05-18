@@ -6,7 +6,11 @@
 
 ## 脚本
 
-`design-review.cjs`（编排器）、`design-review-bootstrap.cjs`（步骤1）、`design-review-validate.cjs`（步骤3）；步骤2 为按 **feature** 并发的 Agent 池。复合编排时支持 **`--tick`**（与 [design](design.md) 交替由 `run-pipeline.cjs` 调用）。
+路径前缀 **`ai-std3/scripts/lib/`**：`design-review.cjs`、`design-review-bootstrap.cjs`、`design-review-validate.cjs`；步骤 2 为按 **feature** 并发的 Agent 池；复合编排时支持 **`--tick`**。
+
+```bash
+node ai-std3/scripts/lib/design-review.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+```
 
 > **注意**：直接评审 `design.json` 与 PRD 对齐；**不**评审、**不**修改 `docs/contracts/` 五件套。
 
@@ -14,7 +18,7 @@
 
 | 粒度 | 条件 |
 | --- | --- |
-| **stage 启动** | `stages.prd_review.outputs.decision=passed` 且 `stages.design.inputs.dependency_groups[]` 已存在（design bootstrap 已跑） |
+| **stage 启动** | `stages.prd_review.status=completed` 且 `outputs.decision=passed` 且 `validation.passed=true`；`stages.design.inputs.dependency_groups[]` 已存在（design bootstrap 已跑） |
 | **单 feature 入队评审** | `stages.design.features.<feature_id>.status=completed` 且 `docs/designs/<feature_id>.design.json` 存在；**不要求** `stages.design.status=completed` |
 | **组内评审完整性** | 组内某 feature 已 `completed` 时可先评；**组级放行**须组内**每个** feature 均已 `design_review.features.<id>.decision=passed` 且无 blocking gap |
 
@@ -67,7 +71,7 @@ pipeline.autorun.feature_max_parallel
 | `stages.prd.outputs.features[]` | feature 元数据（`client_targets`、优先级） |
 | `<业务项目根绝对路径>/docs/designs/<feature_id>.design.json` | 评审对象 |
 | `<业务项目根绝对路径>/docs/prd-spec.md` | 需求总源头 |
-| `<业务项目根绝对路径>/docs/prd-<client_target>.json` | 各端 PRD（按 feature 涉及端加载） |
+| 各端 PRD 内容文件 | 按 feature 涉及端加载；路径见 [prd § 映射](prd.md#client_target--文件与模板映射) |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 并发上限、`timeouts.stages.design_review_s` |
 
 **CLI 过滤**：`--feature=<feature_id>` 仅重评单个 feature。
@@ -149,7 +153,7 @@ pipeline.autorun.feature_max_parallel
 
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
-| stage 启动 | `stage_start` | INFO | `run_id`, `project`, `started_at` |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
 | 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.design_review） |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `feature_ids[]`, `deterministic_blocking_count`, `deterministic_warning_count` |
 | 步骤1：bundle 哈希 | `hash_check` | INFO | `design_bundle_hash`, `stored_hash`, `computed_hash`, `hit` |
@@ -168,8 +172,18 @@ pipeline.autorun.feature_max_parallel
 | 步骤3：门闸未通过 | `validation_fail` | ERROR | `decision: "needs_fix"`, `blocking_feature_ids[]`, `exit_code: 4` |
 | 步骤3：门闸通过 | `validation_pass` | INFO | `decision: "passed"`, `can_enter_codegen: true` |
 | 步骤3：写完成态 | `file_updated` | INFO | `status: "completed"`, `design_bundle_hash` |
-| stage 完成 | `stage_complete` | INFO | `duration_ms`, `decision`, `features_reviewed` |
-| 任意步骤失败 | `stage_failed` | ERROR | `step`, `exit_code`, `reason`, `failed_feature_id` |
+| stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `decision`, `features_reviewed` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_feature_id` |
+
+## 退出码（本 stage）
+
+| 码 | 场景 |
+| ---: | --- |
+| 0 | 成功；`--tick` 单轮完成；或 hash 跳过 |
+| 1 | 上游门闸未满足、缺少 `dependency_groups[]` |
+| 3 | 单 feature 评审 Agent 超时 |
+| 4 | blocking gap / `needs_design_fix` / 组未全部 release |
+| 5 | 检测到 `stop.signal` |
 
 ## 输出
 

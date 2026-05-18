@@ -8,7 +8,11 @@
 
 ## 脚本
 
-`design.cjs`（编排器）、`design-bootstrap.cjs`（步骤1）、`design-validate.cjs`（步骤3）；步骤2 为按 **feature** 并发的 Agent 池。与 `design-review.cjs` 复合编排时支持 **`--tick`**（单次调度后返回，由 `run-pipeline.cjs` 轮询）。
+路径前缀 **`ai-std3/scripts/lib/`**：`design.cjs`（编排）、`design-bootstrap.cjs`（步骤 1）、`design-validate.cjs`（步骤 3）；步骤 2 为按 **feature** 并发的 Agent 池。与 `design-review.cjs` 复合编排时支持 **`--tick`**（由 `run-pipeline.cjs` 轮询）。
+
+```bash
+node ai-std3/scripts/lib/design.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+```
 
 ## 上游门闸
 
@@ -60,7 +64,7 @@ pipeline.autorun.feature_max_parallel
 | `pipeline.autorun.feature_max_parallel` | `3` | **全局天花板**（design / codegen / create-ui-scenarios 等凡按 feature 并发的 stage 均不得超过此值） |
 | `timeouts.stages.design_s` | `1200` | 单个 feature 的 Agent 超时（秒），超时记该 feature `failed` |
 
-配置示例（写入 `docs/config.dev.json`，由 `sync-config.cjs` 从模板合并）：
+配置示例（写入 `docs/config.dev.json`，由 [setup 的 `sync-config-env.cjs`](setup.md#处理逻辑) 从模板合并）：
 
 ```json
 {
@@ -92,7 +96,7 @@ pipeline.autorun.feature_max_parallel
 | `stages.prd.outputs.features[]` | **索引真源**：`feature_id` / `client_targets[]` / `dependencies[]` 全部从此读取，**不**扫描 `docs/prd-*.json` |
 | `stages.prd.outputs.client_targets[]` | 决定需加载哪些端的 PRD / feature_list |
 | `<业务项目根绝对路径>/docs/prd-spec.md` | 总源头 |
-| `<业务项目根绝对路径>/docs/prd-<client_target>.json` | 各端 PRD（仅加载该 feature 涉及的端） |
+| 各端 PRD 内容文件 | 仅加载该 feature 涉及的端；路径见 [prd § 映射](prd.md#client_target--文件与模板映射) |
 | `<业务项目根绝对路径>/docs/feature_list-<client_target>.md` | 各端特性表 |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 并发上限、`timeouts.stages.design_s` |
 | 环境变量 `AI_STD3_AGENT_BIN` | 外部 Agent 可执行路径（可选） |
@@ -191,7 +195,7 @@ pipeline.autorun.feature_max_parallel
 
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
-| stage 启动 | `stage_start` | INFO | `run_id`, `project`, `started_at` |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
 | 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.design） |
 | 步骤1：展开 phase_plan | `validation_pass` | INFO | `feature_ids[]`, `phase_plan_hash`, `groups_count`, `dependency_groups[]`, `effective_parallel` |
 | 步骤2：单 feature 可评审 | `feature_design_ready` | INFO | `feature_id`, `group_id`, `design_hash` |
@@ -208,8 +212,18 @@ pipeline.autorun.feature_max_parallel
 | 步骤3：校验通过 | `validation_pass` | INFO | `features_total`, `design_specs_count` |
 | 步骤3：校验失败 | `validation_fail` | ERROR | `missing[]`, `failed_feature_ids[]` |
 | 步骤3：写完成态 | `file_updated` | INFO | `status`, `phase_plan_hash`, `features_completed` |
-| stage 完成 | `stage_complete` | INFO | `duration_ms`, `features_total`, `effective_parallel` |
-| 任意步骤失败 | `stage_failed` | ERROR | `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+| stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `features_total`, `effective_parallel` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
+
+## 退出码（本 stage）
+
+| 码 | 场景 |
+| ---: | --- |
+| 0 | 成功；`--tick` 单轮调度完成；或 hash 跳过 |
+| 1 | prd-review 门闸未满足、循环依赖、feature 不在索引真源 |
+| 3 | 单 feature Agent 超时（`timeouts.stages.design_s`） |
+| 4 | 校验失败或存在 `failed` feature（可 `--feature=` 重跑） |
+| 5 | 检测到 `stop.signal` |
 
 ## 输出
 
@@ -223,7 +237,7 @@ pipeline.autorun.feature_max_parallel
 | 粒度 | 条件 | 效果 |
 | --- | --- | --- |
 | **feature → design-review** | `stages.design.features.<feature_id>.status=completed` 且对应 `design.json` Ajv 通过 | 该 feature 可进入 design-review 队列（**无需** `stages.design.status=completed`） |
-| **stage 完成** | 全部 `feature_ids[]` 为 `completed` 或 `failed` 且无 `pending`/`designing`；失败 feature 记 `failed` | `stages.design.status=completed`（允许存在 `failed` 时整体 `validation.passed=false`） |
+| **stage 完成** | 全部 `feature_ids[]` 为 `completed` 或 `failed`，无 `pending`/`running` | `stages.design.status=completed`；若存在 `failed` 则 `validation.passed=false` 且退出码 **4** |
 | **group → 下游** | 由 design-review 在组内全部 feature `decision=passed` 后写入 `stages.design_review.outputs.released_groups[]` 与各 `features.<id>.can_enter_codegen` | 见 [design-review 解锁](design-review.md#解锁) |
 
 ---
