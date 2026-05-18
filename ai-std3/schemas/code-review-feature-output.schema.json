@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "code-review-feature-output.schema.json",
+  "title": "code-review-<feature_id>.json",
+  "type": "object",
+  "required": ["feature_id", "review", "outputs"],
+  "additionalProperties": false,
+  "properties": {
+    "feature_id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(-[A-Z][A-Z0-9]*)*-[0-9]{3}$"
+    },
+    "review": {
+      "type": "object",
+      "required": ["summary", "checklist", "issues"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "checklist": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["item", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "item":   { "type": "string", "minLength": 1 },
+              "status": {
+                "type": "string",
+                "enum": ["passed", "failed", "na"]
+              },
+              "note":   { "type": "string" }
+            }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["severity", "category", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "warning", "info"]
+              },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "file_plan",
+                  "api_outline",
+                  "acceptance",
+                  "security",
+                  "consistency",
+                  "test_coverage",
+                  "other"
+                ]
+              },
+              "file":          { "type": ["string", "null"] },
+              "line":          { "type": ["integer", "null"], "minimum": 1 },
+              "message":       { "type": "string", "minLength": 1 },
+              "suggested_fix": { "type": ["string", "null"] },
+              "source": {
+                "type": "string",
+                "enum": ["agent", "deterministic"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "required": [
+        "decision",
+        "critical_issues",
+        "warnings",
+        "checklist_passed",
+        "checklist_failed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["passed", "passed_with_warnings", "failed"]
+        },
+        "critical_issues":  { "type": "integer", "minimum": 0 },
+        "warnings":         { "type": "integer", "minimum": 0 },
+        "checklist_passed": { "type": "integer", "minimum": 0 },
+        "checklist_failed": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

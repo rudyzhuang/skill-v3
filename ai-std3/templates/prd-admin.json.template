@@ -1,0 +1,19 @@
+{
+"client_target": "admin",
+"project_name": "",
+"tech_stack": { "framework": "", "css": "" },
+"features": [
+    {
+    "feature_id": "",
+    "name": "",
+    "priority": "P0",
+    "phase": "mvp",
+    "description": "",
+    "acceptance": [],
+    "pages": [],
+    "roles": []
+    }
+],
+"auth": { "type": "session", "notes": "" },
+"constraints": []
+}

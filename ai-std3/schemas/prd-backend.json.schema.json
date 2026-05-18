@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "prd-backend.json.schema.json",
+  "title": "prd-backend.json",
+  "type": "object",
+  "allOf": [{ "$ref": "prd-client.base.schema.json#/$defs/prdBase" }],
+  "properties": {
+    "client_target": {
+      "type": "string",
+      "enum": ["backend", "server", "api"]
+    },
+    "tech_stack": {
+      "type": "object",
+      "properties": {
+        "language":  { "type": "string" },
+        "framework": { "type": "string" },
+        "db":        { "type": "string" }
+      }
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "allOf": [{ "$ref": "prd-client.base.schema.json#/$defs/featureBase" }],
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "格式：METHOD /path，如 GET /api/notes"
+          },
+          "db_tables": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "deploy": {
+      "type": "object",
+      "properties": {
+        "platform":     { "type": "string" },
+        "domain":       { "type": "string" },
+        "service_type": { "type": "string" }
+      }
+    }
+  }
+}

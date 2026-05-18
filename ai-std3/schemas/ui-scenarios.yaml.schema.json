@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ui-scenarios.yaml.schema.json",
+  "title": "ui-scenarios.yaml (per-feature)",
+  "description": "由 create-ui-scenarios stage 按 feature 派生的 UI 测试用例。YAML 先解析为 JSON 再按此 schema 校验。",
+  "type": "object",
+  "required": ["feature_id", "client_target", "scenarios"],
+  "additionalProperties": false,
+  "properties": {
+    "feature_id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(-[A-Z][A-Z0-9]*)*-[0-9]{3}$",
+      "description": "与 docs/designs/<feature_id>.design.json 的 feature_id 一致，并与文件名前缀一致"
+    },
+    "client_target": {
+      "type": "string",
+      "enum": ["website", "admin", "mobile"],
+      "description": "本场景文件主责端；须与 design.json.client_target 一致或属于 design.json.client_targets[]"
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "required": ["id", "title", "platform", "steps", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$",
+          "description": "格式 <feature_id>-<kind>-<NNN>；全局唯一"
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "platform": {
+          "type": "string",
+          "enum": ["web", "android", "ios"]
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "expect": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/expect" }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["action"],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["navigate", "click", "type", "select", "hover", "snapshot", "wait", "back"]
+        },
+        "url": {
+          "type": "string",
+          "description": "navigate 必填；仅可使用 {base_url} / {test_user} / {test_password} 占位"
+        },
+        "selector_hint": {
+          "type": "string",
+          "description": "click / type / select / hover 必填；人话描述目标元素，禁止 XPath / CSS"
+        },
+        "value": { "type": "string" },
+        "timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000 }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "action": { "const": "navigate" } } },
+          "then": { "required": ["url"] }
+        },
+        {
+          "if":   { "properties": { "action": { "enum": ["click", "type", "select", "hover"] } } },
+          "then": { "required": ["selector_hint"] }
+        },
+        {
+          "if":   { "properties": { "action": { "enum": ["type", "select"] } } },
+          "then": { "required": ["value"] }
+        },
+        {
+          "if":   { "properties": { "action": { "const": "wait" } } },
+          "then": { "required": ["timeout_ms"] }
+        }
+      ]
+    },
+    "expect": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["text_present", "text_absent", "url_contains", "element_present", "element_absent"]
+        },
+        "value": { "type": "string", "minLength": 1 },
+        "selector_hint": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "type": { "enum": ["text_present", "text_absent", "url_contains"] } } },
+          "then": { "required": ["value"] }
+        },
+        {
+          "if":   { "properties": { "type": { "enum": ["element_present", "element_absent"] } } },
+          "then": { "required": ["selector_hint"] }
+        }
+      ]
+    }
+  }
+}

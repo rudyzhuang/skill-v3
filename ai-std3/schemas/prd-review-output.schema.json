@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "prd-review-output.schema.json",
+  "title": "prd-review-output.json",
+  "type": "object",
+  "required": ["review", "outputs", "blocking_issues", "conditions"],
+  "properties": {
+    "review": {
+      "type": "object",
+      "required": ["summary", "phase_plan"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "phase_plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["phase", "feature_ids", "goal", "exit_criteria"],
+            "properties": {
+              "phase": {
+                "type": "string",
+                "enum": ["mvp", "standard", "complete", "future"]
+              },
+              "feature_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9]*(-[A-Z][A-Z0-9]*)*-[0-9]{3}$"
+                }
+              },
+              "goal": { "type": "string", "minLength": 1 },
+              "exit_criteria": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "deferred_features": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "required": ["feature_id"],
+                "properties": {
+                  "feature_id": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Z0-9]*(-[A-Z][A-Z0-9]*)*-[0-9]{3}$"
+                  },
+                  "reason":  { "type": "string" },
+                  "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] }
+                }
+              }
+            ]
+          }
+        },
+        "suggested_prd_spec_changes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "required": ["decision"],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["passed", "failed"]
+        }
+      }
+    },
+    "blocking_issues": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "conditions": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  }
+}

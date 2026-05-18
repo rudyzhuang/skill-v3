@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "deploy-triage-output.schema.json",
+  "title": ".pipeline/deploy-triage.json",
+  "type": "object",
+  "required": ["decision", "category", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["fix_script", "retry_deploy", "blocked"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "script_bug",
+        "config",
+        "credentials",
+        "permissions",
+        "quota",
+        "transient",
+        "unknown"
+      ]
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "patch_hints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "summary"],
+        "properties": {
+          "path": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "user_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

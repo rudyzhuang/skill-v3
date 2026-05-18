@@ -1,0 +1,20 @@
+{
+"client_target": "backend",
+"project_name": "",
+"tech_stack": { "language": "", "framework": "", "db": "" },
+"features": [
+    {
+    "feature_id": "",
+    "name": "",
+    "priority": "P0",
+    "phase": "mvp",
+    "description": "",
+    "acceptance": [],
+    "endpoints": [],
+    "db_tables": []
+    }
+],
+"deploy": { "platform": "", "domain": "", "service_type": "" },
+"auth": { "type": "none", "notes": "" },
+"constraints": []
+}

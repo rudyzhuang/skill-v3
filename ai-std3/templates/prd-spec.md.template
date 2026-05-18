@@ -1,0 +1,45 @@
+# PRD 规格说明
+
+<!-- 由 Agent-A 根据 inputs/req.md 增量补全，人工可直接编辑 -->
+
+## 项目概述
+
+<!-- 项目名称、定位、目标用户、核心价值 -->
+
+## 客户端目标
+
+<!-- 格式：每行一个端，示例：
+- website  — 用户前端（React/Next.js）
+- admin    — 管理后台（React/Next.js）
+- backend  — REST API 服务（Node.js/Hono）
+- mobile   — iOS + Android App（Flutter）
+-->
+
+## 核心功能
+
+<!-- 功能总表，Agent 从 req.md 提炼，示例：
+| feature_id | 功能名称 | 优先级 | 阶段 | 涉及端 |
+| --- | --- | --- | --- | --- |
+| AUTH-LOGIN-001 | 用户鉴权 | P0 | mvp | backend, website, mobile |
+| NOTE-CRUD-001  | 笔记 CRUD | P0 | mvp | backend, website, mobile |
+-->
+
+## 鉴权方案
+
+<!-- JWT / session / none，token 有效期，刷新策略 -->
+
+## 部署架构
+
+<!-- 各端部署方式、域名、环境（dev/release） -->
+
+## 非功能需求
+
+<!-- 性能基线、安全要求、可用性 SLA -->
+
+## 技术约束
+
+<!-- 禁用技术、指定版本、第三方限制 -->
+
+## 分期计划
+
+<!-- mvp / standard / complete / future 功能划分，由 prd-review 阶段补全 -->

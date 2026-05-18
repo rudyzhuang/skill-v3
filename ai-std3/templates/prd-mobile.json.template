@@ -1,0 +1,20 @@
+{
+"client_target": "mobile",
+"project_name": "",
+"tech_stack": { "framework": "", "min_os_version": "" },
+"features": [
+    {
+    "feature_id": "",
+    "name": "",
+    "priority": "P0",
+    "phase": "mvp",
+    "description": "",
+    "acceptance": [],
+    "screens": [],
+    "api_calls": []
+    }
+],
+"permissions": [],
+"auth": { "type": "none", "notes": "" },
+"constraints": []
+}
