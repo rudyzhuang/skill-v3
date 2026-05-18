@@ -301,7 +301,7 @@ setup
 | --- | --- |
 | setup | — |
 | prd | `stages.setup.status=completed` 且 `stages.setup.validation.passed=true` |
-| prd-review | `stages.prd.status=completed` |
+| prd-review | `stages.prd.status=completed` 且 `stages.prd.validation.passed=true` 且 `outputs.features[]` 非空 |
 | design | `stages.prd_review.outputs.decision=passed` |
 | design-review | `stages.prd_review.outputs.decision=passed` 且 design bootstrap 已完成；**单 feature** 另需 `stages.design.features.<id>.status=completed`（**不要求** design stage 整体 completed） |
 | create-ui-scenarios | `stages.design_review.outputs.can_enter_codegen=true`（stage 可启动）；**单 feature** 另需 `stages.design_review.features.<id>.can_enter_codegen=true`；`config.dev.json.ui_e2e.enabled=true`（否则整段 `skipped`） |
