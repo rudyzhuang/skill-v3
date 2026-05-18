@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ui-e2e-triage-output.schema.json",
+  "title": ".pipeline/ui-e2e-triage-<feature_id>.json",
+  "type": "object",
+  "required": ["decision", "category", "reason", "failed_scenario_ids"],
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["fix_prompt", "fix_code", "fix_both", "fix_scenario", "blocked"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "prompt_gap",
+        "implementation_bug",
+        "flaky_ui",
+        "scenario_error",
+        "environment",
+        "permissions",
+        "unknown"
+      ]
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "failed_scenario_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "prompt_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "fix_prompt / fix_both 时要改的 ai-std3 prompts 相对路径"
+    },
+    "code_fix_hints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "user_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

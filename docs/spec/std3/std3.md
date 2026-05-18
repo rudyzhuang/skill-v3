@@ -24,7 +24,7 @@
 ```text
 docs/spec/std3/
 ├── std3.md          ← 本文件（架构、§1 stage 索引、门闸链、编排、速查表）
-├── stages/*.md      ← 各 stage 详情（14 个，索引见 §1）
+├── stages/*.md      ← 各 stage 详情（13 个，索引见 §1）
 ├── templates/       ← 拷贝用模板（10 个）
 └── schemas/         ← Ajv JSON Schema（13 个）
 ```
@@ -52,7 +52,6 @@ docs/spec/std3/
   - [merge_push](stages/merge_push.md)
   - [build](stages/build.md)
   - [deploy](stages/deploy.md)
-  - [smoke](stages/smoke.md)
   - [ui_e2e](stages/ui_e2e.md)
   - [report](stages/report.md)
 - [2. 门闸链汇总](#2-门闸链汇总)
@@ -103,6 +102,7 @@ ai-std3 是一个**独立的全量流水线 Skill**，借鉴 V3 各 skill 的思
 | test stage | **不要** | 单元/集成测试合并入 codegen Agent 职责；不做独立门闸 |
 | merge_push stage | **要**：独立 stage | 合并到主干是发布的硬前置，需要独立状态与门闸 |
 | create-ui-scenarios | **要**：独立 stage，从 design.json 派生 | 设计阶段验收标准是场景的最佳来源，比契约文件更直接 |
+| smoke stage | **不要** | HTTP 冒烟合并入 **codegen**（feature 实现完成后）与 **deploy**（各 service 上线后）内联执行；配置仍用 `config.*.json` → `smoke.checks[]`，**无** `stages.smoke` |
 
 **阶段链（固定顺序）**：
 
@@ -118,7 +118,6 @@ setup
 → merge_push
 → build
 → deploy
-→ smoke
 → ui_e2e
 → report
 ```
@@ -141,15 +140,30 @@ setup
 
 ### 退出码
 
-| 码 | 含义 |
-| ---: | --- |
-| 0 | 成功 |
-| 1 | 前置/参数/脚本错误 |
-| 2 | 用户中断或门闸需人工填写（如 req 未填完） |
-| 3 | 超时 |
-| 4 | 需 Agent 介入 |
-| 5 | 用户主动停止（stop signal） |
-| 7 | git push 失败 |
+与 [`docs/input-spec.md`](../input-spec.md) §5 对齐；各 stage 脚本**必须**映射到本表，禁止私自定义冲突语义。
+
+| 码 | 含义 | 典型 stage / 场景 |
+| ---: | --- | --- |
+| 0 | 成功 | 任意 stage 正常结束或合法 `skipped` |
+| 1 | 前置/参数/配置/门闸不满足 | 缺文件、schema 失败、destructive 未确认、凭证**缺失**、产物映射失败 |
+| 2 | 用户中断或门闸需人工填写 | setup：`req.md` / `config.env` 未填完 |
+| 3 | 超时（可重试） | codegen / build / deploy 等子进程或 Agent 挂钟超阈；含内联 smoke 子命令超时 |
+| 4 | 质量门或未自动修复的失败（**可**经 Agent/改代码后重跑本 stage） | prd-review、design、codegen（含内联 smoke 失败）、code-review；deploy 分诊 `fix_script` 用尽 |
+| 5 | 契约被破坏 / diff-guard | codegen 改动契约路径（ai-std3 无 contract stage 时较少触发） |
+| 6 | Git **合并冲突** | `merge_push`：`conflict_features[]` 非空 |
+| 7 | Git **推送**失败 | `merge_push`：push 非零 |
+| 8 | **云平台 / 托管 API**失败（可重试或改配置后再 deploy） | deploy：CF API 非 2xx、5xx、瞬态错误；`retry_deploy` 用尽 |
+| 9 | **须人工介入、流水线阻断**（Agent/脚本**无法**自动修复） | deploy 分诊 `decision=blocked`：权限/IAM/配额/账号策略等 |
+
+**deploy 分诊与退出码**（详见 [deploy](stages/deploy.md#3-失败分诊agent--重试)）：
+
+| 分诊 `decision` | 脚本行为 | 仍失败时退出码 |
+| --- | --- | --- |
+| `fix_script` | 修改 `ai-std3` 内 deploy 脚本后重试 deploy | **4**（修复次数用尽） |
+| `retry_deploy` | 不修改脚本，仅重试部署 | **8**（重试次数用尽） |
+| `blocked` | 写 `blocked_reason` / `user_actions[]`，**停止整条流水线** | **9** |
+
+> **4 vs 9**：**4** 表示「本 stage 失败但可通过改代码/配置/重跑 stage 继续」；**9** 表示「当前环境/权限下自动推进无意义，必须人工处理后再 `--from-stage=<stopped_stage>`」。
 
 ### stage 状态值
 
@@ -207,6 +221,8 @@ setup
 | `<项目根>/logs/<datetime>.log` | 全程追加 | 本次执行的流式总日志，跨所有 stage |
 | `<项目根>/logs/stages/<stage>/<datetime>.log` | stage 运行期间追加 | 该 stage 所有日志，含 Agent 调用细节 |
 | `<项目根>/logs/features/<feature_id>/<datetime>.log` | codegen / code-review / ui_e2e 期间 | 每个 feature 独立日志，供 report 按 feature 分析 |
+| `<项目根>/logs/stages/ui_e2e/<datetime>-<scenario_id>.log` | ui_e2e 期间 | 单场景完整 MCP 执行日志 |
+| `<项目根>/.pipeline/logs/snapshots/<scenario_id>/<datetime>.jpg` | ui_e2e 期间 | Browser/Dart MCP 截图落盘 |
 
 `<datetime>` = 本次流水线启动的**本地时间**，格式 `YYYY-MM-DD_HH-mm-ss`（如 `2026-05-18_08-30-15`）。同一次执行所有日志文件共用同一 `<datetime>` 前缀，方便关联。
 
@@ -268,13 +284,12 @@ setup
 | 设计 | `design` | 按 feature 生成 design.json | [stages/design.md](stages/design.md) |
 | 设计 | `design-review` | 评审设计可 codegen | [stages/design-review.md](stages/design-review.md) |
 | 设计 | `create-ui-scenarios` | 派生 UI 场景 | [stages/create-ui-scenarios.md](stages/create-ui-scenarios.md) |
-| 实现 | `codegen` | worktree 内写代码 | [stages/codegen.md](stages/codegen.md) |
+| 实现 | `codegen` | worktree 内写代码 + 内联 HTTP smoke | [stages/codegen.md](stages/codegen.md) |
 | 实现 | `code-review` | 代码评审 | [stages/code-review.md](stages/code-review.md) |
 | 发布 | `merge_push` | 合并并 push | [stages/merge_push.md](stages/merge_push.md) |
 | 发布 | `build` | 探测框架、并行构建各端产物并输出报告 | [stages/build.md](stages/build.md) |
-| 发布 | `deploy` | 部署上线 | [stages/deploy.md](stages/deploy.md) |
-| 验证 | `smoke` | HTTP 冒烟 | [stages/smoke.md](stages/smoke.md) |
-| 验证 | `ui_e2e` | UI 端到端 | [stages/ui_e2e.md](stages/ui_e2e.md) |
+| 发布 | `deploy` | Cloudflare 部署 + 内联部署后 smoke + 失败分诊 | [stages/deploy.md](stages/deploy.md) |
+| 验证 | `ui_e2e` | MCP 场景并行 + 失败分诊与 feature 修复子链 | [stages/ui_e2e.md](stages/ui_e2e.md) |
 | 验证 | `report` | 汇总报告 | [stages/report.md](stages/report.md) |
 
 脚本路径前缀：`ai-std3/scripts/`（`lib/` 下为 stage 脚本，setup 见 [§3](#3-run-pipelinecjs-编排映射)）。
@@ -295,8 +310,7 @@ setup
 | merge_push | `stages.code_review.decision ≠ failed` |
 | build | `stages.merge_push.status=completed` |
 | deploy | `stages.build.status=completed` |
-| smoke | `stages.deploy.status ∈ {completed, skipped}` |
-| ui_e2e | `stages.smoke.validation.passed=true`（或配置跳过）且 `ui_e2e.enabled=true` **且** `stages.create_ui_scenarios.status ∈ {completed, skipped}`（编排级 join，见 [§3.2](#32-codegen--create-ui-scenarios-并行编排)） |
+| ui_e2e | `stages.deploy.status ∈ {completed, skipped}`；`ui_e2e.enabled=true`；**且** `stages.create_ui_scenarios.status ∈ {completed, skipped}`；若 `ui_e2e.require_deploy_smoke_passed=true`（默认）则另需 `stages.deploy.outputs.inline_smoke_passed=true`（deploy 内联 smoke，见 [deploy](stages/deploy.md)） |
 | report | 无（总是运行） |
 
 ---
@@ -317,7 +331,6 @@ setup
 | merge_push | `scripts/lib/merge-push.cjs` |
 | build | `scripts/lib/build.cjs` |
 | deploy | `scripts/lib/deploy.cjs` |
-| smoke | `scripts/lib/smoke.cjs` |
 | ui_e2e | `scripts/lib/ui-e2e.cjs` |
 | report | `scripts/lib/report.cjs` |
 
@@ -414,7 +427,7 @@ sum_inflight(codegen) + sum_inflight(create_ui_scenarios) ≤ pipeline.autorun.f
 **退出复合阶段**：两条 track 均到达终态后，`run-pipeline.cjs` 在进入 `code-review` / `ui_e2e` 前做编排级 **join 校验**：
 
 - `code-review` 启动前：`codegen.status=completed`（不要求 create-ui-scenarios，因 code-review 不读场景）；
-- `ui_e2e` 启动前：`create_ui_scenarios.status ∈ {completed, skipped}` **且** `smoke.validation.passed=true`（与门闸表一致）。
+- `ui_e2e` 启动前：`create_ui_scenarios.status ∈ {completed, skipped}` **且** `deploy.status ∈ {completed, skipped}`；若 `ui_e2e.require_deploy_smoke_passed=true` 则 `deploy.outputs.inline_smoke_passed=true`（与门闸表一致）。
 
 > **不修改 codegen.md / ui_e2e.md / create-ui-scenarios.md 之外的 stage 脚本正文**；并行调度逻辑由 `run-pipeline.cjs` 集中实现。
 
@@ -445,14 +458,23 @@ sum_inflight(codegen) + sum_inflight(create_ui_scenarios) ≤ pipeline.autorun.f
 | code-review 单 feature 评审 Agent 超时 | 3 | 调大 `timeouts.stages.code_review_s`；其它 feature **不受影响**，重跑 `--from-stage=code-review --feature=<id>` |
 | code-review schema 校验失败 / deterministic_issues 遗漏 | — | 自动 `agent_retry`（≤ `max_retries`）；超出后该 feature `failed`，按上一行处理 |
 | code-review stage 级 `decision=failed` | 4 | 至少一个 feature 失败；按 `outputs.failed_features[]` 逐一处理后 `--from-stage=code-review` |
-| merge_push 冲突 | 4 | 人工解冲突后重跑 `--from-stage=merge_push` |
+| merge_push 冲突 | 6 | 人工解冲突后重跑 `--from-stage=merge_push` |
 | merge_push push 失败 | 7 | 网络/权限问题，修复后重跑 `--from-stage=merge_push` |
 | build 单端超时 | 3 | 调大 `timeouts.stages.build_s` 或 `pipeline.stages.build.client_max_parallel` 后重跑 `--from-stage=build` |
 | build 命令/产物校验失败 | 4 | 查 `.pipeline/reports/build-summary.md` 与 `logs/stages/build/*`；修代码或 `build.client_targets` / `commands` 后重跑 `--from-stage=build` |
 | build 门闸/HEAD 不一致 | 1 | `git checkout <final_commit>` 或重跑 `--from-stage=merge_push` 后再 build |
 | deploy 未授权 destructive | 1 | 配置 `allow_destructive_deploy=true` 或加 `--explicit-confirm` |
-| smoke 检查失败 | 4 | 检查部署状态，修复后重跑 `--from-stage=smoke` |
-| ui_e2e 场景失败 | 4 | 修 UI 或场景步骤，重跑 `--from-stage=ui_e2e` |
+| deploy 无可部署端（无 website/admin/backend） | — | 正常 `skipped`，退出 0 |
+| deploy Cloudflare API / 瞬态失败 | 8 | 查 `deploy-summary.md` 与 `logs/stages/deploy/*`；网络/配置恢复后 `--from-stage=deploy` |
+| deploy 分诊 `blocked`（权限/配额等） | 9 | 按 `stages.deploy.outputs.user_actions[]` 在控制台处理；**勿**自动续跑下游 |
+| deploy 脚本缺陷、Agent 修复次数用尽 | 4 | 人工改 `ai-std3` deploy 脚本或加大 `agent_fix_max_attempts` 后 `--from-stage=deploy` |
+| deploy 超时 | 3 | 调大 `timeouts.stages.deploy_s` 后重跑 `--from-stage=deploy` |
+| codegen 内联 smoke 失败 | 4 | 查 feature 日志与 `features.<id>.smoke_checks[]`；修代码后 `--from-stage=codegen --feature=<id>` |
+| deploy 内联 smoke 失败 | 4 | 查 `deploy-summary.md` 与 `outputs.inline_smoke_failures[]`；修复后 `--from-stage=deploy` |
+| ui_e2e 单场景失败（分诊前） | 4 | 查 `ui-e2e-*.md` 报告与 `.pipeline/logs/snapshots/<scenario_id>/`；`--from-stage=ui_e2e --scenario=<id>` |
+| ui_e2e 分诊 `fix_code` / 子链中断 | 4 | 查 `repair_chain_failed` 日志；从失败 stage 重跑 `--from-stage=<stage> --feature=<id>` |
+| ui_e2e 分诊 `blocked` | 9 | 按 `blocked_features[]` 处理环境/产品问题后再跑 |
+| ui_e2e 分诊 `fix_prompt` 后仍失败 | 4 | 检查 skill 仓提示词 push 是否成功；再 `fix_code` 或改场景 `--from-stage=create-ui-scenarios` |
 
 ---
 
@@ -474,6 +496,9 @@ sum_inflight(codegen) + sum_inflight(create_ui_scenarios) ≤ pipeline.autorun.f
 | `prompts/codegen-impl.md` | codegen（首次 attempt） | worktree 内实现代码 + 自嵌测试；强制心跳 JSON Lines 协议 |
 | `prompts/codegen-impl-resume.md` | codegen（resume attempt） | 读 `.codegen-resume-context.json` 与 `git log`，**禁止覆盖** `do_not_overwrite[]` 文件，仅完成 `acceptance_pending[]` |
 | `prompts/code-review-agent.md` | code-review（每 feature Agent） | 传入 `feature_id`，读 `worktrees/v3-<id>/` + `code-review-<id>.diff` + `designs/<id>.design.json` + `deterministic_issues[]`，产出 `.pipeline/code-review-<feature_id>.json`；不得改 worktree |
+| `prompts/deploy-triage.md` | deploy（失败分诊 Agent） | 读 `deploy-last-error.json` + deploy 日志 + config 的 `deploy` 子树；**仅可改** `ai-std3/scripts` 下 deploy 相关脚本（`fix_script`）；产出 `.pipeline/deploy-triage.json`（`decision`: `fix_script` \| `retry_deploy` \| `blocked`） |
+| `prompts/ui-e2e-triage.md` | ui_e2e（失败分诊 Agent） | 读 `ui-e2e-last-error-<feature_id>.json` + 报告失败段 + 截图路径；产出 `ui-e2e-triage-<feature_id>.json`（`fix_prompt` \| `fix_code` \| `fix_both` \| `fix_scenario` \| `blocked`） |
+| `prompts/ui-e2e-run-scenario.md` | ui_e2e（可选） | 单场景 MCP 步骤执行 Agent；映射 YAML `steps[]` → Browser/Dart MCP 调用 |
 
 ---
 
@@ -554,7 +579,6 @@ node ai-std3/scripts/run-dash.cjs --project=<绝对路径> --auto-launched
 │  ○ merge_push             │                                     │
 │  ○ build                  │                                     │
 │  ○ deploy                 │                                     │
-│  ○ smoke                  │                                     │
 │  ○ ui_e2e                 │                                     │
 │  ○ report                 │                                     │
 ├───────────────────────────┴─────────────────────────────────────┤
@@ -668,3 +692,5 @@ node ai-std3/scripts/stop-pipeline.cjs --project=<业务项目根绝对路径> [
 | [design-review-feature-output.schema.json](schemas/design-review-feature-output.schema.json) | `.pipeline/design-review-<feature_id>.json` |
 | [ui-scenarios.yaml.schema.json](schemas/ui-scenarios.yaml.schema.json) | `docs/ui-scenarios/<feature_id>.scenarios.yaml`（先 YAML 解析后按 JSON Schema 校验） |
 | [code-review-feature-output.schema.json](schemas/code-review-feature-output.schema.json) | `.pipeline/code-review-<feature_id>.json` |
+| [deploy-triage-output.schema.json](schemas/deploy-triage-output.schema.json) | `.pipeline/deploy-triage.json` |
+| [ui-e2e-triage-output.schema.json](schemas/ui-e2e-triage-output.schema.json) | `.pipeline/ui-e2e-triage-<feature_id>.json` |

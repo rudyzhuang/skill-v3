@@ -27,7 +27,7 @@
  - `git fetch origin`。
  - `git checkout <default_branch> && git pull`。
  - `git merge --no-ff features/v3-<feature_id> -m "feat(<feature_id>): merge codegen implementation"`。
- - 若 merge 冲突 → 写 `stages.merge_push.outputs.conflict_features[]`，退出码 **4**（需人工解决后重跑）。
+ - 若 merge 冲突 → 写 `stages.merge_push.outputs.conflict_features[]`，退出码 **6**（需人工解决后重跑；与 [退出码 §6](../std3.md#退出码) / `input-spec` 一致）。
    - 所有 feature 合并完成后 `git push origin <default_branch>`。
    - 若 push 失败（远程有新提交） → `git pull --rebase` 后重试；仍失败 → 退出码 **7**（push failed）。
    - 写 `stages.merge_push`：`status=completed`、`outputs.merged_features[]`、`outputs.target_branch`、`outputs.final_commit`。

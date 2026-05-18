@@ -38,6 +38,17 @@
     },
     "build": {
         "client_max_parallel": 4
+    },
+    "deploy": {
+        "agent_fix_max_attempts": 2,
+        "deploy_retry_max": 1,
+        "fail_fast": true
+    },
+    "ui_e2e": {
+        "scenario_max_parallel": 3,
+        "triage_max_attempts": 2,
+        "prompt_fix_max_attempts": 1,
+        "fail_fast": false
     }
     }
 },
@@ -85,30 +96,44 @@
         "url": "{deploy.services.website.url}/",
         "method": "GET",
         "expected_status": 200,
-        "body_contains": null,
+        "client_targets": ["website"],
+        "scope": "deploy",
         "safe": true
     },
     {
         "url": "{deploy.services.backend.url}/health",
         "method": "GET",
         "expected_status": 200,
-        "body_contains": null,
+        "client_targets": ["backend"],
+        "scope": "deploy",
         "safe": true
     }
-    ]
+    ],
+    "codegen": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:8787",
+    "timeout_s": 60
+    },
+    "deploy": {
+    "enabled": true,
+    "timeout_s": 120
+    }
 },
 "ui_e2e": {
     "enabled": false,
-    "require_smoke_passed": true,
+    "require_deploy_smoke_passed": true,
+    "strict_mobile": false,
     "web": {
-    "base_url_from": "deploy.services.website.url"
+    "website": { "base_url_from": "deploy.services.website.url" },
+    "admin": { "base_url_from": "deploy.services.admin.url" }
     },
     "mobile": {
     "bundle_id": "",
-    "device": "emulator"
+    "device": "emulator",
+    "auto_launch_emulator": true
     },
     "commands": {
-    "ui_test_max_fix_attempts": 3
+    "scenario_max_fix_attempts": 2
     }
 },
 "timeouts": {
@@ -120,8 +145,8 @@
     "codegen_s": 1800,
     "code_review_s": 600,
     "deploy_s":  600,
-    "smoke_s":   120,
-    "ui_e2e_s":  1800
+    "ui_e2e_s":  1800,
+    "ui_e2e_scenario_s": 600
     }
 }
 }

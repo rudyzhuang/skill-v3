@@ -13,6 +13,8 @@
 `codegen.cjs`（编排器，**`--tick`** 单轮调度后退出）、`codegen-bootstrap.cjs`（步骤1）、`codegen-worker.cjs`（步骤2：单 feature 长驻 worker，托管 Agent + 看门狗 + resume 调度）、`codegen-validate.cjs`（步骤3）。
 
 > **不**派发 UI 场景、**不**评审代码；只产出 worktree 代码与 git commit。
+>
+> **内联 smoke（无独立 smoke stage）**：每个 feature 在 Agent 实现完成、可选 self-check 通过后，由 worker 调用 `lib/http-smoke.cjs` 执行与该 feature 相关的 `smoke.checks[]`（见 [§2.4.1](#241-内联-smoke)）；失败按 `self_check_failed` 同类处理（可 resume），**不**单独占用流水线 stage。
 
 ## 上游门闸
 
@@ -49,6 +51,9 @@ effective_parallel = min(
 | `pipeline.stages.codegen.self_check.enabled` | `false` | 是否在 Agent 自报 `final` 后由 worker 跑构建/测试自检 |
 | `pipeline.stages.codegen.self_check.commands` | `[]` | 自检命令（按 client_target 派发，如 `{"backend":"npm test","website":"npm run build"}`） |
 | `pipeline.stages.codegen.self_check.timeout_s` | `300` | 自检命令单次超时 |
+| `smoke.codegen.enabled` | `true` | 是否在 feature 完成路径上跑内联 HTTP smoke |
+| `smoke.codegen.timeout_s` | `60` | 单 feature 内联 smoke 挂钟上限 |
+| `smoke.checks[]` | `[]` | 检查项定义（与旧 smoke stage 同形；见 [deploy](deploy.md) 占位符说明） |
 
 > 实现要求：固定大小 Worker 池，**禁止**按 feature 无限制起线程。每个在途 feature 对应**一个长驻** `codegen-worker.cjs` 子进程，持有 Agent 子进程与看门狗循环，**跨 `--tick` 存活**；`codegen.cjs --tick` 仅做「收割终态 + 启动新 worker」的轻量调度。组内若槽位不足，按 `dependency_groups[].topo_order` **优先启动依赖端 feature 的 codegen**（与 design / design-review / create-ui-scenarios 一致）。
 
@@ -219,10 +224,27 @@ effective_parallel = min(
      2. 若 `pipeline.stages.codegen.self_check.enabled=true`：按 `design.json.client_target` 在 `commands` 中查命令并执行（超时 `self_check.timeout_s`）；
         - 失败 → `hang_kind=self_check_failed`，附 `stderr_tail`（末 200 行），按 2.2 走 resume（带回 `do_not_overwrite[]` + 错误日志）；
         - 通过 → 继续；
-     3. `git add -A && git commit -m "feat(<feature_id>): implement per design"`；
-     4. 写 `features.<id>`：`status=completed`、`commit`、`files_changed[]`、`design_hash`、`file_signatures[]`、`attempts_used`、`duration_ms`；
-     5. 删除 `.codegen-resume-context.json`；
-     6. worker 退出 0。
+     3. **[§2.4.1 内联 smoke](#241-内联-smoke)**（`smoke.codegen.enabled=true` 时）；
+     4. `git add -A && git commit -m "feat(<feature_id>): implement per design"`；
+     5. 写 `features.<id>`：`status=completed`、`commit`、`files_changed[]`、`design_hash`、`file_signatures[]`、`attempts_used`、`duration_ms`、`smoke_passed`、`smoke_checks[]`；
+     6. 删除 `.codegen-resume-context.json`；
+     7. worker 退出 0。
+
+   #### 2.4.1 内联 smoke
+
+   在 **git commit 之前**执行（避免未通过 smoke 的代码进入 commit；若 smoke 仅依赖已启动的本地服务，Agent 须在 final 前已拉起进程并在 heartbeat 中报告 `phase:"running_command"`）。
+
+   1. 从 `docs/config.dev.json` → `smoke.checks[]` 筛选与本 feature 相关的项：
+      - `check.client_targets[]` 与 `design.json.client_targets[]` 有交集；或
+      - 未声明 `client_targets` 且 `check.scope=codegen`（或缺省视为 codegen 阶段可用）；
+      - 排除仅含 `{deploy.services.*}` 占位符、且无 `codegen.base_url` / 绝对 URL 的项（留给 deploy 内联）。
+   2. 解析 `base_url`：优先 `smoke.codegen.base_url`；否则 `check.url` 中的绝对 URL；否则 `http://127.0.0.1:<port>`（`port` 来自 worker 记录的 `local_dev_port`，若无则跳过并 `WARN`）。
+   3. 调用 `lib/http-smoke.cjs`（与 publish3 同语义：GET/HEAD 或 `safe=true` 的 POST）；超时 `smoke.codegen.timeout_s`。
+   4. 结果写入 `features.<feature_id>.smoke_checks[]`：`{ name, url, status_code, passed, body_snippet }`；汇总 `smoke_passed`（bool）。
+   5. 任一必检项失败 → `hang_kind=smoke_failed`（等同质量门），按 §2.2 resume；stage 级退出码 **4**。
+   6. 打 `smoke_inline_complete`（INFO）或 `smoke_inline_failed`（ERROR）。
+
+   `smoke.codegen.enabled=false` 或筛选后 `checks.length=0` → 跳过，`smoke_passed=true`，`smoke_skipped_reason` 记入 meta。
    - 收到 `{"type":"final","status":"needs_human",...}` 或 `{"type":"final","status":"failed",...}` 或 Agent 进程退出码 ≠ 0 且无 final：
      - 若 `attempts_used < max_resume_attempts` → 按 hang 走 resume（`hang_kind=agent_error`）；否则 `features.<id>.status=failed`、`exit_code: 4`。
 
@@ -270,7 +292,7 @@ effective_parallel = min(
 
 3. **`codegen-validate.cjs`（merge + finalize）**：
    - 遍历目标 feature_ids：每个 feature 必须 `features.<id>.status ∈ {completed, failed, skipped}` 且无在途 worker（`.pipeline/workers/codegen/<id>.state.json` 不在 `running`）。
-   - 对 `completed`：校验 `commit` 存在、worktree HEAD == `commit`、`files_changed[]` 非空、`design_hash == sha256(design.json)`、`file_signatures[]` 所列文件全部存在。
+   - 对 `completed`：校验 `commit` 存在、worktree HEAD == `commit`、`files_changed[]` 非空、`design_hash == sha256(design.json)`、`file_signatures[]` 所列文件全部存在；若 `smoke.codegen.enabled=true` 且该 feature 有匹配 checks → `smoke_passed=true`。
    - 汇总 `outputs.feature_artifacts[]`：`{ feature_id, group_id, branch, commit, files_changed_count, attempts_used, hang_count, duration_ms }`。
    - **门闸（两级）**：
      - **feature 级**：worker 终态 `failed` → `features.<id>.status=failed`，记 `last_error`、`hang_history[]`、`attempts_used`；该 feature **不**回滚 create-ui-scenarios（已并行进行），但其 `code-review` 必然失败 → 由 [report](report.md) 按 feature 标记。
@@ -302,6 +324,7 @@ effective_parallel = min(
 | 步骤2：进程中断 | `agent_interrupted` | WARN | `agent_id`, `feature_id`, `attempt_index`, `signal: "SIGINT" \| "SIGKILL"`, `wait_ms`, `exit_code` |
 | 步骤2：resume 触发 | `agent_retry` | WARN | `agent_id`, `feature_id`, `attempt`（=新 `attempt_index`）, `reason: <hang_kind>`, `prompt: "codegen-impl-resume.md"`, `do_not_overwrite_count` |
 | 步骤2：self-check 失败 | `validation_fail` | WARN | `feature_id`, `attempt_index`, `command`, `exit_code`, `stderr_tail`（≤200 行） |
+| 步骤2：内联 smoke | `smoke_inline_complete` / `smoke_inline_failed` | INFO/ERROR | `feature_id`, `checks_total`, `checks_passed`, `failures[]`, `base_url` |
 | 步骤2：worker 崩溃 | `agent_failed` | ERROR | `agent_id`, `feature_id`, `reason: "worker process crashed"`, `pid`, `attempts_used` |
 | 步骤2：单 feature 完成 | `agent_complete` | INFO | `agent_id`, `feature_id`, `duration_ms`, `attempts_used`, `commit`, `files_changed`, `output_files: [...]` |
 | 步骤2：单 feature 失败 | `agent_failed` | ERROR | `agent_id`, `feature_id`, `exit_code: 3 \| 4`, `reason`, `timed_out`（bool）, `attempts_used`, `hang_history[]` |
@@ -320,7 +343,7 @@ effective_parallel = min(
 | --- | --- |
 | `.pipeline/worktrees/v3-<feature_id>/` | 每 feature 的 git worktree（代码 + 测试 + wip 快照 commit 历史） |
 | `.pipeline/workers/codegen/<feature_id>.state.json` | worker 运行态快照（每次心跳与转态写入；feature 终态后归档至 `archive/<feature_id>.<attempt_index>.state.json`） |
-| `.pipeline/stages.json` | `stages.codegen`：`features.<id>`（含 `branch` / `commit` / `attempts_used` / `hang_history[]` / `file_signatures[]` / `design_hash`）、`outputs.feature_artifacts[]`、`outputs.total_attempts` / `outputs.resume_count`、`validation.passed` |
+| `.pipeline/stages.json` | `stages.codegen`：`features.<id>`（含 `smoke_passed` / `smoke_checks[]` 等）、`outputs.feature_artifacts[]`、`outputs.smoke_summary`（`passed_count` / `failed_count`）、`validation.passed` |
 | `.pipeline/reports/codegen-summary.md` | 每 feature 一行人话摘要（分支、commit、attempts、卡死次数、耗时、失败原因） |
 
 ## 解锁

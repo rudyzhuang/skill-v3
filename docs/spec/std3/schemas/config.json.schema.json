@@ -44,6 +44,23 @@
               "properties": {
                 "feature_max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 }
               }
+            },
+            "deploy": {
+              "type": "object",
+              "properties": {
+                "agent_fix_max_attempts": { "type": "integer", "minimum": 0, "maximum": 5, "default": 2 },
+                "deploy_retry_max": { "type": "integer", "minimum": 0, "maximum": 5, "default": 1 },
+                "fail_fast": { "type": "boolean", "default": true }
+              }
+            },
+            "ui_e2e": {
+              "type": "object",
+              "properties": {
+                "scenario_max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 },
+                "triage_max_attempts": { "type": "integer", "minimum": 0, "maximum": 5, "default": 2 },
+                "prompt_fix_max_attempts": { "type": "integer", "minimum": 0, "maximum": 3, "default": 1 },
+                "fail_fast": { "type": "boolean", "default": false }
+              }
             }
           }
         }
@@ -131,9 +148,11 @@
             "properties": {
               "name":          { "type": "string", "minLength": 1 },
               "client_target": { "type": "string" },
-              "type":          { "type": "string" },
+              "sub_platform":  { "type": "string" },
+              "type":          { "type": "string", "enum": ["pages", "workers"] },
               "domain":        { "type": "string" },
-              "url":           { "type": "string" }
+              "url":           { "type": "string" },
+              "artifact_ref":  { "type": "string" }
             }
           }
         }
@@ -147,41 +166,80 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["url", "method", "expected_status"],
+            "required": ["method", "expected_status"],
             "properties": {
-              "url":             { "type": "string", "minLength": 1 },
+              "url":             { "type": "string" },
+              "path":            { "type": "string" },
               "method":          { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"] },
               "expected_status": { "type": "integer", "minimum": 100, "maximum": 599 },
               "body_contains":   { "type": ["string", "null"] },
-              "safe":            { "type": "boolean" }
+              "safe":            { "type": "boolean" },
+              "client_targets": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["codegen", "deploy", "both"],
+                "default": "both"
+              }
             }
+          }
+        },
+        "codegen": {
+          "type": "object",
+          "properties": {
+            "enabled":   { "type": "boolean", "default": true },
+            "base_url":  { "type": "string" },
+            "timeout_s": { "type": "integer", "minimum": 1, "default": 60 }
+          }
+        },
+        "deploy": {
+          "type": "object",
+          "properties": {
+            "enabled":   { "type": "boolean", "default": true },
+            "timeout_s": { "type": "integer", "minimum": 1, "default": 120 }
           }
         }
       }
     },
     "ui_e2e": {
       "type": "object",
-      "required": ["enabled", "require_smoke_passed"],
+      "required": ["enabled", "require_deploy_smoke_passed"],
       "properties": {
-        "enabled":              { "type": "boolean" },
-        "require_smoke_passed": { "type": "boolean" },
+        "enabled":                      { "type": "boolean" },
+        "require_deploy_smoke_passed":  { "type": "boolean", "default": true },
+        "strict_mobile":                { "type": "boolean", "default": false },
+        "require_smoke_passed": {
+          "type": "boolean",
+          "description": "已废弃：请用 require_deploy_smoke_passed（deploy 内联 smoke）"
+        },
         "web": {
           "type": "object",
-          "properties": {
-            "base_url_from": { "type": "string" }
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "base_url_from": { "type": "string" }
+            }
           }
         },
         "mobile": {
           "type": "object",
           "properties": {
             "bundle_id": { "type": "string" },
-            "device":    { "type": "string" }
+            "device": { "type": "string" },
+            "auto_launch_emulator": { "type": "boolean", "default": true }
           }
         },
         "commands": {
           "type": "object",
           "properties": {
-            "ui_test_max_fix_attempts": { "type": "integer", "minimum": 1 }
+            "scenario_max_fix_attempts": { "type": "integer", "minimum": 0, "maximum": 5, "default": 2 },
+            "ui_test_max_fix_attempts": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "已废弃：请用 scenario_max_fix_attempts"
+            }
           }
         }
       }
@@ -199,8 +257,8 @@
             "build_s":   { "type": "integer", "minimum": 1 },
             "codegen_s": { "type": "integer", "minimum": 1 },
             "deploy_s":  { "type": "integer", "minimum": 1 },
-            "smoke_s":   { "type": "integer", "minimum": 1 },
-            "ui_e2e_s":  { "type": "integer", "minimum": 1 }
+            "ui_e2e_s":  { "type": "integer", "minimum": 1 },
+            "ui_e2e_scenario_s": { "type": "integer", "minimum": 1 }
           }
         }
       }
