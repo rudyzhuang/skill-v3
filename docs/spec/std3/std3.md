@@ -519,26 +519,31 @@ after report.cjs exit 0:
 ---
 
 
-## 5. prompts 文件清单（待建）
+## 5. prompts 文件清单
+
+真源目录：**[`docs/spec/std3/prompts/`](prompts/)**（实现时挂载为 `ai-std3/prompts/`）。
+
+**无 Agent 的 stage**（纯脚本）：`setup`、`merge_push`、`build`。
 
 | prompt | 被哪个 stage 调用 | 职责 |
 | --- | --- | --- |
-| `prompts/prd-spec-author.md` | prd（Agent-A） | 读 req.md + prd-spec 草稿，增量补全 prd-spec.md |
-| `prompts/prd-client-author.md` | prd（Agent-B） | 读 prd-spec.md + 端草稿，增量补全该端 prd.json + feature_list.md |
-| `prompts/prd-review-web.md` | prd-review（每端 Agent） | 评审 website/前端端 PRD，产出 `prd-review-<client_target>.json` |
-| `prompts/prd-review-backend.md` | prd-review（每端 Agent） | 评审 backend 端 PRD |
-| `prompts/prd-review-mobile.md` | prd-review（每端 Agent） | 评审 mobile 端 PRD |
-| `prompts/prd-review-admin.md` | prd-review（每端 Agent） | 评审 admin 端 PRD |
-| `prompts/prd-review-default.md` | prd-review（每端 Agent，兜底） | 评审未知端 PRD |
-| `prompts/design-spec.md` | design（每 feature Agent） | 传入 `feature_id`，读 prd-spec / 各端 prd / 依赖 design，产出 `docs/designs/<feature_id>.design.json` |
-| `prompts/design-review.md` | design-review（每 feature Agent） | 传入 `feature_id`，读 design.json + prd-spec / 各端 prd，产出 `.pipeline/design-review-<feature_id>.json` |
-| `prompts/create-ui-scenarios.md` | create-ui-scenarios（每 feature Agent） | 传入 `feature_id`，仅读 `docs/designs/<feature_id>.design.json`，按 `acceptance[]` / `api_outline[]` / `client_target` 派生 `docs/ui-scenarios/<feature_id>.scenarios.yaml`；强制 `{base_url}` 占位、`selector_hint` 人话描述、平台-端匹配 |
-| `prompts/codegen-impl.md` | codegen（首次 attempt） | worktree 内实现代码 + 自嵌测试；强制心跳 JSON Lines 协议 |
-| `prompts/codegen-impl-resume.md` | codegen（resume attempt） | 读 `.codegen-resume-context.json` 与 `git log`，**禁止覆盖** `do_not_overwrite[]` 文件，仅完成 `acceptance_pending[]` |
-| `prompts/code-review-agent.md` | code-review（每 feature Agent） | 传入 `feature_id`，读 `worktrees/v3-<id>/` + `code-review-<id>.diff` + `designs/<id>.design.json` + `deterministic_issues[]`，产出 `.pipeline/code-review-<feature_id>.json`；不得改 worktree |
-| `prompts/deploy-triage.md` | deploy（失败分诊 Agent） | 读 `deploy-last-error.json` + deploy 日志 + config 的 `deploy` 子树；**仅可改** `ai-std3/scripts` 下 deploy 相关脚本（`fix_script`）；产出 `.pipeline/deploy-triage.json`（`decision`: `fix_script` \| `retry_deploy` \| `blocked`） |
-| `prompts/ui-e2e-triage.md` | ui_e2e（失败分诊 Agent） | 读 `ui-e2e-last-error-<feature_id>.json` + 报告失败段 + 截图路径；产出 `ui-e2e-triage-<feature_id>.json`（`fix_prompt` \| `fix_code` \| `fix_both` \| `fix_scenario` \| `blocked`） |
-| `prompts/ui-e2e-run-scenario.md` | ui_e2e（可选） | 单场景 MCP 步骤执行 Agent；映射 YAML `steps[]` → Browser/Dart MCP 调用 |
+| [prd-spec-author.md](prompts/prd-spec-author.md) | prd（Agent-A） | 增量补全 `docs/prd-spec.md` |
+| [prd-client-author.md](prompts/prd-client-author.md) | prd（Agent-B） | 增量补全该端 `prd-*.json` + `feature_list-*.md` |
+| [prd-review-web.md](prompts/prd-review-web.md) | prd-review | 评审 web/website/frontend → `prd-review-<client_target>.json` |
+| [prd-review-backend.md](prompts/prd-review-backend.md) | prd-review | 评审 backend |
+| [prd-review-mobile.md](prompts/prd-review-mobile.md) | prd-review | 评审 mobile |
+| [prd-review-admin.md](prompts/prd-review-admin.md) | prd-review | 评审 admin |
+| [prd-review-default.md](prompts/prd-review-default.md) | prd-review | 未知端兜底 |
+| [design-spec.md](prompts/design-spec.md) | design | 产出 `docs/designs/<feature_id>.design.json` |
+| [design-review.md](prompts/design-review.md) | design-review | 产出 `.pipeline/design-review-<feature_id>.json` |
+| [create-ui-scenarios.md](prompts/create-ui-scenarios.md) | create-ui-scenarios | 产出 `docs/ui-scenarios/<feature_id>.scenarios.yaml` |
+| [codegen-impl.md](prompts/codegen-impl.md) | codegen（首次） | worktree 实现 + JSON Lines 心跳 |
+| [codegen-impl-resume.md](prompts/codegen-impl-resume.md) | codegen（resume） | 续跑，禁止覆盖 `do_not_overwrite[]` |
+| [code-review-agent.md](prompts/code-review-agent.md) | code-review | 只读评审 → `code-review-<feature_id>.json` |
+| [deploy-triage.md](prompts/deploy-triage.md) | deploy（失败分诊） | → `deploy-triage.json` |
+| [ui-e2e-triage.md](prompts/ui-e2e-triage.md) | ui_e2e（失败分诊） | → `ui-e2e-triage-<feature_id>.json` |
+| [ui-e2e-run-scenario.md](prompts/ui-e2e-run-scenario.md) | ui_e2e（可选） | YAML 步骤 → MCP 建议 |
+| [report-author.md](prompts/report-author.md) | report（有失败时） | 人话「失败与原因」「建议的下一步」 |
 
 ---
 
