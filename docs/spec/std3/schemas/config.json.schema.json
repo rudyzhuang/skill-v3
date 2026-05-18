@@ -14,12 +14,19 @@
           "required": ["allow_destructive_deploy", "feature_max_parallel"],
           "properties": {
             "allow_destructive_deploy": { "type": "boolean" },
-            "feature_max_parallel":    { "type": "integer", "minimum": 1, "maximum": 16, "default": 3 }
+            "feature_max_parallel":    { "type": "integer", "minimum": 1, "maximum": 16, "default": 3 },
+            "build_max_parallel":      { "type": "integer", "minimum": 1, "maximum": 16 }
           }
         },
         "stages": {
           "type": "object",
           "properties": {
+            "build": {
+              "type": "object",
+              "properties": {
+                "client_max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 }
+              }
+            },
             "design": {
               "type": "object",
               "properties": {
@@ -53,14 +60,58 @@
     },
     "build": {
       "type": "object",
-      "required": ["client_targets", "commands"],
+      "required": ["commands"],
       "properties": {
+        "artifacts_dir": { "type": "string", "default": "dist" },
+        "install_before_build": { "type": "boolean", "default": true },
+        "fail_fast": { "type": "boolean", "default": false },
+        "force_backend_build": { "type": "boolean", "default": false },
         "client_targets": {
-          "type": "array",
-          "items": { "type": "string" }
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "skip": { "type": "boolean" },
+                  "cwd": { "type": "string" },
+                  "build": { "type": "string" },
+                  "artifact_path": { "type": "string" },
+                  "artifact_globs": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "sub_platforms": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["id"],
+                      "properties": {
+                        "id": { "type": "string" },
+                        "build": { "type": "string" },
+                        "artifact_path": { "type": "string" },
+                        "artifact_globs": {
+                          "type": "array",
+                          "items": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "commands": {
           "type": "object",
+          "properties": {
+            "build": { "type": "string" },
+            "install": { "type": "string" }
+          },
           "additionalProperties": { "type": "string" }
         }
       }

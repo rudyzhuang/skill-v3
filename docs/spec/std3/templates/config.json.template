@@ -2,7 +2,8 @@
 "pipeline": {
     "autorun": {
     "allow_destructive_deploy": false,
-    "feature_max_parallel": 3
+    "feature_max_parallel": 3,
+    "build_max_parallel": 4
     },
     "stages": {
     "design": {
@@ -34,6 +35,9 @@
         "feature_max_parallel": 3,
         "max_retries": 2,
         "file_plan_strict": false
+    },
+    "build": {
+        "client_max_parallel": 4
     }
     }
 },
@@ -43,11 +47,15 @@
     "auto_commit": false
 },
 "build": {
-    "client_targets": [],
+    "artifacts_dir": "dist",
+    "install_before_build": true,
+    "fail_fast": false,
+    "client_targets": {},
     "commands": {
+    "build": "npm run build",
+    "install": "npm ci",
     "website": "npm run build",
     "admin":   "npm run build",
-    "backend": "npm run build",
     "mobile":  "flutter build apk --release"
     }
 },

@@ -271,7 +271,7 @@ setup
 | 实现 | `codegen` | worktree 内写代码 | [stages/codegen.md](stages/codegen.md) |
 | 实现 | `code-review` | 代码评审 | [stages/code-review.md](stages/code-review.md) |
 | 发布 | `merge_push` | 合并并 push | [stages/merge_push.md](stages/merge_push.md) |
-| 发布 | `build` | 构建各端产物 | [stages/build.md](stages/build.md) |
+| 发布 | `build` | 探测框架、并行构建各端产物并输出报告 | [stages/build.md](stages/build.md) |
 | 发布 | `deploy` | 部署上线 | [stages/deploy.md](stages/deploy.md) |
 | 验证 | `smoke` | HTTP 冒烟 | [stages/smoke.md](stages/smoke.md) |
 | 验证 | `ui_e2e` | UI 端到端 | [stages/ui_e2e.md](stages/ui_e2e.md) |
@@ -447,7 +447,9 @@ sum_inflight(codegen) + sum_inflight(create_ui_scenarios) ≤ pipeline.autorun.f
 | code-review stage 级 `decision=failed` | 4 | 至少一个 feature 失败；按 `outputs.failed_features[]` 逐一处理后 `--from-stage=code-review` |
 | merge_push 冲突 | 4 | 人工解冲突后重跑 `--from-stage=merge_push` |
 | merge_push push 失败 | 7 | 网络/权限问题，修复后重跑 `--from-stage=merge_push` |
-| build 失败 | 1 | 修配置/代码，重跑 `--from-stage=build` |
+| build 单端超时 | 3 | 调大 `timeouts.stages.build_s` 或 `pipeline.stages.build.client_max_parallel` 后重跑 `--from-stage=build` |
+| build 命令/产物校验失败 | 4 | 查 `.pipeline/reports/build-summary.md` 与 `logs/stages/build/*`；修代码或 `build.client_targets` / `commands` 后重跑 `--from-stage=build` |
+| build 门闸/HEAD 不一致 | 1 | `git checkout <final_commit>` 或重跑 `--from-stage=merge_push` 后再 build |
 | deploy 未授权 destructive | 1 | 配置 `allow_destructive_deploy=true` 或加 `--explicit-confirm` |
 | smoke 检查失败 | 4 | 检查部署状态，修复后重跑 `--from-stage=smoke` |
 | ui_e2e 场景失败 | 4 | 修 UI 或场景步骤，重跑 `--from-stage=ui_e2e` |
