@@ -8,10 +8,10 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/lib/`**：`create-ui-scenarios.cjs`、`create-ui-scenarios-bootstrap.cjs`、`create-ui-scenarios-validate.cjs`；步骤 2 为按 **feature** 并发的 Agent 池；与 `codegen.cjs` 复合编排时支持 **`--tick`**。
+脚本根目录前缀 **`ai-std3/scripts/`**：`stages/create-ui-scenarios.cjs`（编排入口）、`libs/create-ui-scenarios-bootstrap.cjs`、`libs/create-ui-scenarios-validate.cjs`；步骤 2 为按 **feature** 并发的 Agent 池；与 `stages/codegen.cjs` 复合编排时支持 **`--tick`**。
 
 ```bash
-node ai-std3/scripts/lib/create-ui-scenarios.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+node ai-std3/scripts/stages/create-ui-scenarios.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
 ```
 
 > **不**评审、**不**改写 `design.json` / `docs/contracts/`；只产出 `docs/ui-scenarios/<feature_id>.scenarios.yaml`。
@@ -82,14 +82,18 @@ effective_parallel = min(
 ## 处理逻辑
 
 1. **`create-ui-scenarios-bootstrap.cjs`（bootstrap + 跳过/降级）**：
-   - 初始化 `stages.create_ui_scenarios` 骨架（若不存在），含 `features.<feature_id>.{status, group_id, scenarios_hash, design_hash, scenarios_count}`、`outputs.scenario_files[]`、`outputs.skipped_features[]`、`outputs.released_groups_seen[]`、`outputs.decision=pending`。
-   - 若 `docs/config.dev.json.ui_e2e.enabled=false` → 写 `status=skipped`，`outputs.summary="ui_e2e disabled"`，退出 0。
-   - 计算 `release_bundle_hash`（**当前** `features.<id>.can_enter_codegen=true` 的 feature_id 排序后拼接 SHA-256）与 `design_bundle_hash`（当前已就绪 feature 的 `design.json` 按 `feature_id` 排序拼接 SHA-256）。
-   - 与 `stages.create_ui_scenarios.inputs.release_bundle_hash` / `inputs.design_bundle_hash` 对比；若 hash 命中且全部目标 feature 已 `status=completed` → 整体跳过步骤 2，直接进入步骤 3（`stage_skipped`）。否则按 feature 增量调度（hash 命中且上次 `completed` 的单 feature 跳过 Agent）。
-   - **确定性预检**（不调用 Agent，命中则该 feature `blocking`，**不**入池）：
+   - 若 `docs/config.dev.json.ui_e2e.enabled=false` → 写 `status=skipped`，`outputs.summary="ui_e2e disabled"`，退出 0（无需执行后续步骤）。
+   - **先读旧值**：读取 `stages.create_ui_scenarios.inputs.release_bundle_hash`（骨架不存在则为 `null`）与 `inputs.design_bundle_hash`。
+   - **计算新值**：
+     - `release_bundle_hash_new`：取 `stages.design_review.features.<id>.can_enter_codegen=true` 的 feature_id 按字典序排列各自 `docs/designs/<id>.design.json` SHA-256，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与 design-review `design_bundle_hash` 算法一致）。
+     - `design_bundle_hash_new`：同上，但范围为所有已就绪（`design.features.<id>.status=completed`）feature 的 `design.json` SHA-256 列表。
+   - **hash 门控（全段跳过）**：若两个新值均等于旧值 **且** `stages.create_ui_scenarios.status=completed` **且** 全部目标 feature 均已 `completed` / `skipped`，则**整段跳过**（写 `stage_skipped` + 退出码 0，不修改 stages.create_ui_scenarios）。
+   - **骨架处理 + 写入新值**（非跳过路径）：
+     - 若骨架**不存在**：初始化 `stages.create_ui_scenarios`，含 `inputs.release_bundle_hash = release_bundle_hash_new`、`inputs.design_bundle_hash = design_bundle_hash_new`、`features.<feature_id>.{status=pending, group_id, scenarios_hash=null, design_hash=null, scenarios_count=0}`、`outputs.scenario_files[]`、`outputs.skipped_features[]`、`outputs.released_groups_seen[]`、`outputs.decision=pending`。
+     - 若骨架**已存在**：将任何状态为 `running` 的 feature 重置为 `pending`（zombie 恢复）；若 `release_bundle_hash` 变化（新 feature 被释放），为新增 feature 初始化 `features.<id>` 条目；写入新 hash 值。
+   - **确定性预检**（不调用 Agent，命中则该 feature 标 `skipped` / `blocked`，**不**入池）：
      - `design.json.acceptance.length < 1` → `blocking`（无验收点无法生成场景）；
-     - `design.json.client_target` ∉ `{website, admin, mobile, ios, android, backend}` 且 `client_targets[]` 无前端类目 → 标 `skipped`（`reason="non-UI client_target"`，写入 `outputs.skipped_features[]`，**不**派发 Agent）；
-     - `design.json.client_target ∈ {backend}` 且 `client_targets[]` 内无任何 `{website, admin, mobile, ios, android}` → 同上 `skipped`（纯后端 feature 无需 UI 场景）。
+     - `design.json.client_target ∈ {backend}` 且 `client_targets[]` 内无任何 `{website, admin, mobile, ios, android}` → 标 `skipped`（`reason="non-UI client_target"`，写入 `outputs.skipped_features[]`）。
    - 写 `stages.create_ui_scenarios.status=running`；日志记录 `effective_parallel`、`pending_feature_ids[]`、`skipped_feature_ids[]`。
 
 2. **Agent-CreateUIScenarios（按 feature 并发，组感知）**：
@@ -165,7 +169,7 @@ effective_parallel = min(
    - **门闸（两级）**：
      - **feature 级**：YAML 不合规或 Agent 重试仍失败 → `features.<id>.status=failed`；该 feature **不**阻断 codegen（已并行进行）；但其 `ui_e2e` 阶段会 `skipped`（无场景文件可消费），并由 [report](report.md) 标记 `ui_coverage_warning`。
      - **stage 级**：全部 release 中的 feature 已 `completed` / `skipped` / `failed`（无 `pending`/`running`）→ `status=completed`（即使部分 `failed`）；若全部 release 中的 feature 都 `failed` → `status=failed`、退出码 **4**。
-   - 写 `inputs.release_bundle_hash`、`inputs.design_bundle_hash`、`outputs.decision`（`passed` / `partial` / `failed`）、`validation.passed`。
+   - 写 `outputs.decision`（`passed` / `partial` / `failed`）、`validation.passed`（`inputs.release_bundle_hash` / `design_bundle_hash` 已由 bootstrap 写入，此处无需重算）。
    - 生成 `.pipeline/reports/create-ui-scenarios-summary.md`（每 feature 一行：场景数、覆盖率、是否跳过）。
    - 失败时：`--from-stage=create-ui-scenarios --feature=<id>` 重生该 feature；或修 `design.json.acceptance` 后回到 `design`。
 
@@ -176,7 +180,7 @@ effective_parallel = min(
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间）, `parallel_with: ["codegen"]` |
-| 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.create_ui_scenarios） |
+| 步骤1：初始化/更新 | `file_created` / `file_updated` | INFO | `path`（stages.create_ui_scenarios），`zombie_features_reset`（list），`new_features_added`（list） |
 | 步骤1：禁用跳过 | `stage_skipped` | INFO | `reason: "ui_e2e disabled"`, `exit_code: 0` |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `pending_feature_ids[]`, `skipped_feature_ids[]`, `blocking_feature_ids[]` |
 | 步骤1：bundle 哈希 | `hash_check` | INFO | `release_bundle_hash`, `design_bundle_hash`, `stored_hash`, `computed_hash`, `hit` |
@@ -200,13 +204,15 @@ effective_parallel = min(
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 成功；`ui_e2e.enabled=false` 整段 `skipped`；hash 跳过 |
-| 1 | 上游门闸未满足 |
-| 3 | 单 feature Agent 超时 |
-| 4 | 全部 release feature 均 `failed` 或校验失败 |
-| 5 | 检测到 `stop.signal` |
+| 码 | 场景 | stages.create_ui_scenarios.status |
+| ---: | --- | --- |
+| 0 | 成功（含部分 failed） | `completed` |
+| 0 | `ui_e2e.enabled=false` 整段跳过 | `skipped` |
+| 0 | 全局 hash 命中整段跳过 | `completed`（不变） |
+| 1 | 上游门闸未满足 | `failed` |
+| 3 | 单 feature Agent 超时 | feature 级 `failed`；stage 视全局 |
+| 4 | 全部 release feature 均 `failed` 或校验失败 | `failed` |
+| 5 | 检测到 `stop.signal` | `stopped` |
 
 ## 输出
 
