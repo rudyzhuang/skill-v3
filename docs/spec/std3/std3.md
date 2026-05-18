@@ -4,7 +4,7 @@
 | --- | --- |
 | **skill name** | `ai-std3` |
 | **定位** | **独立 Skill**：自包含实现，不依赖 ai-prd3 / ai-auto3 / ai-design3 / ai-code3 / ai-publish-dev3 脚本 |
-| **实现目录** | `ai-std3/scripts/lib/<stage>.cjs`（每个 stage 一个脚本） |
+| **实现目录** | 主调度：`ai-std3/scripts/run-pipeline.cjs`；各 stage 主脚本：`ai-std3/scripts/stages/<stage>.cjs`；子脚本：`ai-std3/scripts/libs/` |
 | **编排入口** | `ai-std3/scripts/run-pipeline.cjs` |
 | **规范真源** | 本文件；[各 stage](#1-stage-实现规范人话版)、[templates](templates/)、[schemas](schemas/) 分文件维护 |
 
@@ -126,7 +126,7 @@ setup
 **通用约定**：
 
 - 状态真源：业务项目 **`<业务项目根绝对路径>/.pipeline/stages.json`**
-- 所有脚本调用形态：`node ai-std3/scripts/lib/<stage>.cjs --project=<业务项目根绝对路径> [选项]`
+- 所有脚本调用形态：`node ai-std3/scripts/stages/<stage>.cjs --project=<业务项目根绝对路径> [选项]`
 - 脚本不复制进业务仓
 
 **真源分层（Single Source of Truth）**：
@@ -168,7 +168,9 @@ setup
 
 ### stage 状态值
 
-`started` · `running` · `completed` · `failed` · `skipped` · `stopped`
+`started` · `running` · `completed` · `failed` · `skipped` · `stopped` · `pending_user_input`
+
+> `pending_user_input`：仅用于 **setup** 阶段因 `verify-inputs` 未通过（退出码 2）时；表示等待用户补全 `req.md` / `config.env`，与 `failed` 区分，hash 门控同样视为未命中。
 
 - 路径占位符：`<client_target>` 表示某一端标识（如 `website`、`backend`、`mobile`）；全文统一使用此写法
 
@@ -199,8 +201,8 @@ setup
 | 检查位置 | 说明 |
 | --- | --- |
 | `run-pipeline.cjs` 每个 stage 启动前 | 不再进入下一 stage |
-| 每个 `lib/<stage>.cjs` 启动时 | 拒绝执行，直接退出码 `5` |
-| 每个 `lib/<stage>.cjs` 调用 Agent 前 | 不派发新 Agent，直接退出码 `5` |
+| 每个 `stages/<stage>.cjs` 启动时 | 拒绝执行，直接退出码 `5` |
+| 每个 `stages/<stage>.cjs` 调用 Agent 前 | 不派发新 Agent，直接退出码 `5` |
 | Agent-B 每个并发任务启动前 | 已启动的并发 Agent 等其自然完成，不再起新的 |
 
 ### 优雅停止流程
@@ -296,7 +298,7 @@ setup
 | 验证 | `ui_e2e` | MCP 场景并行 + 失败分诊与 feature 修复子链 | [stages/ui_e2e.md](stages/ui_e2e.md) |
 | 验证 | `report` | 人话总报告 + 错误日志 Agent 摘要 + 流水线收尾 | [stages/report.md](stages/report.md) |
 
-脚本路径前缀：`ai-std3/scripts/`（`lib/` 下为 stage 脚本，setup 见 [§3](#3-run-pipelinecjs-编排映射)）。
+脚本根目录：`ai-std3/scripts/`；`stages/` 下为各 stage 主脚本，`libs/` 下为所有子脚本，`run-pipeline.cjs` 位于根目录（见 [§3](#3-run-pipelinecjs-编排映射)）。
 
 
 ## 2. 门闸链汇总
@@ -324,19 +326,19 @@ setup
 
 | stage | 脚本 |
 | --- | --- |
-| setup | `scripts/lib/setup.cjs`（内联依次调用 `setup-inputs.cjs`、`verify-inputs.cjs`、`sync-config-env.cjs`、`register-project.cjs`） |
-| prd | `scripts/lib/prd.cjs` |
-| prd-review | `scripts/lib/prd-review.cjs` |
-| design | `scripts/lib/design.cjs` |
-| design-review | `scripts/lib/design-review.cjs` |
-| create-ui-scenarios | `scripts/lib/create-ui-scenarios.cjs` |
-| codegen | `scripts/lib/codegen.cjs` |
-| code-review | `scripts/lib/code-review.cjs` |
-| merge_push | `scripts/lib/merge-push.cjs` |
-| build | `scripts/lib/build.cjs` |
-| deploy | `scripts/lib/deploy.cjs` |
-| ui_e2e | `scripts/lib/ui-e2e.cjs` |
-| report | `scripts/lib/report.cjs` |
+| setup | `scripts/stages/setup.cjs`（内联依次调用 `libs/setup-inputs.cjs`、`libs/verify-inputs.cjs`、`libs/sync-config-env.cjs`、`libs/register-project.cjs`） |
+| prd | `scripts/stages/prd.cjs` |
+| prd-review | `scripts/stages/prd-review.cjs` |
+| design | `scripts/stages/design.cjs` |
+| design-review | `scripts/stages/design-review.cjs` |
+| create-ui-scenarios | `scripts/stages/create-ui-scenarios.cjs` |
+| codegen | `scripts/stages/codegen.cjs` |
+| code-review | `scripts/stages/code-review.cjs` |
+| merge_push | `scripts/stages/merge-push.cjs` |
+| build | `scripts/stages/build.cjs` |
+| deploy | `scripts/stages/deploy.cjs` |
+| ui_e2e | `scripts/stages/ui-e2e.cjs` |
+| report | `scripts/stages/report.cjs` |
 
 `run-pipeline.cjs` 支持 `--from-stage=<stage> --to-stage=<stage>` 续跑，`--force-rerun=<stage>` 强制重跑单个 stage。
 
@@ -356,10 +358,10 @@ setup
 ```text
 for each stage in stageList:
   if stop.signal exists → log pipeline_stop → write pipeline.stop_info → exit(5)
-  spawn lib/<stage>.cjs ...
+  spawn stages/<stage>.cjs ...
 ```
 
-各 `lib/<stage>.cjs` 脚本在启动时及每次调用 Agent 前同样执行相同检查；检测到信号后写 `pipeline_stop` 日志，`status` 置为 `stopped`（非 `failed`），退出码 `5`。
+各 `stages/<stage>.cjs` 脚本在启动时及每次调用 Agent 前同样执行相同检查；检测到信号后写 `pipeline_stop` 日志，`status` 置为 `stopped`（非 `failed`），退出码 `5`。
 
 续跑时（`--from-stage`）会自动清除残留的 `stop.signal`，避免误拦截。
 
