@@ -6,7 +6,7 @@
 >
 > **本期实现范围**：仅 **Cloudflare** 自动化（`deploy.provider=cloudflare`）；`manual` 登记 URL；其它 provider 注册表预留，调用时退出码 **1** 并提示未实现。
 >
-> **参考 v3（ai-publish-dev3）**：`lib/providers/cloudflare.cjs`（Pages / Workers、域名与 DNS）、`artifacts.cjs` 产物映射、`allow_destructive_deploy` 门闸；本 stage 在 skill 内 **自包含实现**（不 spawn `ai-publish-dev3`），并增加 **失败 Agent 分诊 + 脚本自修复重试**。
+> **参考 v3（ai-publish-dev3）**：`libs/providers/cloudflare.cjs`（Pages / Workers、域名与 DNS）、`artifacts.cjs` 产物映射、`allow_destructive_deploy` 门闸；本 stage 在 skill 内 **自包含实现**（不 spawn `ai-publish-dev3`），并增加 **失败 Agent 分诊 + 脚本自修复重试**。
 >
 > **不在 deploy 内隐式 build**；缺产物 → 退出码 **1**。
 >
@@ -16,18 +16,18 @@
 
 | 脚本 | 职责 |
 | --- | --- |
-| `deploy.cjs` | 编排：门闸 → bootstrap → 按 service 部署 → 失败分诊 → validate |
-| `lib/deploy-preflight.cjs` | 读 config / config.env、destructive 确认、凭证预检、可部署端判定 |
-| `lib/providers/cloudflare.cjs` | Cloudflare API：Pages 上传、Workers 部署、自定义域名 / DNS |
-| `lib/providers/manual.cjs` | `provider=manual`：仅校验 `deploy.services[].url` 并写回 stages |
-| `lib/providers/registry.cjs` | provider 分派；未实现 provider → 抛错 |
-| `lib/deploy-triage.cjs` | 组装错误包、调用 Agent、解析 `deploy-triage.json`、驱动重试或退出码 |
-| `lib/http-smoke.cjs` | 内联 HTTP 冒烟（codegen / deploy 共用；无独立 smoke stage） |
+| `stages/deploy.cjs` | 编排：门闸 → bootstrap → 按 service 部署 → 失败分诊 → validate |
+| `libs/deploy-preflight.cjs` | 读 config / config.env、destructive 确认、凭证预检、可部署端判定 |
+| `libs/providers/cloudflare.cjs` | Cloudflare API：Pages 上传、Workers 部署、自定义域名 / DNS |
+| `libs/providers/manual.cjs` | `provider=manual`：仅校验 `deploy.services[].url` 并写回 stages |
+| `libs/providers/registry.cjs` | provider 分派；未实现 provider → 抛错 |
+| `libs/deploy-triage.cjs` | 组装错误包、调用 Agent、解析 `deploy-triage.json`、驱动重试或退出码 |
+| `libs/http-smoke.cjs` | 内联 HTTP 冒烟（codegen / deploy 共用；无独立 smoke stage） |
 
-> 实现目录前缀：`ai-std3/scripts/`。
+> 实现目录前缀：`ai-std3/scripts/`（`stages/` 为主脚本，`libs/` 为子脚本）。
 
 ```bash
-node ai-std3/scripts/lib/deploy.cjs --project=<业务项目根绝对路径> [--explicit-confirm]
+node ai-std3/scripts/stages/deploy.cjs --project=<业务项目根绝对路径> [--explicit-confirm]
 ```
 
 ## 上游门闸
@@ -101,21 +101,27 @@ node ai-std3/scripts/lib/deploy.cjs --project=<业务项目根绝对路径> [--e
 
 ### 1. `deploy-bootstrap`（门闸 + 哈希）
 
-1. PID 锁：`<项目根>/.pipeline/locks/deploy.pid`。
-2. 加载 config（`--config=dev|release`，默认 `dev`）与 `docs/config.env`（仅注入子进程 `env`）。
-3. 执行 [跳过条件](#跳过条件整段-skipped)；命中则 `stage_skipped` 并返回。
-4. destructive / build / artifact 门闸。
-5. 计算 `inputs.summary_hash`：`build.inputs.summary_hash` + deploy 相关 config 子树 +  consumed `artifacts[]` 指针列表。
-6. hash 命中且上次 `completed` → `stage_skipped`（可选 `--force-rerun=deploy` 忽略）。
-7. 初始化 `stages.deploy`：`status=running`、`environment=dev|release`、`outputs.services[]` 占位、`outputs.attempts=0`。
+1. **PID 锁**：路径 `.pipeline/locks/deploy.pid`；检查现有锁 PID 是否存活——不存活则视为过期锁，清除并继续；若存活则退出码 1（防并发部署）。
+2. **配置加载**：加载 `--config=dev|release`（默认 `dev`）与 `docs/config.env`（仅注入子进程 `env`，不写日志原文）。
+3. **配置跳过条件检查**（见[跳过条件](#跳过条件整段-skipped)）：命中则写 `stages.deploy.status=skipped`、`outputs.skip_reason`，打 `stage_skipped` 事件，退出码 0。（此 `status=skipped` 与 hash 命中跳过区分：配置跳过是主动不部署，hash 命中跳过是已完成无需重做）
+4. **门闸**：destructive / build / artifact 映射门闸；任一不满足 → 退出码 1。
+5. **先读旧值**：读取 `stages.deploy.inputs.summary_hash`（骨架不存在则为 `null`）。
+6. **计算新值**：`summary_hash_new` = SHA-256(规范化 JSON 包含 `build.inputs.summary_hash`、deploy 相关 config 子树（`provider`、`services[]` 结构、`fail_fast`）、消费的 `artifacts[]` `(client_target, sub_platform, artifact_path)` 列表）。
+7. **hash 门控（全段跳过）**：若 `summary_hash_new == 旧值` **且** `stages.deploy.status=completed` 且 `validation.passed=true`（且未带 `--force-rerun=deploy`）→ 写 `stage_skipped` 日志事件，保持 `status=completed` **不变**，退出码 0。
+8. **骨架处理 + 写入新值**（非跳过路径）：
+   - 写入 `inputs.summary_hash = summary_hash_new`。
+   - 若骨架不存在：初始化 `stages.deploy`，`status=running`、`environment`、`outputs.services[]` 占位（每条 service 含 `name`/`status=pending`/`smoke_passed=null`）、`outputs.attempts=0`。
+   - 若骨架已存在：写入新 hash；保留上次 `status=completed` 的 service 条目（续跑幂等，已部署成功的 service **不重新部署**）；`status=pending`/`failed`/`timed_out` 的 service 重置为 `pending`。
+9. 写 `stages.deploy.status=running`；写入 PID 锁。
 
 ### 2. 按 service 顺序部署（Cloudflare）
 
 对每个 `deploy.services[]` 条目（建议顺序：**backend → admin → website**，避免 Workers 路由依赖未就绪）：
 
+0. 若 `outputs.services[<name>].status=completed`（bootstrap 续跑保留）→ 打 `deploy_service_skipped`（INFO，`reason: "already_deployed"`）并跳过，不重新调用 API。
 1. 打 `deploy_service_start`（INFO）：`service_name`、`client_target`、`type`、`artifact_path`、`domain`。
 2. 解析 artifact；记录 `inputs.artifacts[]` 消费行。
-3. 调用 `lib/providers/cloudflare.cjs`：
+3. 调用 `libs/providers/cloudflare.cjs`：
    - **`pages`**：确保 Pages 项目存在 → 上传 `artifact_path` 目录 → 绑定 `domain`（Domains API，失败则 DNS CNAME + 橙云说明写日志）。
    - **`workers`**：部署脚本/捆绑产物 → 绑定路由或 custom domain。
 4. 子步骤须写 **结构化 + 人话** 日志（见 [日志要求](#日志要求)）。
@@ -169,7 +175,7 @@ node ai-std3/scripts/lib/deploy.cjs --project=<业务项目根绝对路径> [--e
    - `.pipeline/deploy-last-error.json`
    - `logs/stages/deploy/<datetime>*.log`（失败 service 相关）
    - `docs/config.{dev|release}.json` 的 `deploy` 子树（无密钥）
-   - **仅可读** `ai-std3/scripts/lib/providers/cloudflare.cjs` 与 `deploy.cjs`（用于判断脚本缺陷）
+   - **仅可读** `ai-std3/scripts/libs/providers/cloudflare.cjs` 与 `stages/deploy.cjs`（用于判断脚本缺陷）
 3. Agent **必须**产出 **`.pipeline/deploy-triage.json`**（Ajv：`deploy-triage-output.schema.json`）：
 
 | 字段 | 说明 |
@@ -233,6 +239,9 @@ node ai-std3/scripts/lib/deploy.cjs --project=<业务项目根绝对路径> [--e
 
 | event | LEVEL | 触发时机 | meta 必填字段 |
 | --- | --- | --- | --- |
+| `stage_start` | INFO | stage 启动 | `run_id`, `stage`, `project`, `started_at` |
+| `stage_skipped` | INFO | hash 命中或配置跳过 | `reason`, `exit_code: 0` |
+| `deploy_service_skipped` | INFO | 续跑时已完成的 service 跳过 | `service_name`, `reason: "already_deployed"` |
 | `deploy_service_start` | INFO | 开始部署单 service | `service_name`, `client_target`, `type`, `artifact_path` |
 | `deploy_api_call` | INFO/DEBUG | Cloudflare API 往返 | `method`, `path`, `status`, `duration_ms`, `success` |
 | `deploy_service_complete` | INFO | 单 service 成功 | `service_name`, `url`, `duration_ms` |
@@ -244,6 +253,22 @@ node ai-std3/scripts/lib/deploy.cjs --project=<业务项目根绝对路径> [--e
 | `deploy_blocked` | ERROR | `decision=blocked` | `reason`, `user_actions[]`, `exit_code: 9` |
 | `smoke_inline_complete` | INFO | 单 service 内联 smoke 通过 | `service_name`, `url`, `checks_passed` |
 | `smoke_inline_failed` | ERROR | 单 service 内联 smoke 失败 | `service_name`, `url`, `failures[]` |
+| `stage_complete` | INFO | stage 完成 | `stage`, `duration_ms`, `exit_code: 0`, `services_deployed` |
+| `stage_failed` | ERROR | 任意步骤失败 | `stage`, `step`, `exit_code`, `reason` |
+
+## 退出码（本 stage）
+
+| 码 | 场景 | stages.deploy.status |
+| ---: | --- | --- |
+| 0 | 全部 service 部署 + smoke 通过 | `completed` |
+| 0 | hash 命中整段跳过 | `completed`（不变） |
+| 0 | `deploy.enabled=false` 等配置跳过 | `skipped` |
+| 1 | 门闸未满足 / 凭证缺失 / 配置无法解析 / PID 锁占用 | `failed` |
+| 3 | 单 service 挂钟超时（`deploy_s`） | `failed` |
+| 4 | 自动修复次数用尽，仍部署失败；或内联 smoke 失败 | `failed` |
+| 5 | `stop.signal` | `stopped` |
+| 8 | 云 API 错误，`retry_deploy` 用尽，但未判定须人工阻断 | `failed` |
+| 9 | Agent 判定 `blocked`（权限/账单/人工审批等须人工介入） | `failed` |
 
 ## 输出
 
