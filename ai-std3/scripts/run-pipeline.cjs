@@ -27,6 +27,11 @@ const crypto = require('crypto');
 const { spawnSync, spawn } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('./libs/logger.cjs');
+const { handleStepFailure } = require('./libs/pipeline-recovery.cjs');
+
+const skillsRoot = process.env.CURSOR_SKILLS_ROOT
+  ? path.resolve(process.env.CURSOR_SKILLS_ROOT)
+  : path.resolve(SCRIPTS_DIR, '../..');
 
 // ── 参数解析 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -472,9 +477,17 @@ async function main() {
     }
   }
 
+  /** 执行单个 pipeline step，返回退出码 */
+  async function executeStep(step) {
+    if (step === 'design_phase') return runDesignPhase();
+    if (step === 'build_phase')  return runBuildPhase();
+    return runSync(stageScripts[step], makeArgs(step));
+  }
+
   // ── 执行管道 ──────────────────────────────────────────────────
   let lastExitCode    = 0;
   let reportCompleted = false;
+  let pipelineBlocked = false;
 
   for (const step of PIPELINE_STEPS) {
     // from/to 过滤
@@ -505,14 +518,7 @@ async function main() {
       run_id: runId,
     });
 
-    let exitCode;
-    if (step === 'design_phase') {
-      exitCode = await runDesignPhase();
-    } else if (step === 'build_phase') {
-      exitCode = await runBuildPhase();
-    } else {
-      exitCode = runSync(stageScripts[step], makeArgs(step));
-    }
+    let exitCode = await executeStep(step);
 
     lastExitCode = exitCode;
 
@@ -532,6 +538,35 @@ async function main() {
         stage: step, exit_code: 5,
       });
       process.exit(5);
+    }
+
+    // §3.4 编排级自动修复（report 不触发；setup 退出码 2 等在 recovery 内过滤）
+    if (exitCode !== 0 && step !== 'report') {
+      const recoveryResult = await handleStepFailure({
+        projectRoot,
+        skillsRoot,
+        runId,
+        step,
+        exitCode,
+        log,
+        readStagesJson,
+        writeStagesJson,
+        rerunStep: () => executeStep(step),
+      });
+      lastExitCode = recoveryResult.exitCode;
+      if (recoveryResult.stopPipeline) {
+        if (recoveryResult.exitCode === 5) {
+          process.exit(5);
+        }
+        pipelineBlocked = true;
+        log.error('pipeline_blocked', `recovery 判定 blocked，停止后续 step（stage=${step}）`, {
+          stage: step, exit_code: 9,
+        });
+        break;
+      }
+      if (lastExitCode === 0 && step === 'report') {
+        reportCompleted = true;
+      }
     }
 
     // 达到 --to-stage 终点，停止管道
@@ -582,7 +617,9 @@ async function main() {
   // ── 推导进程退出码（§3.3）──────────────────────────────────────
   let processExitCode;
 
-  if (toStage) {
+  if (pipelineBlocked) {
+    processExitCode = 9;
+  } else if (toStage) {
     // 部分续跑：使用最后一个 step 的退出码
     processExitCode = lastExitCode;
   } else {

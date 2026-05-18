@@ -37,3 +37,7 @@ node ai-std3/scripts/run-dash.cjs --project=<路径>
 ## 规范文档
 
 完整规范见 `docs/spec/std3/std3.md` 及各 stage 文档。
+
+## stage 失败自动修复
+
+`run-pipeline.cjs` 在 stage 可恢复失败（默认退出码 3/4）时，按 [std3 §3.4](docs/spec/std3/std3.md#34-stage-失败后的编排级自动修复run-pipeline) 调用 **pipeline-recovery**：分析日志 → 修复 → 自评 → **skill 仓或业务项目** 分别 commit/push → 重跑该 step。配置见 `docs/config.*.json` → `pipeline.recovery`。

@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pipeline-recovery-output.schema.json",
+  "title": ".pipeline/pipeline-recovery-<stage>.json (recovery 字段)",
+  "type": "object",
+  "required": ["decision", "repair_target", "category", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["fix", "retry_only", "blocked"]
+    },
+    "repair_target": {
+      "type": "string",
+      "enum": ["skill", "project", "none"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "script_bug",
+        "prompt",
+        "schema",
+        "project_code",
+        "project_config",
+        "transient",
+        "environment",
+        "unknown"
+      ]
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "files_changed": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "repo": { "type": "string", "enum": ["skill", "project", "none"] },
+        "commit": { "type": ["string", "null"] },
+        "pushed": { "type": "boolean" },
+        "push_skipped_reason": { "type": ["string", "null"] }
+      }
+    },
+    "self_review": {
+      "type": "object",
+      "properties": {
+        "passed": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "follow_up": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "user_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

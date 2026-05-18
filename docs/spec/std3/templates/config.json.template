@@ -1,5 +1,12 @@
 {
 "pipeline": {
+    "recovery": {
+    "enabled": true,
+    "max_attempts_per_stage": 2,
+    "recoverable_exit_codes": [3, 4],
+    "log_tail_lines": 200,
+    "require_push_for_skill_fix": true
+    },
     "autorun": {
     "allow_destructive_deploy": false,
     "feature_max_parallel": 3,

@@ -15,7 +15,7 @@
 | 你是谁 | 建议阅读顺序 |
 | --- | --- |
 | **首次接入** | [§0 架构](#0-架构定位) → [setup 阶段](stages/setup.md) → [§3 编排](#3-run-pipelinecjs-编排映射) |
-| **排查卡点** | [§4 Agent 卡点速查](#4-agent-卡点速查) → 对应 [§1 stage 文档](#1-stage-实现规范人话版) |
+| **排查卡点** | [§4 Agent 卡点速查](#4-agent-卡点速查) → [§3.4 编排级自动修复](#34-stage-失败后的编排级自动修复run-pipeline) → 对应 [§1 stage 文档](#1-stage-实现规范人话版) |
 | **实现脚本** | 各 stage 文件（含门闸、输入输出、日志事件）+ [templates/](templates/) + [schemas/](schemas/) |
 | **运维/看板** | [§7 run-dash](#7-run-dash--流水线状态看板) · [§8 stop-pipeline](#8-stop-pipeline--停止流水线脚本) |
 
@@ -57,6 +57,7 @@ docs/spec/std3/
 - [2. 门闸链汇总](#2-门闸链汇总)
 - [3. `run-pipeline.cjs` 编排映射](#3-run-pipelinecjs-编排映射)
   - [3.3 流水线收尾（report 之后）](#33-流水线收尾report-之后)
+  - [3.4 stage 失败后的编排级自动修复](#34-stage-失败后的编排级自动修复run-pipeline)
 - [4. Agent 卡点速查](#4-agent-卡点速查)
 - [5. prompts 文件清单（待建）](#5-prompts-文件清单待建)
 - [6. 附录：模板文件](#6-附录模板文件)
@@ -87,6 +88,7 @@ docs/spec/std3/
   - [`design.json.schema.json`](schemas/design.json.schema.json)
   - [`design-review-feature-output.schema.json`](schemas/design-review-feature-output.schema.json)
   - [`ui-scenarios.yaml.schema.json`](schemas/ui-scenarios.yaml.schema.json)
+  - [`pipeline-recovery-output.schema.json`](schemas/pipeline-recovery-output.schema.json)
 
 ---
 
@@ -104,6 +106,7 @@ ai-std3 是一个**独立的全量流水线 Skill**，借鉴 V3 各 skill 的思
 | merge_push stage | **要**：独立 stage | 合并到主干是发布的硬前置，需要独立状态与门闸 |
 | create-ui-scenarios | **要**：独立 stage，从 design.json 派生 | 设计阶段验收标准是场景的最佳来源，比契约文件更直接 |
 | smoke stage | **不要** | HTTP 冒烟合并入 **codegen**（feature 实现完成后）与 **deploy**（各 service 上线后）内联执行；配置仍用 `config.*.json` → `smoke.checks[]`，**无** `stages.smoke` |
+| stage 失败编排修复 | **要**：`run-pipeline` 内 **pipeline-recovery** | stage 可恢复退出后：分析日志 → 修复 → 自评 → skill/项目分仓 commit+push → 重跑本 step（[§3.4](#34-stage-失败后的编排级自动修复run-pipeline)） |
 
 **阶段链（固定顺序）**：
 
@@ -475,6 +478,108 @@ after report.cjs exit 0:
 
 详见 [report 阶段](stages/report.md)。
 
+### 3.4 stage 失败后的编排级自动修复（`run-pipeline`）
+
+当 **单个 step**（含复合阶段 `design_phase` / `build_phase` 整体）以**可恢复**非零退出时，`run-pipeline.cjs` **在继续后续 step 之前**（`report` 除外）调用编排级修复子流程 **`pipeline-recovery`**，避免仅依赖人工读日志再 `--from-stage` 续跑。
+
+> **与 stage 内部分诊的关系**：`deploy`（`fix_script` / `retry_deploy`）、`ui_e2e`（`fix_prompt` / `fix_code` 子链）已在各自 `stages/*.cjs` 内尝试修复；编排级 recovery **不重复**同一轮已用尽的内部分诊配额，但若 stage 仍以退出码 **4** / **3** 等离开且未写 `blocked`，则由 `run-pipeline` 兜底。
+
+#### 触发条件
+
+| 条件 | 说明 |
+| --- | --- |
+| step 退出码 ∈ **可恢复集** | 默认 **`3`**（超时）、**`4`**（质量门/可修失败）；可配置扩展 |
+| 非 **不可恢复** | **`5`** stopped、**`9`** blocked、**`2`** pending_user_input → **不**触发 |
+| `pipeline.recovery.enabled=true` | 默认 **true**；`false` 时仅记日志，行为与现网一致（继续后续 step） |
+| `AI_STD3_AGENT_BIN` 已设置 | 未设置 → 写 `recovery_skipped`（WARN），不派发 Agent |
+| 未超 `max_attempts_per_stage` | 默认每 step 每 session **2** 次 recovery |
+
+**不触发 recovery 的 step**：`report`（终点）；`setup` 退出码 **2**（等用户填表）。
+
+#### 子流程（`libs/pipeline-recovery.cjs`，由 `run-pipeline` 调用）
+
+```text
+on step exit_code ∉ {0,5,9,2} and recoverable:
+  1. assemble_error_bundle(stage, exit_code, stages.json, log_tail)
+     → .pipeline/pipeline-recovery-<stage>.json（含 input + 空 recovery）
+  2. spawn pipeline-recovery Agent（prompts/pipeline-recovery.md）
+     → 分析日志 / stages / 既有 *-triage*.json
+     → 修改文件（skill 或 project 二选一）
+     → self_review（自评，写入 recovery.self_review）
+     → git commit + push（见下表）
+     → 写 recovery 字段，Ajv 校验 pipeline-recovery-output.schema.json
+  3. switch recovery.decision:
+       fix | retry_only → 重跑**同一 step**（复合阶段重跑整个 design_phase/build_phase）
+       blocked          → 写 pipeline.recovery_blocked_at、停止后续 step（进程最终倾向 9）
+       invalid/missing  → 记 recovery_failed，**不**重跑，继续原「非零仍往下」语义
+  4. 若重跑后仍失败且 attempts 未用尽 → 回到 1；用尽 → 继续后续 step（门闸会挡）或整线失败
+```
+
+#### 双仓 git 规则
+
+| `repair_target` | 工作目录 | commit | push |
+| --- | --- | --- | --- |
+| `skill` | `CURSOR_SKILLS_ROOT` 下含 `ai-std3/` 的 **git 根**（通常即 skill 安装仓） | 仅 `ai-std3/**` 相关路径 | **必须**尝试 `push`（失败 → `git.pushed=false`，recovery 仍可 `fix` 但打 `prompt_publish_failed` 同级 WARN） |
+| `project` | 业务 `--project` 根 | 项目内变更（含 `docs/`、源码、`.pipeline/` 允许提交的产物） | `git.auto_commit=true` 且远程可推则 **push**；否则仅 commit，`push_skipped_reason` 必填 |
+| `none` | — | `retry_only` / `blocked` | 不提交 |
+
+**硬约束**（Agent 与脚本共同遵守）：
+
+1. **禁止**把 `inputs/config.env`、API Token、`.env` 打进任一 commit。
+2. **禁止**在 `repair_target=skill` 时改业务仓；**禁止**在 `repair_target=project` 时改 `ai-std3/`。
+3. commit message 建议：`fix(ai-std3): <stage> recovery — <reason 摘要>`（skill）或 `fix: <stage> pipeline recovery`（project）。
+4. push 前脚本可选跑 **`git diff --stat`** 摘要写入日志事件 `recovery_review`（确定性评审，非 second Agent）。
+
+#### 配置（`docs/config.*.json` → `pipeline.recovery`）
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 总开关 |
+| `max_attempts_per_stage` | `2` | 每个 step 每 `run_id` 最多 recovery 轮次 |
+| `recoverable_exit_codes` | `[3, 4]` | 触发 recovery 的 stage 退出码 |
+| `log_tail_lines` | `200` | 注入 Agent 的 stage 日志尾行数 |
+| `require_push_for_skill_fix` | `true` | skill 修复后 push 失败是否仍视为 `fix`（默认仍 `fix`，仅 WARN） |
+
+#### 日志事件（`stage=pipeline`）
+
+| 事件 | 级别 | 时机 |
+| --- | --- | --- |
+| `recovery_start` | INFO | 开始 recovery | `failed_stage`, `exit_code`, `attempt` |
+| `recovery_review` | INFO | Agent 完成自评 / 脚本 diff 摘要 | `repair_target`, `files_changed[]` |
+| `recovery_git_push` | INFO / WARN | skill 或 project push 结果 | `repo`, `pushed`, `commit` |
+| `recovery_complete` | INFO | recovery 结束 | `decision`, `will_retry_step` |
+| `recovery_blocked` | ERROR | `decision=blocked` | `user_actions[]` |
+| `recovery_skipped` | WARN | 未派发 Agent | `reason` |
+
+#### `stages.json` 写入
+
+`pipeline.recovery_history[]`（追加，不覆盖）：
+
+```json
+{
+  "stage": "prd-review",
+  "exit_code": 4,
+  "attempt": 1,
+  "decision": "fix",
+  "repair_target": "skill",
+  "commit": "870b548",
+  "pushed": true,
+  "at": "2026-05-19 14:30:00 +0800"
+}
+```
+
+#### 实现清单
+
+| 路径 | 职责 |
+| --- | --- |
+| `scripts/run-pipeline.cjs` | step 失败后调用 recovery；按 `decision` 重跑或中止 |
+| `scripts/libs/pipeline-recovery.cjs` | 组装错误包、spawn Agent、Ajv、git commit/push 封装 |
+| `scripts/self-test-pipeline-recovery.cjs` | 无 Agent 确定性自测（门闸、Ajv、bundle） |
+| `prompts/pipeline-recovery.md` | 修复 Agent 提示词 |
+| `schemas/pipeline-recovery-output.schema.json` | recovery JSON |
+
+> **实现状态**：上述脚本已在 `ai-std3` 落地；需配置 `AI_STD3_AGENT_BIN` 才会派发修复 Agent，否则打 `recovery_skipped` 并沿用原「非零继续下游」行为。
+
 ---
 
 
@@ -482,6 +587,7 @@ after report.cjs exit 0:
 
 | 场景 | 退出码 | 处理方式 |
 | --- | ---: | --- |
+| 任意 stage 可恢复失败且已开 recovery | 3 / 4 | 优先 [§3.4](#34-stage-失败后的编排级自动修复run-pipeline)：日志分析 → 修 skill/项目 → commit+push → 重跑本 step；用尽后再 `--from-stage=<stage>` |
 | `inputs/req.md` / `config.env` 未填完 | 2 | 用户补全后重跑 `--from-stage=setup` |
 | prd-spec 不符合 schema / 需求变更 | 4 | Agent 按 `prompts/prd-spec-author.md` 更新，重跑 `--from-stage=prd` |
 | 缺少 `.pipeline/prd-review-<client_target>.json`（某端） | 4 | 对该端重跑 Agent（`--from-stage=prd-review`）；检查对应 `prompts/prd-review-*.md` |
@@ -548,6 +654,7 @@ after report.cjs exit 0:
 | [ui-e2e-triage.md](prompts/ui-e2e-triage.md) | ui_e2e（失败分诊） | → `ui-e2e-triage-<feature_id>.json` |
 | [ui-e2e-run-scenario.md](prompts/ui-e2e-run-scenario.md) | ui_e2e（可选） | YAML 步骤 → MCP 建议 |
 | [report-author.md](prompts/report-author.md) | report（有失败时） | 人话「失败与原因」「建议的下一步」 |
+| [pipeline-recovery.md](prompts/pipeline-recovery.md) | run-pipeline（stage 失败） | 分析日志 → 修 skill/项目 → 自评 → commit+push → `.pipeline/pipeline-recovery-<stage>.json` |
 
 ---
 
