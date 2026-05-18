@@ -6,7 +6,19 @@
 
 ## 脚本
 
-`prd-review.cjs`（编排器）、`prd-review-bootstrap.cjs`（步骤1）、`prd-review-validate.cjs`（步骤3）；步骤2 为各端 Agent **并发**调用
+路径前缀 **`ai-std3/scripts/lib/`**。
+
+| 脚本 | 职责 |
+| --- | --- |
+| `prd-review.cjs` | **编排入口**；步骤 2 为各端 Agent **并发** |
+| `prd-review-bootstrap.cjs` | 步骤 1：骨架、hash 门控 |
+| `prd-review-validate.cjs` | 步骤 3：合并、门闸、写 `stages.prd_review` |
+| `prd-implementation-report.cjs` | 生成 `prd-implementation-summary.md` |
+| `check-hash.cjs` | 文件哈希比对（复用） |
+
+```bash
+node ai-std3/scripts/lib/prd-review.cjs --project=<业务项目根绝对路径>
+```
 
 ## 上游门闸
 
@@ -17,8 +29,8 @@
 | 来源 | 要求 |
 | --- | --- |
 | `<业务项目根绝对路径>/docs/prd-spec.md` | PRD 总源头 |
-| `<业务项目根绝对路径>/docs/prd-<client_target>.json` | 各端结构化 PRD（`stages.prd.outputs.client_targets[]` 所列每一端） |
-| `<业务项目根绝对路径>/docs/feature_list-<client_target>.md` | 各端特性表（校验与报告展示用） |
+| 各端 PRD 内容文件 | `stages.prd.outputs.client_targets[]` 每一端；路径映射见 [prd § client_target 映射](prd.md#client_target--文件与模板映射)（如 `website` → `docs/prd-web.json`） |
+| `docs/feature_list-<client_target>.md` | 各端特性表（`<client_target>` 为逻辑端名，与 prd 阶段一致） |
 | `<业务项目根绝对路径>/.pipeline/stages.json` | `stages.prd.outputs.features[]`（跨端 feature 全集，评审覆盖门闸的真源） |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 部署/流水线配置（仅非敏感字段，供评审引用） |
 
@@ -74,7 +86,7 @@
 
 | 端标识 | 提示词模板 | 产出文件 |
 | --- | --- | --- |
-| `web` / `website` / `frontend` | `prompts/prd-review-web.md` | `.pipeline/prd-review-web.json`（或 `-website.json`，与 `client_target` slug 一致） |
+| `web` / `website` / `frontend` | `ai-std3/prompts/prd-review-web.md` | `.pipeline/prd-review-<逻辑端名>.json`（如 `prd-review-website.json`；**不**强制 `-web` 后缀，与 `stages.prd.outputs.client_targets[]` 项一致） |
 | `backend` / `server` / `api` | `prompts/prd-review-backend.md` | `.pipeline/prd-review-backend.json` |
 | `mobile` / `ios` / `android` | `prompts/prd-review-mobile.md` | `.pipeline/prd-review-mobile.json` |
 | `admin` | `prompts/prd-review-admin.md` | `.pipeline/prd-review-admin.json` |
@@ -160,7 +172,7 @@
 
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
-| stage 启动 | `stage_start` | INFO | `run_id`, `project`, `started_at`（本地时间） |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
 | 步骤1：初始化骨架 | `file_created` / `file_skipped` | INFO | `path`（stages.json 中 stages.prd_review） |
 | 步骤1：全局哈希比对 | `hash_check` | INFO | `file`（prd-spec.md）, `stored_hash`, `computed_hash`, `hit` |
 | 步骤1：按端哈希比对 | `hash_check` | INFO | `client_target`, `file`（prd-<client_target>.json）, `stored_hash`, `computed_hash`, `hit`, `skip_agent`（bool） |
@@ -180,8 +192,17 @@
 | 步骤3：校验通过 | `validation_pass` | INFO | `decision: "passed"`, `phase_plan_phases[]`, `features_in_plan`, `features_deferred`, `per_target_decisions`（`{ "<client_target>": "passed" }`） |
 | 步骤3：写完成态 | `file_updated` | INFO | `path`（stages.json）, `status: "completed"`, `prd_spec_hash`, `per_target_hashes`, `current_phase` |
 | 步骤3：生成报告 | `file_created` | INFO | `path`（.pipeline/reports/prd-implementation-summary.md） |
-| stage 完成 | `stage_complete` | INFO | `duration_ms`, `decision`, `phase_count`, `client_targets_reviewed[]` |
-| 任意步骤失败 | `stage_failed` | ERROR | `step`, `exit_code`, `reason`, `failed_client_target`（若有） |
+| stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `decision`, `phase_count`, `client_targets_reviewed[]` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_client_target`（若有） |
+
+## 退出码（本 stage）
+
+| 码 | 场景 |
+| ---: | --- |
+| 0 | 成功；或全局/按端哈希命中跳过 Agent 后校验通过 |
+| 1 | prd 门闸未满足、缺少 `features[]` |
+| 4 | 任一端 Agent 失败、合并冲突、覆盖门闸或 schema 失败 |
+| 5 | 检测到 `stop.signal` |
 
 ## 输出
 
