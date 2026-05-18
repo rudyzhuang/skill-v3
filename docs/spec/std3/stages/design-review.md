@@ -6,10 +6,10 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/lib/`**：`design-review.cjs`、`design-review-bootstrap.cjs`、`design-review-validate.cjs`；步骤 2 为按 **feature** 并发的 Agent 池；复合编排时支持 **`--tick`**。
+脚本根目录前缀 **`ai-std3/scripts/`**：`stages/design-review.cjs`（编排入口）、`libs/design-review-bootstrap.cjs`、`libs/design-review-validate.cjs`；步骤 2 为按 **feature** 并发的 Agent 池；复合编排时支持 **`--tick`**。
 
 ```bash
-node ai-std3/scripts/lib/design-review.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
+node ai-std3/scripts/stages/design-review.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
 ```
 
 > **注意**：直接评审 `design.json` 与 PRD 对齐；**不**评审、**不**修改 `docs/contracts/` 五件套。
@@ -79,16 +79,19 @@ pipeline.autorun.feature_max_parallel
 ## 处理逻辑
 
 1. **`design-review-bootstrap.cjs`（bootstrap + 确定性预检）**：
-- 初始化 `stages.design_review` 骨架（若不存在），含 `features.<feature_id>.status`、`features.<feature_id>.group_id`、`features.<feature_id>.can_enter_codegen`（默认 `false`）、`outputs.gaps[]`、`outputs.released_groups[]`、`outputs.decision=pending`。
-- 从 `stages.design.inputs.feature_ids[]` 收集全集；**仅对** `stages.design.features.<id>.status=completed` 的 feature 做确定性预检（其余保持 `pending_review`）。
-- 计算 `design_bundle_hash`（**当前** `status=completed` 的 feature 之 `design.json` 按 `feature_id` 排序拼接后 SHA-256，随 design 增量完成而更新）与 `phase_plan_hash`（同 design stage）。
-- **确定性预检**（不调用 Agent，直接写入初始 `gaps[]`）：
-- `acceptance.length < 3` → `blocking`；
-- `dependencies[]` 中 id 不在本期 `feature_ids[]` → `blocking`；
-- 跨 feature **modify_files** 路径冲突（同一文件被多个 feature 修改）→ `warning`（可配置升级为 `blocking`）；
-- `file_plan.new_files` 与 `modify_files` 路径重叠 → 该 feature `blocking`。
-- 若全部 `feature_ids[]` 已 `decision=passed`、全部 group 已 release，且 `design_bundle_hash` 与 `inputs.design_bundle_hash` 一致 → **跳过步骤 2**，直接进入步骤 3；否则步骤 2 按 feature 增量评审（hash 命中且该 feature 上次 `passed` 的跳过 Agent）。
-- 写 `stages.design_review.status=running`。
+- 从 `stages.design.inputs.feature_ids[]` 收集全集。
+- **先读旧值**：读取 `stages.design_review.inputs.design_bundle_hash`（骨架不存在则为 `null`）与 `stages.design_review.inputs.phase_plan_hash`。
+- **计算新值**：`design_bundle_hash_new`（当前所有 `stages.design.features.<id>.status=completed` 的 feature，按 `feature_id` 字典序排列各自 `docs/designs/<id>.design.json` 的 SHA-256，再对该列表做 `JSON.stringify + SHA-256`，即 hash-of-hashes 方式；随 design 增量完成而更新）；`phase_plan_hash_new`（同 design stage 算法）。
+- **hash 门控（全段跳过）**：若 `design_bundle_hash_new == 旧值` **且** `stages.design_review.status=completed` **且** `outputs.decision=passed` **且** 全部 `released_groups[]` 覆盖全部 `dependency_groups[]`，则**整段跳过**（写 `stage_skipped` + 退出码 0，不修改 stages.design_review）。
+- **骨架处理 + 写入新值**（非跳过路径）：
+  - 若骨架**不存在**：初始化 `stages.design_review`，含 `inputs.design_bundle_hash = design_bundle_hash_new`、`inputs.phase_plan_hash = phase_plan_hash_new`、`features.<feature_id>.status = pending_review`、`features.<feature_id>.group_id`、`features.<feature_id>.can_enter_codegen = false`、`outputs.gaps[]`、`outputs.released_groups[]`、`outputs.decision = pending`。
+  - 若骨架**已存在**：将任何状态为 `running` 的 feature 重置为 `pending_review`（zombie 恢复）；若 `design_bundle_hash` 变化（design 重跑新增 feature），将新增 feature 的 `features.<id>` 初始化为 `pending_review`；写入新 hash 值。
+- **确定性预检**（仅对 `stages.design.features.<id>.status=completed` 且 `design_review.features.<id>.status∈{pending_review,failed}` 的 feature，不调用 Agent，直接写入 `gaps[]`）：
+  - `acceptance.length < 3` → `blocking`；
+  - `dependencies[]` 中 id 不在本期 `feature_ids[]` → `blocking`；
+  - 跨 feature **modify_files** 路径冲突（同一文件被多个 feature 修改）→ `warning`（可配置升级为 `blocking`）；
+  - `file_plan.new_files` 与 `modify_files` 路径重叠 → 该 feature `blocking`。
+- 写 `stages.design_review.status=running`；步骤 2 按 feature 增量评审（hash 命中且上次 `decision=passed` 的跳过 Agent）。
 
 2. **Agent-Review（按 feature 并发，与 design 流水线并行）**：
 - 每轮 `--tick` 从「`design.features.<id>.status=completed` 且 `design_review.features.<id>` 未 `passed`/`failed`」集合中取就绪 feature，**无 blocking 确定性 gap** 者入队。
@@ -141,9 +144,9 @@ pipeline.autorun.feature_max_parallel
 - 合并 `outputs.gaps[]`（附 `feature_id`）与逐 feature `decision`；刷新 `released_groups[]` / `features.<id>.can_enter_codegen`（与步骤 2 组级放行规则一致）。
 - **门闸（两级）**：
   - **feature 级**：含 `blocking` gap 或 `decision∈{failed,needs_design_fix}` → 该 feature `can_enter_codegen=false`；若属某 group，**整组**不得新增 release（已 release 的组若后验失败，写 `group_revoked` 日志，下游由编排器停止该组在途任务）。
-  - **stage 级**：全部 `feature_ids[]` 已评审且 `outputs.released_groups[]` 覆盖全部 `dependency_groups[]` → `status=completed`、`outputs.decision=passed`、`validation.passed=true`；若仍有 feature 未 `passed` 但无在途 design/review → `decision=needs_fix`，退出码 **4**。
+  - **stage 级**：全部 `feature_ids[]` 已评审且 `outputs.released_groups[]` 覆盖全部 `dependency_groups[]` → `status=completed`、`outputs.decision=passed`、`validation.passed=true`；若仍有 feature 未 `passed` 且无在途 design/review（无法自动继续）→ `status=failed`、`decision=needs_fix`，退出码 **4**。
 - `outputs.can_enter_codegen`：任一 group 已 release 即为 `true`（兼容下游 stage 启动条件）；**执行具体 feature 任务**时下游须检查 `features.<id>.can_enter_codegen`（见 [§3.1 复合编排](../std3.md#31-design--design-review-复合编排)）。
-- 写 `inputs.design_bundle_hash`、`inputs.phase_plan_hash`、`outputs.blocking_count`、`outputs.warning_count`。
+- 写 `outputs.blocking_count`、`outputs.warning_count`（`inputs.design_bundle_hash` / `phase_plan_hash` 已由 bootstrap 写入，此处无需重算）。
 - 生成 `.pipeline/reports/design-review-summary.md`（含已 release / 待 release 的 group 表）。
 - 失败时：`needs_design_fix` → `--from-stage=design --feature=`；仅评审 → `--from-stage=design-review --feature=`。
 
@@ -154,12 +157,13 @@ pipeline.autorun.feature_max_parallel
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
-| 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.design_review） |
+| 步骤1：初始化/更新 | `file_created` / `file_updated` | INFO | `path`（stages.design_review），`zombie_features_reset`（list），`new_features_added`（list） |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `feature_ids[]`, `deterministic_blocking_count`, `deterministic_warning_count` |
 | 步骤1：bundle 哈希 | `hash_check` | INFO | `design_bundle_hash`, `stored_hash`, `computed_hash`, `hit` |
 | 步骤1：整体跳过 Agent | `stage_skipped` | INFO | `reason: "design_bundle_hash matched, decision=passed"` |
 | 步骤1：写 running | `file_updated` | INFO | `status: "running"`, `effective_parallel` |
 | 步骤2：组放行 | `group_released` | INFO | `group_id`, `feature_ids[]`, `released_groups_count` |
+| 步骤2/3：组撤销 | `group_revoked` | WARN | `group_id`, `reason`（如 `blocking_gap_found`）, `downstream_tasks_stopped`（bool） |
 | 步骤2：单 feature 评审完 | `feature_review_complete` | INFO | `feature_id`, `group_id`, `decision`, `group_all_passed`（bool） |
 | 步骤2：批次开始 | `agent_batch_start` | INFO | `batch_id: "design-review-tick-<n>"`, `feature_ids[]`, `agents_total`, `agents_skipped[]`, `effective_parallel` |
 | 步骤2：单 feature 启动 | `agent_start` | INFO | `agent_id: "design-review-agent-<feature_id>"`, `feature_id`, `prompt: "design-review.md"`, `input_files: ["designs/<feature_id>.design.json","prd-spec.md",...]` |
@@ -177,13 +181,14 @@ pipeline.autorun.feature_max_parallel
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 成功；`--tick` 单轮完成；或 hash 跳过 |
-| 1 | 上游门闸未满足、缺少 `dependency_groups[]` |
-| 3 | 单 feature 评审 Agent 超时 |
-| 4 | blocking gap / `needs_design_fix` / 组未全部 release |
-| 5 | 检测到 `stop.signal` |
+| 码 | 场景 | stages.design_review.status |
+| ---: | --- | --- |
+| 0 | 成功（批量）或 `--tick` 单轮完成 | `completed` / `running` |
+| 0 | 全局 hash 命中整段跳过 | `completed`（不变） |
+| 1 | 上游门闸未满足、缺少 `dependency_groups[]` | `failed` |
+| 3 | 单 feature 评审 Agent 超时 | feature 级 `failed`；stage 级视全局 |
+| 4 | blocking gap / `decision=needs_fix` / 组未全部 release | `failed` |
+| 5 | 检测到 `stop.signal` | `stopped` |
 
 ## 输出
 
