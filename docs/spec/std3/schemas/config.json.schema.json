@@ -45,6 +45,21 @@
                 "feature_max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 }
               }
             },
+            "create_ui_scenarios": {
+              "type": "object",
+              "properties": {
+                "feature_max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 },
+                "max_scenarios_per_feature": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
+              }
+            },
+            "code_review": {
+              "type": "object",
+              "properties": {
+                "feature_max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 },
+                "max_retries": { "type": "integer", "minimum": 0, "maximum": 5, "default": 2 },
+                "file_plan_strict": { "type": "boolean", "default": false }
+              }
+            },
             "deploy": {
               "type": "object",
               "properties": {
@@ -251,14 +266,16 @@
         "stages": {
           "type": "object",
           "properties": {
-            "design_s":  { "type": "integer", "minimum": 1 },
-            "design_review_s": { "type": "integer", "minimum": 1 },
+            "design_s":              { "type": "integer", "minimum": 1 },
+            "design_review_s":       { "type": "integer", "minimum": 1 },
             "create_ui_scenarios_s": { "type": "integer", "minimum": 1 },
-            "build_s":   { "type": "integer", "minimum": 1 },
-            "codegen_s": { "type": "integer", "minimum": 1 },
-            "deploy_s":  { "type": "integer", "minimum": 1 },
-            "ui_e2e_s":  { "type": "integer", "minimum": 1 },
-            "ui_e2e_scenario_s": { "type": "integer", "minimum": 1 }
+            "build_s":               { "type": "integer", "minimum": 1 },
+            "codegen_s":             { "type": "integer", "minimum": 1 },
+            "code_review_s":         { "type": "integer", "minimum": 1, "description": "code-review 单 feature Agent 挂钟超时（秒）；超时可重跑 --from-stage=code-review --feature=<id>" },
+            "deploy_s":              { "type": "integer", "minimum": 1 },
+            "ui_e2e_s":              { "type": "integer", "minimum": 1 },
+            "ui_e2e_scenario_s":     { "type": "integer", "minimum": 1 },
+            "report_agent_s":        { "type": "integer", "minimum": 1, "default": 300, "description": "report 阶段 Agent 撰写失败摘要的挂钟超时（秒）；超时降级为脚本模板填充" }
           }
         }
       }

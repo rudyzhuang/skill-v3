@@ -12,6 +12,7 @@
     "file_plan",
     "api_outline",
     "acceptance",
+    "constraints",
     "dependencies",
     "risks"
   ],

@@ -138,15 +138,16 @@
 },
 "timeouts": {
     "stages": {
-    "design_s":  1200,
-    "design_review_s": 900,
+    "design_s":              1200,
+    "design_review_s":       900,
     "create_ui_scenarios_s": 600,
-    "build_s":   300,
-    "codegen_s": 1800,
-    "code_review_s": 600,
-    "deploy_s":  600,
-    "ui_e2e_s":  1800,
-    "ui_e2e_scenario_s": 600
+    "build_s":               300,
+    "codegen_s":             1800,
+    "code_review_s":         600,
+    "deploy_s":              600,
+    "ui_e2e_s":              1800,
+    "ui_e2e_scenario_s":     600,
+    "report_agent_s":        300
     }
 }
 }

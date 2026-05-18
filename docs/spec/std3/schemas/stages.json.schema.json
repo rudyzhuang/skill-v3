@@ -53,7 +53,8 @@
     },
     "stageStatus": {
       "type": "string",
-      "enum": ["started", "running", "completed", "failed", "skipped", "stopped"]
+      "enum": ["started", "running", "completed", "failed", "skipped", "stopped", "pending_user_input"],
+      "description": "pending_user_input：仅用于 setup 阶段因 verify-inputs 未通过（退出码 2）时；等待用户补全 req.md/config.env"
     },
     "validation": {
       "type": "object",
