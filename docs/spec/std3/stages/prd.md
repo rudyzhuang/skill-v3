@@ -16,17 +16,17 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/`**。
+脚本根目录前缀 **`ai-std3/scripts/`**。
 
 | 脚本 | 职责 |
 | --- | --- |
-| `lib/prd.cjs` | **编排入口**（`run-pipeline` 调用） |
-| `lib/prd-bootstrap.cjs` | 步骤 1：初始化 `stages.prd`、hash 门控、拷贝 prd-spec 模板 |
-| `lib/prd-validate.cjs` | 步骤 4：校验、聚合 `features[]`、写完成态 |
-| `lib/check-hash.cjs` | 计算文件 SHA-256 并与 `stages.*.inputs` 中存储值比对（各 stage 复用） |
+| `stages/prd.cjs` | **编排入口**（`run-pipeline` 调用） |
+| `libs/prd-bootstrap.cjs` | 步骤 1：初始化 `stages.prd`、hash 门控、拷贝 prd-spec 模板 |
+| `libs/prd-validate.cjs` | 步骤 4：校验、聚合 `features[]`、写完成态 |
+| `libs/check-hash.cjs` | 计算文件 SHA-256 并与 `stages.*.inputs` 中存储值比对（各 stage 复用） |
 
 ```bash
-node ai-std3/scripts/lib/prd.cjs --project=<业务项目根绝对路径>
+node ai-std3/scripts/stages/prd.cjs --project=<业务项目根绝对路径>
 ```
 
 ### `client_target` → 文件与模板映射
@@ -60,14 +60,14 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 
 1. **`prd-bootstrap.cjs`（bootstrap）**：
 - 判断 `<业务项目根绝对路径>/.pipeline/stages.json` 文件的 `stages.prd` 的骨架是否存在，
-若不存在，则在既有 `.pipeline/stages.json` 上**增量**写入 `stages.prd` 骨架（**不**覆盖 `stages.setup`）；`outputs.config_*` 从 `stages.setup.outputs` 复制。模板字段参考 [`stages.json.template`](../templates/stages.json.template) 与 [`stages.json.schema.json`](../schemas/stages.json.schema.json) 的 `prdStage`：
+若不存在，则在既有 `.pipeline/stages.json` 上**增量**写入 `stages.prd` 骨架（**不**覆盖 `stages.setup`）；`outputs.config_*` 从 `stages.setup.outputs` 复制；**同时立即计算** `inputs/req.md` SHA-256 并写入 `inputs.req_hash`（不等到步骤 4）。模板字段参考 [`stages.json.template`](../templates/stages.json.template) 与 [`stages.json.schema.json`](../schemas/stages.json.schema.json) 的 `prdStage`：
 ```json
 {
     "status": "started",
-    "started_at": <当前时间戳>,
+    "started_at": "<当前本地时间>",
     "completed_at": null,
     "inputs": {
-        "req_hash": null,
+        "req_hash": "<req.md SHA-256>",
         "prd_spec_hash": null,
         "source_req": "<业务项目根绝对路径>/inputs/req.md",
         "raw_input_refs": []
@@ -102,13 +102,17 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
     }
 }
 ```
-若存在，则调用脚本 `check_hash.cjs`：计算 `<业务项目根绝对路径>/inputs/req.md` 的 SHA-256 并与 `stages.prd.inputs.req_hash` 比对；若哈希一致且 `stages.prd.status=completed`，则**同时跳过步骤 2（Agent-A）和步骤 3（Agent-B）**，直接进入步骤 4（脚本校验）；否则继续执行步骤 2。
+若存在，则调用脚本 `check-hash.cjs`：先读取 `stages.prd.inputs.req_hash` 旧值，再计算 `<业务项目根绝对路径>/inputs/req.md` 当前 SHA-256，比对确定 hit/miss，然后将新值**覆盖写入** `stages.prd.inputs.req_hash`（无论 hit/miss，确保下次比对正确）；
+  - 若 `req_hash` 命中（与旧值一致）**且** `stages.prd.status=completed`：**整段 stage 跳过**（写 `stage_skipped` 日志 + 退出码 0），不执行步骤 2～4；
+  - 若 `req_hash` 命中 **且** `prd-spec.md` 已存在 **且** `status ≠ completed`：跳过 Agent-A（写 `agent_skipped`），写 `stages.prd.status=running`，继续步骤 3（Agent-B 按端检查）；
+  - 否则（req_hash miss 或 prd-spec.md 不存在）：继续执行步骤 2（Agent-A 全量运行）。
 
 - 判断 `<业务项目根绝对路径>/docs/prd-spec.md` 是否存在；若不存在，从 [`prd-spec.md.template`](../templates/prd-spec.md.template) 拷贝。
 
 2. **Agent-A（补全 prd-spec，单次调用）**：脚本写 `stages.prd.status=running` 后启动，按 `ai-std3/prompts/prd-spec-author.md` 提示词执行：
 - 同时精读 `<业务项目根绝对路径>/inputs/req.md`（需求原文）与已存在的 `<业务项目根绝对路径>/docs/prd-spec.md`（现有草稿，若为空模板则视为全新），**增量补全** prd-spec，产出 **`<业务项目根绝对路径>/docs/prd-spec.md`**（中文、含 `## 客户端目标` 列表与 `## 核心功能` 表）。
-- Agent-A 完成后退出；脚本从 prd-spec.md 解析 `client_targets[]` 列表，准备并发调用 Agent-B。
+- **超时**：受 `config.dev.json` 的 `timeouts.stages.prd_s`（默认 300 s）约束；超时退出码 **3**。
+- Agent-A 完成后退出；脚本立即计算 `prd-spec.md` SHA-256 并写入 `stages.prd.inputs.prd_spec_hash`（供步骤 3 Agent-B 按端跳过使用）；再从 prd-spec.md 解析 `client_targets[]` 列表，准备并发调用 Agent-B。
 
 3. **Agent-B（各端 prd.json，每端一个 Agent 并发）**：脚本按 `client_targets[]` 同时启动 N 个 Agent，每个 Agent 仅处理自己的端，按 `ai-std3/prompts/prd-client-author.md` 提示词执行：
 - 精读 `docs/prd-spec.md` 与当前端内容文件（见上表「内容文件」列；若不存在，脚本按映射从对应 `.template` 拷贝，未知端用 `prd-default.json.template`），**增量补全**该端 prd.json，字段：
@@ -154,14 +158,15 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
     }
 ```
 - 同时产出 **`<业务项目根绝对路径>/docs/feature_list-<client_target>.md`**（Markdown 表，每行一个 feature_id，含名称、优先级、阶段）。
-- 若该端为后端（backend/api），同时解析域名/部署要求，填写 `<业务项目根绝对路径>/docs/config.dev.json` 的 `domain`、`deploy.services[]`、`smoke.checks[]` 初稿。
+- 若该端为后端（backend/api），同时解析域名/部署要求，以 **merge（深合并，不删除已有字段）** 方式更新 `<业务项目根绝对路径>/docs/config.dev.json` 的 `domain`、`deploy.services[]`、`smoke.checks[]` 初稿；**禁止**修改 `CLOUD_PROVIDER` 及凭证相关字段（由 setup 写入）。
+- 各端 Agent-B 超时同受 `config.dev.json` 的 `timeouts.stages.prd_s` 约束；单端超时不影响其他端，该端记 `agent_failed`，退出码 **4**（全部端完成后汇总失败）。
 - 所有 Agent-B 全部完成后，脚本继续执行步骤 4。
 
 > **稳定性保障（防止每次 Agent 输出漂移）**：
 >
 > | 机制 | 作用于 | 说明 |
 > | --- | --- | --- |
-> | **输入哈希门控** | Agent-A / Agent-B | 启动 Agent-A 前：`req.md` SHA-256 与 `stages.prd.inputs.req_hash` 比对，命中且 `prd-spec.md` 已存在则**跳过 Agent-A**；启动各端 Agent-B 前：`prd-spec.md` SHA-256 与 `stages.prd.inputs.prd_spec_hash` 比对，且该端 `docs/prd-<client_target>.json` 与 `docs/feature_list-<client_target>.md` 均已存在时，**跳过该端 Agent-B**（写 `agent_skipped`）；全部端均跳过时直接进入步骤 4 |
+> | **输入哈希门控** | Agent-A / Agent-B | Agent-A 跳过条件（bootstrap 中）：`req.md` SHA-256 命中 **且** `prd-spec.md` 已存在；Agent-B 各端跳过条件（步骤 3 启动前）：`prd-spec.md` SHA-256 命中（对比 `prd_spec_hash`）**且** 该端 `docs/prd-<client_target>.json` 通过 Ajv schema 校验 **且** `docs/feature_list-<client_target>.md` 已存在（写 `agent_skipped`）；全部端均跳过时直接进入步骤 4 |
 > | **增量写保护** | Agent-A / Agent-B | Prompt 模板明确要求：**只填写占位符或新增缺失字段，禁止删除或修改已有非空内容**；Agent 产出后由脚本做 diff，若发现已有非空字段被清空则拒绝写入并重试 |
 > | **Schema 强校验 + 重试** | Agent-B | 每个端的 prd.json 产出后立即用 Ajv 校验 schema（必填字段、类型、`features[]` 非空）；校验失败则带错误提示**重试该端 Agent，最多 2 次**；仍失败退出码 **4** |
 > | **Prompt 输出格式锁定** | Agent-A / Agent-B | 提示词模板末尾附 `## 输出约束` 节，逐字要求输出格式（文件路径、必填节名称、JSON 字段名），Agent 不得自行增删顶层结构 |
@@ -209,7 +214,7 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 > - `dependencies[]` 含未知 id、自身、或形成自环 → 同上（环检测完整版在 design bootstrap，自环必须在此拦截）；
 > - 命名违反规则（单端使用跨端前缀，或反之）→ `warning`，记入 `validation.warnings[]`（不阻断，除非团队后续收紧策略）。
 
-- 通过后写 `stages.prd`：`status=completed`、`validation.passed=true`、`inputs.req_hash`（req.md 哈希）、`inputs.prd_spec_hash`（prd-spec.md 哈希）、`outputs.client_targets[]`、`outputs.features[]`（跨端聚合结果，**索引真源**）、`outputs.features_hash`（`features[]` 稳定序列化后 SHA-256，下游 stage 命中跳过用）、`outputs.features_total`。
+- 通过后写 `stages.prd`：`status=completed`、`validation.passed=true`、`inputs.req_hash`（req.md SHA-256，bootstrap 已写，此处确认一致）、`inputs.prd_spec_hash`（prd-spec.md SHA-256，Agent-A 完成后已写，此处确认一致）、`outputs.client_targets[]`、`outputs.features[]`（跨端聚合结果，**索引真源**）、`outputs.features_hash`（按 `feature_id` 升序后，每条 feature 仅取 `feature_id/name/priority/phase/description/client_targets/dependencies/sources` 八字段，`JSON.stringify` 序列化后的 SHA-256；下游 stage 命中跳过用）、`outputs.features_total`。
 - 可选 git commit+push（若 `config.dev.json.git.auto_commit=true`）。
 
 ## 日志事件（prd）
@@ -220,8 +225,8 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
 | 步骤1：初始化骨架 | `file_created` / `file_skipped` | INFO | `path`（stages.json 中 stages.prd）, `from_template: true` |
-| 步骤1：req 哈希比对 | `hash_check` | INFO | `file`（req.md）, `stored_hash`, `computed_hash`, `hit`, `skip_agent_a`（bool） |
-| 步骤1：整体跳过（req 未变且已完成） | `stage_skipped` | INFO | `reason: "req_hash matched, status=completed"` |
+| 步骤1：req 哈希比对 | `hash_check` | INFO | `file`（req.md）, `stored_hash`, `computed_hash`, `hit`, `updated_stored: true`（bootstrap 立即将 computed_hash 写入 stages.prd.inputs.req_hash）, `skip_agent_a`（bool） |
+| 步骤1：整段跳过（req_hash 命中且 status=completed） | `stage_skipped` | INFO | `reason: "req_hash matched, status=completed"`, `exit_code: 0` |
 | 步骤1：拷贝 prd-spec 模板 | `file_created` / `file_skipped` | INFO | `path`（prd-spec.md）, `from_template: true` |
 | 步骤2：写 running | `file_updated` | INFO | `path`（stages.json）, `status: "running"` |
 | 步骤2：Agent-A 启动 | `agent_start` | INFO | `agent_id: "prd-agent-a"`, `prompt: "prd-spec-author.md"`, `input_files: ["req.md","prd-spec.md"]` |
@@ -250,12 +255,14 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 成功；或 req/prd-spec 哈希命中跳过 Agent 后校验通过 |
-| 1 | 缺少 setup 产物、门闸未满足、`stages.json` 写入失败 |
-| 4 | Agent/Schema/聚合/依赖校验失败；`blocking_issues` 非空 |
-| 5 | 检测到 `stop.signal` |
+| 码 | 场景 | stages.prd.status |
+| ---: | --- | --- |
+| 0 | 成功（含 Agent 跳过后校验通过）| `completed` |
+| 0 | req_hash 命中且 status=completed（整段跳过） | `completed`（不变） |
+| 1 | 缺少 setup 产物、门闸未满足、`stages.json` 写入失败 | `failed` |
+| 3 | Agent-A 或任一 Agent-B 超时 | `failed` |
+| 4 | Agent/Schema/聚合/依赖校验失败；`blocking_issues` 非空 | `failed` |
+| 5 | 检测到 `stop.signal` | `stopped` |
 
 与 [std3 全局退出码表](../std3.md#退出码) 一致。
 
