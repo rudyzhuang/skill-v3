@@ -8,9 +8,10 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@cursor/sdk": "latest",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "@cursor/sdk": "latest",
+    "blessed": "^0.1.81",
     "js-yaml": "^4.1.0"
   }
 }
