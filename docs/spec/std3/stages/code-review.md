@@ -8,10 +8,10 @@
 
 ## 脚本
 
-路径前缀 **`ai-std3/scripts/lib/`**：`code-review.cjs`（内部循环直至全部 feature 终态）、`code-review-bootstrap.cjs`、`code-review-validate.cjs`。
+脚本根目录前缀 **`ai-std3/scripts/`**：`stages/code-review.cjs`（编排入口，内部循环直至全部 feature 终态）、`libs/code-review-bootstrap.cjs`、`libs/code-review-validate.cjs`。
 
 ```bash
-node ai-std3/scripts/lib/code-review.cjs --project=<业务项目根绝对路径> [--feature=<feature_id>]
+node ai-std3/scripts/stages/code-review.cjs --project=<业务项目根绝对路径> [--feature=<feature_id>]
 ```
 
 > 与 [design-review](design-review.md) 同款 review-stage 结构（bootstrap → 并发 Agent → validate），但 **不**跨 stage 并行（上游 codegen 已 `completed`），故**不**提供 `--tick`，单次 `code-review.cjs` 运行内部自循环直至全部 feature 终态。
@@ -84,18 +84,20 @@ effective_parallel = min(
 ## 处理逻辑
 
 1. **`code-review-bootstrap.cjs`（bootstrap + 确定性预检）**：
-   - 初始化 `stages.code_review` 骨架（若不存在），含 `features.<feature_id>.{status, group_id, commit_reviewed, review_hash, decision, critical_issues, warnings, duration_ms, attempts_used, last_error}`、`outputs.feature_reviews[]`、`outputs.decision=pending`、`outputs.critical_issues_total=0`、`outputs.warnings_total=0`、`outputs.failed_features[]`、`outputs.skipped_features[]`。
    - 从 `stages.codegen.outputs.feature_artifacts[]` 收集目标 feature 集合（`feature_id` / `commit` / `branch` / `worktree_path` / `design_hash`）。
-   - 计算 `review_bundle_hash`：当前全部目标 feature 的 `(feature_id + commit + design_hash)` 排序后拼接 SHA-256；与 `stages.code_review.inputs.review_bundle_hash` 比对：
-     - 命中且全部目标 feature 上次 `decision != failed` → **整体跳过步骤 2**，直接进入步骤 3（`stage_skipped`，`reason: "review_bundle_hash matched, prior decision retained"`）。
-     - 未命中 → 按 feature 增量评审（单 feature 上次 `commit_reviewed == 当前 commit` 且 `review_hash` 一致且 `decision != failed` → 单 feature 跳过 Agent，`agent_skipped`）。
+   - **先读旧值**：读取 `stages.code_review.inputs.review_bundle_hash`（骨架不存在则为 `null`）。
+   - **计算新值**：`review_bundle_hash_new` = 按 `feature_id` 字典序排列各 feature 的 `${feature_id}:${commit}:${design_hash}` 字符串组成列表，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与其他 stage 一致）。
+   - **hash 门控（全段跳过）**：若 `review_bundle_hash_new == 旧值` **且** `stages.code_review.status=completed` **且** 全部目标 feature `decision ≠ failed` → **整段跳过**（写 `stage_skipped`，退出码 0，不进入步骤 2 / 步骤 3）。
+   - **骨架处理 + 写入新值**（非跳过路径）：
+     - 若骨架**不存在**：初始化 `stages.code_review`，含 `inputs.review_bundle_hash = review_bundle_hash_new`、`features.<feature_id>.{status=pending, group_id, commit_reviewed=null, review_hash=null, decision=pending, critical_issues=0, warnings=0, duration_ms=0, attempts_used=0, last_error=null}`、`outputs.feature_reviews[]`、`outputs.decision=pending`、`outputs.critical_issues_total=0`、`outputs.warnings_total=0`、`outputs.failed_features[]`、`outputs.skipped_features[]`。
+     - 若骨架**已存在**：写入 `inputs.review_bundle_hash = review_bundle_hash_new`；将 `status=running` 的 feature 重置为 `pending`（zombie 重置）；`status=completed` / `failed` / `skipped` 的 feature 状态保留；新增 feature 初始化为 `pending`。
    - **确定性预检**（不调用 Agent，命中则记录为 `deterministic_issues[]`，作为 Agent 输入注入提示词，并直接计入最终 `issues[]`，不被 Agent `passed` 结论覆盖）：
      - worktree HEAD ≠ `features.<id>.commit` → 该 feature `blocking`（`critical`），`reason: "worktree HEAD drifted"`，**不**入池（先纠正 codegen）；
      - `git diff --name-only <base>..HEAD` 结果集 ⊄ `design.json.file_plan.new_files ∪ modify_files` 的并集 → 越界文件登记 `severity=warning`、`category=file_plan`（可在 `pipeline.stages.code_review.file_plan_strict=true` 时升级为 `critical`）；
      - `files_changed[].length == 0`（codegen commit 空变更）→ `critical`，`reason: "empty commit"`，**不**入池；
      - `design.json.api_outline[].path` 未在 `files_changed[]` 任一文件中粗略命中（`grep -F` 路径字符串）→ `severity=warning`、`category=api_outline`（Agent 进一步确认）；
      - codegen 阶段 `hang_history[].length > 0` → 标 `info` 级提示（不阻塞，仅提示评审 Agent 关注稳定性），**不**作为 issue 计入。
-   - 写 `stages.code_review.status=running`；日志记录 `effective_parallel`、`pending_feature_ids[]`、`deterministic_blocking_count`、`deterministic_warning_count`。
+   - 写 `stages.code_review.status=running`；日志记录 `effective_parallel`、`pending_feature_ids[]`、`zombie_features_reset[]`、`deterministic_blocking_count`、`deterministic_warning_count`。
 
 2. **Agent-CodeReview（按 feature 并发）**：
    - 编排器维护固定大小 `effective_parallel` 的 Worker 池；从「`features.<id>` 未 `passed`/`failed`/`skipped` 且**无 deterministic blocking gap**」集合中取就绪 feature 入池。
@@ -183,7 +185,7 @@ effective_parallel = min(
    >
    > | 机制 | 说明 |
    > | --- | --- |
-   > | **按 feature 哈希门控** | 若 `commit_reviewed == features.<id>.commit` 且 `review_hash` 一致且上次 `decision != failed` → 跳过该 feature Agent（`agent_skipped`） |
+   > | **按 feature 哈希门控** | `review_hash = SHA-256(<code-review-<feature_id>.json 文件内容>)`；若 `commit_reviewed == features.<id>.commit` 且当前文件 SHA-256 == `review_hash` 且上次 `decision != failed` → 跳过该 feature Agent（`agent_skipped`） |
    > | **Schema 强校验 + 重试** | 产出后 Ajv 校验；失败重试该 feature，**最多 `max_retries` 次** |
    > | **确定性 issue 保留** | bootstrap 写入的 `deterministic_issues[]` 不因 Agent `passed` 被覆盖；缺漏 ≥1 项触发 retry |
    > | **decision 派生** | 脚本以 `critical_issues` / `warnings` 派生最终 `decision`，覆盖 Agent 自报，避免 Agent 自我宽松 |
@@ -197,7 +199,7 @@ effective_parallel = min(
      - **feature 级**：`decision=failed`（含 deterministic critical / Agent critical / 多次重试失败 / 超时）→ `features.<id>.status=failed`，记 `last_error`；
      - **stage 级**：存在任何 `features.<id>.decision=failed` 或 `outputs.critical_issues_total > 0` → `stages.code_review.status=failed`、`outputs.decision=failed`、`validation.passed=false`，退出码 **4**（按卡点速查走 `--from-stage=codegen --feature=<id>` 修代码或 `--from-stage=code-review --feature=<id>` 重评）；
      - 全部 `decision ∈ {passed, passed_with_warnings}` → `stages.code_review.status=completed`、`outputs.decision`（`passed` 当且仅当 **全部** feature `passed`；任一 `passed_with_warnings` → 整体 `passed_with_warnings`）、`validation.passed=true`。
-   - 写 `inputs.review_bundle_hash`、`outputs.decision`、`outputs.critical_issues_total` / `warnings_total`。
+   - 写 `outputs.decision`、`outputs.critical_issues_total` / `warnings_total`（`inputs.review_bundle_hash` 已由 bootstrap 写入，此处无需重算）。
    - 生成 `.pipeline/reports/code-review-summary.md`（每 feature 一行：decision、critical/warnings、checklist 通过率、关键 issue 摘要；含 stage 级总计与失败 feature 列表）。
 
 ## 日志事件
@@ -207,11 +209,11 @@ effective_parallel = min(
 | 步骤 | event | LEVEL | 关键 meta 字段 |
 | --- | --- | --- | --- |
 | stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at`（本地时间） |
-| 步骤1：初始化 | `file_created` / `file_skipped` | INFO | `path`（stages.code_review） |
+| 步骤1：初始化/更新 | `file_created` / `file_updated` | INFO | `path`（stages.code_review），`zombie_features_reset[]` |
 | 步骤1：确定性预检 | `validation_pass` / `validation_fail` | INFO/ERROR | `feature_ids[]`, `deterministic_blocking_count`, `deterministic_warning_count`, `out_of_plan_files[]`, `empty_commit_features[]` |
 | 步骤1：bundle 哈希 | `hash_check` | INFO | `review_bundle_hash`, `stored_hash`, `computed_hash`, `hit` |
-| 步骤1：整体跳过 Agent | `stage_skipped` | INFO | `reason: "review_bundle_hash matched, prior decision retained"` |
-| 步骤1：写 running | `file_updated` | INFO | `status: "running"`, `effective_parallel`, `pending_feature_ids[]` |
+| 步骤1：整段跳过 | `stage_skipped` | INFO | `reason: "review_bundle_hash matched, prior decision retained"`, `exit_code: 0` |
+| 步骤1：写 running | `file_updated` | INFO | `status: "running"`, `effective_parallel`, `pending_feature_ids[]`, `zombie_features_reset[]` |
 | 步骤1：diff 预生成 | `file_created` | INFO | `feature_id`, `path: ".pipeline/code-review-<feature_id>.diff"`, `size_bytes` |
 | 步骤2：单 feature 评审完 | `feature_review_complete` | INFO | `feature_id`, `decision`, `critical_issues`, `warnings`, `checklist_passed`, `checklist_failed` |
 | 步骤2：批次开始 | `agent_batch_start` | INFO | `batch_id: "code-review-batch-<n>"`, `feature_ids[]`, `agents_total`, `agents_skipped[]`, `effective_parallel` |
@@ -225,20 +227,21 @@ effective_parallel = min(
 | 步骤3：合并 | `file_updated` | INFO | `feature_reviews_count`, `critical_issues_total`, `warnings_total`, `failed_features_count` |
 | 步骤3：门闸未通过 | `validation_fail` | ERROR | `decision: "failed"`, `failed_feature_ids[]`, `critical_issues_total`, `exit_code: 4` |
 | 步骤3：门闸通过 | `validation_pass` | INFO | `decision: "passed" \| "passed_with_warnings"`, `critical_issues_total: 0`, `warnings_total` |
-| 步骤3：写完成态 | `file_updated` | INFO | `status: "completed"`, `review_bundle_hash` |
+| 步骤3：写完成态 | `file_updated` | INFO | `status: "completed"`, `decision`, `critical_issues_total` |
 | 步骤3：生成报告 | `file_created` | INFO | `path: ".pipeline/reports/code-review-summary.md"` |
 | stage 完成 | `stage_complete` | INFO | `stage`, `duration_ms`, `exit_code: 0`, `decision`, `critical_issues_total` |
 | 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason`, `failed_feature_id`（若有） |
 
 ## 退出码（本 stage）
 
-| 码 | 场景 |
-| ---: | --- |
-| 0 | 全部 feature `passed` |
-| 1 | codegen 未完成或门闸未满足 |
-| 3 | 单 feature 评审 Agent 超时 |
-| 4 | `outputs.decision=failed` 或存在 `critical_issues` |
-| 5 | 检测到 `stop.signal` |
+| 码 | 场景 | stages.code_review.status |
+| ---: | --- | --- |
+| 0 | 全部 feature `passed` 或 `passed_with_warnings` | `completed` |
+| 0 | 全局 hash 命中整段跳过 | `completed`（不变） |
+| 1 | codegen 未完成或上游门闸未满足 | `failed` |
+| 3 | 单 feature 评审 Agent 超时（超出重试次数） | feature 级 `failed`；stage 级视全局 |
+| 4 | `outputs.decision=failed` 或存在 `critical_issues` | `failed` |
+| 5 | 检测到 `stop.signal` | `stopped` |
 
 ## 输出
 
