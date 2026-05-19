@@ -75,12 +75,6 @@ function writeStagesJson(obj) {
 }
 
 // ── config 读取 ───────────────────────────────────────────────────
-function readConfigJson() {
-  const p = path.join(projectRoot, 'docs', `config.${configName}.json`);
-  if (!fs.existsSync(p)) return {};
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return {}; }
-}
-
 function readConfigEnv() {
   const p = path.join(projectRoot, 'docs', 'config.env');
   const env = {};
@@ -647,7 +641,7 @@ async function main() {
   }
 
   // ── 4. 读取配置 ───────────────────────────────────────────────────
-  const config      = readConfigJson();
+  const config      = readConfigJson(projectRoot, configName);
   const envVars     = readConfigEnv();
   const deployCfg   = config.deploy || {};
   const pipelineCfg = config.pipeline || {};

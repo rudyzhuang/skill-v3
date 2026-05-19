@@ -1921,40 +1921,36 @@ async function main() {
     const { allDone, hasFailed } = await doTick(stagesObj, config, featureFilter);
     const dms = Date.now() - startedAt.getTime();
 
+    let tickExit = 0;
     if (allDone) {
       stagesObj = readStagesJson();
       const cgStage = stagesObj.stages.codegen;
       if (cgStage && cgStage.status !== 'completed' && cgStage.status !== 'failed') {
-        const completedAtStr = formatLocalTimeShort();
-        if (!hasFailed) {
-          cgStage.status          = 'completed';
-          cgStage.completed_at    = completedAtStr;
-          cgStage.outputs.decision = 'passed';
-          cgStage.outputs.duration_ms = dms;
-          cgStage.validation = {
-            passed: true, checked_at: completedAtStr,
-            summary: '所有 feature 已完成', required_files: [],
-            missing_required_fields: [], warnings: [],
-          };
-        } else {
-          cgStage.status          = 'failed';
-          cgStage.completed_at    = completedAtStr;
-          cgStage.outputs.decision = 'needs_fix';
-          cgStage.outputs.duration_ms = dms;
-        }
-        if (stagesObj.pipeline) stagesObj.pipeline.updated_at = completedAtStr;
-        writeStagesJson(stagesObj);
+        const featuresTick = cgStage.features || {};
+        const targetIdsValidate = featureFilter
+          ? Object.keys(featuresTick).filter(id => id === featureFilter)
+          : Object.keys(featuresTick);
+        // 与批量模式尾部一致：tick 结束前必须 doValidate。
+        // 否则 stage 直接被标 completed + validation.passed，已落盘的「completed 但 commit/files_changed 为空」无法被纠正，
+        // code-review 确定性预检才以 exit_code=4 / empty commit 全部失败。
+        await doValidate(stagesObj, targetIdsValidate);
       }
+      stagesObj = readStagesJson();
+      const cgFinal = stagesObj.stages.codegen || {};
+      const finalizeFailed =
+        cgFinal.status === 'failed' ||
+        cgFinal.outputs?.decision === 'needs_fix' ||
+        cgFinal.validation?.passed === false;
+      tickExit = finalizeFailed ? 4 : 0;
     }
 
-    const tickExit = allDone && hasFailed ? 4 : 0;
     log.info('stage_complete', `codegen tick 完成，耗时 ${dms}ms`, {
       stage:       'codegen',
       duration_ms: dms,
       exit_code:   tickExit,
       mode:        'tick',
       all_done:    allDone,
-      has_failed:  hasFailed,
+      has_failed:  allDone ? tickExit === 4 : hasFailed,
     });
     process.exit(tickExit);
   }
