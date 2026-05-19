@@ -358,21 +358,6 @@ async function main() {
     process.exit(1);
   }
 
-  // 6b. 业务项目 Git 作用域（父仓子目录时嵌套 init，避免 codegen 检出整仓）
-  let configDevForGit = {};
-  const configDevPathEarly = path.join(projectRoot, 'docs', 'config.dev.json');
-  if (fs.existsSync(configDevPathEarly)) {
-    try {
-      configDevForGit = JSON.parse(fs.readFileSync(configDevPathEarly, 'utf8'));
-    } catch (_) { /* ignore */ }
-  }
-  const gitScope = ensureProjectGitRepo(projectRoot, { config: configDevForGit, log });
-  if (!gitScope.ok) {
-    log.warn('validation_fail', '业务项目 git 初始化失败（不阻断 setup）', {
-      reason: gitScope.reason,
-    });
-  }
-
   // 7. 写 setup 完成态
   const completedAt    = new Date();
   const completedAtStr = formatLocalTimeShort(completedAt);

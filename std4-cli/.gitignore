@@ -4,3 +4,86 @@ docs/config.env
 vendor/
 bundled/std4-config.env
 node_modules/
+
+# Skill V3 业务项目默认 .gitignore（由 ai-prd3 bootstrap 合并写入，勿删段标记）
+# 真源：docs/templates/.gitignore.template
+
+# --- 会话与流水线运行时（不入库）---
+.agent-sessions/
+.pipeline/worktrees/
+.pipeline/cache/
+
+# --- 敏感与环境（默认不入库；团队若加密入库可删此行）---
+docs/config.env
+.env
+.env.*
+!.env.example
+
+# --- Node / 前端通用 ---
+node_modules/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+.vite/
+.turbo/
+.parcel-cache/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.eslintcache
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+
+# --- Go / Rust（若端使用）---
+target/
+bin/
+
+# --- 移动端（mobile）---
+**/ios/Pods/
+**/ios/build/
+**/ios/DerivedData/
+**/android/.gradle/
+**/android/app/build/
+**/android/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+
+# --- 小程序（miniapp）---
+**/miniprogram_npm/
+**/unpackage/
+**/dist/dev/
+**/dist/build/
+
+# --- 桌面端（desktop）---
+**/release/
+**/dist_electron/
+
+# --- IDE / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+*~
+
+# --- 临时与日志 ---
+*.log
+tmp/
+temp/
+.cache/
+

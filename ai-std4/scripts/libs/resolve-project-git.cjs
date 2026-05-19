@@ -11,6 +11,15 @@ const { execSync, spawnSync } = require('child_process');
 
 const gitSync = require('../../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
 
+function normalizeGitPath(p) {
+  if (!p) return null;
+  try {
+    return path.resolve(fs.realpathSync(p));
+  } catch (_) {
+    return path.resolve(p);
+  }
+}
+
 function git(projectRoot, args) {
   return spawnSync('git', ['-C', projectRoot, ...args], {
     encoding: 'utf8',
@@ -29,7 +38,7 @@ function getGitTopLevel(dir) {
   const r = git(dir, ['rev-parse', '--show-toplevel']);
   if (r.status !== 0) return null;
   const top = String(r.stdout || '').trim();
-  return top ? path.resolve(top) : null;
+  return top ? normalizeGitPath(top) : null;
 }
 
 function hasProjectDotGit(projectRoot) {
@@ -39,13 +48,14 @@ function hasProjectDotGit(projectRoot) {
 
 function isProjectGitRoot(projectRoot) {
   const top = getGitTopLevel(projectRoot);
-  return top !== null && path.resolve(top) === path.resolve(projectRoot);
+  return top !== null && top === normalizeGitPath(projectRoot);
 }
 
 function isNestedInParentRepo(projectRoot) {
   if (!hasProjectDotGit(projectRoot)) {
     const top = getGitTopLevel(projectRoot);
-    return top !== null && path.resolve(top) !== path.resolve(projectRoot);
+    const proj = normalizeGitPath(projectRoot);
+    return top !== null && top !== proj;
   }
   return false;
 }
@@ -112,7 +122,7 @@ function ensureProjectGitRepo(projectRoot, opts = {}) {
 
   if (isNestedInParentRepo(projectRoot) || !hasProjectDotGit(projectRoot)) {
     const parentTop = getGitTopLevel(projectRoot);
-    const nested = parentTop && path.resolve(parentTop) !== path.resolve(projectRoot);
+    const nested = parentTop && parentTop !== normalizeGitPath(projectRoot);
 
     if (nested) {
       reconcileMisscopedWorktrees(projectRoot, { log, parentGitRoot: parentTop });
@@ -158,7 +168,7 @@ function reconcileMisscopedWorktrees(projectRoot, opts = {}) {
     if (!st.isDirectory()) continue;
 
     const wtTop = getGitTopLevel(wtPath);
-    if (!wtTop || path.resolve(wtTop) === path.resolve(projectRoot)) continue;
+    if (!wtTop || wtTop === normalizeGitPath(projectRoot)) continue;
 
     try {
       execSync(`git worktree remove --force ${JSON.stringify(wtPath)}`, {
@@ -190,6 +200,7 @@ function reconcileMisscopedWorktrees(projectRoot, opts = {}) {
 }
 
 module.exports = {
+  normalizeGitPath,
   getGitTopLevel,
   hasProjectDotGit,
   isProjectGitRoot,
