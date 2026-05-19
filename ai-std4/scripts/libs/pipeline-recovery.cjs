@@ -122,8 +122,33 @@ function collectCodegenWorkerExcerpts(projectRoot, maxBytes) {
   if (!fs.existsSync(workerDir)) return [];
   const excerpts = [];
   let budget = maxBytes;
+  const archiveDir = path.join(workerDir, 'archive');
+  const archiveStates = fs.existsSync(archiveDir)
+    ? fs.readdirSync(archiveDir)
+      .filter(f => f.endsWith('.state.json'))
+      .map(f => ({ f: path.join('archive', f), abs: path.join(archiveDir, f), m: fs.statSync(path.join(archiveDir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m)
+      .slice(0, 4)
+    : [];
+  for (const { f, abs } of archiveStates) {
+    if (budget <= 0) break;
+    try {
+      const raw = fs.readFileSync(abs, 'utf8');
+      if (!SDK_RECOVERABLE_RE.test(raw) && !/\"files_changed\": \[\]/.test(raw)) continue;
+      let excerpt = raw.length > 1500 ? raw.slice(0, 1500) + '\n…(truncated)' : raw;
+      if (excerpt.length > budget) excerpt = excerpt.slice(0, budget) + '\n…(truncated)';
+      budget -= excerpt.length;
+      excerpts.push({
+        path:    `.pipeline/workers/codegen/${f}`,
+        excerpt,
+        hint:    SDK_RECOVERABLE_RE.test(excerpt)
+          ? '归档 worker 含 @cursor/sdk 加载失败（旧内联模板或 stale tmp.cjs）'
+          : (/\"status\": \"completed\"/.test(excerpt) ? '归档 worker 为伪完成（completed + 空 files_changed）' : null),
+      });
+    } catch (_) { /* */ }
+  }
   const files = fs.readdirSync(workerDir)
-    .filter(f => f.endsWith('.tmp.cjs') || f.endsWith('.cjs'))
+    .filter(f => f.endsWith('.tmp.cjs') || (f.endsWith('.cjs') && !f.includes('archive')))
     .map(f => ({ f, m: fs.statSync(path.join(workerDir, f)).mtimeMs }))
     .sort((a, b) => b.m - a.m)
     .slice(0, 6);
@@ -216,10 +241,57 @@ function clearStaleCodegenWorkers(projectRoot, log) {
 const SDK_RECOVERABLE_RE = /Cannot find module '@cursor\/sdk'/i;
 // no_heartbeat / stdout_idle / fs_idle 均属可重试的 agent 挂起，不是业务逻辑失败
 const AGENT_HANG_RE = /^(no_heartbeat|stdout_idle|fs_idle|wall_timeout)$/i;
+const EMPTY_FILES_RE = /empty files_changed|no_files_changed|completed_without_files/i;
 
 function isSdkRecoverableCodegenError(err) {
   const s = String(err || '');
   return SDK_RECOVERABLE_RE.test(s) || AGENT_HANG_RE.test(s.trim());
+}
+
+function isCodegenRecoverableFailure(err, feat) {
+  if (isSdkRecoverableCodegenError(err)) return true;
+  if (EMPTY_FILES_RE.test(String(err || ''))) return true;
+  const hh = (feat && feat.hang_history) || [];
+  return hh.some(h => AGENT_HANG_RE.test(String(h.hang_kind || '').trim()));
+}
+
+function readLatestCodegenArchiveState(projectRoot, featureId) {
+  const archiveDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen', 'archive');
+  if (!fs.existsSync(archiveDir)) return null;
+  const prefix = `${featureId}.`;
+  const candidates = fs.readdirSync(archiveDir)
+    .filter(f => f.startsWith(prefix) && f.endsWith('.state.json'))
+    .map(f => ({ f, m: fs.statSync(path.join(archiveDir, f)).mtimeMs }))
+    .sort((a, b) => b.m - a.m);
+  for (const { f } of candidates) {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(archiveDir, f), 'utf8'));
+    } catch (_) { /* */ }
+  }
+  return null;
+}
+
+function scanCodegenArchiveSignatures(projectRoot) {
+  const archiveDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen', 'archive');
+  if (!fs.existsSync(archiveDir)) return { signature_ids: [], matched_lines: [] };
+  const ids = [];
+  const lines = [];
+  for (const fname of fs.readdirSync(archiveDir)) {
+    if (!fname.endsWith('.state.json')) continue;
+    try {
+      const raw = fs.readFileSync(path.join(archiveDir, fname), 'utf8');
+      if (SDK_RECOVERABLE_RE.test(raw)) {
+        if (!ids.includes('sdk_module_not_found')) ids.push('sdk_module_not_found');
+        const errLine = raw.split('\n').find(l => /"error"/.test(l)) || fname;
+        lines.push(`[archive] ${fname}: ${errLine.trim().slice(0, 200)}`);
+      }
+      if (/\"status\": \"completed\"/.test(raw) && /\"files_changed\": \[\]/.test(raw)) {
+        if (!ids.includes('codegen_pseudo_completed')) ids.push('codegen_pseudo_completed');
+        lines.push(`[archive] ${fname}: completed 但 files_changed 为空`);
+      }
+    } catch (_) { /* */ }
+  }
+  return { signature_ids: ids, matched_lines: lines.slice(0, 20) };
 }
 
 function shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg }) {
@@ -235,6 +307,8 @@ function shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg }) {
   if (recovery.category === 'script_bug' && (recovery.evidence || []).some(e => SDK_RECOVERABLE_RE.test(e))) {
     return true;
   }
+  if (sigIds.includes('codegen_pseudo_completed')) return true;
+  if (failed.some(f => f.stage === 'codegen' && isCodegenRecoverableFailure(f.error))) return true;
   return false;
 }
 
@@ -249,7 +323,11 @@ function resetCodegenSdkFailures(projectRoot, stages, log) {
   const resetIds = new Set();
 
   for (const [fid, feat] of Object.entries(features)) {
-    if (feat && feat.status === 'failed' && isSdkRecoverableCodegenError(feat.error)) {
+    if (!feat || feat.status !== 'failed') continue;
+    const arch = readLatestCodegenArchiveState(projectRoot, fid);
+    const archErr = arch && (arch.error || (arch.status === 'completed' && !(arch.files_changed || []).length
+      ? 'completed_without_files_changed' : null));
+    if (isCodegenRecoverableFailure(feat.error || archErr, feat)) {
       resetIds.add(fid);
     }
   }
@@ -484,6 +562,13 @@ function assembleErrorBundle({
 
   const logTail = readLogTail(projectRoot, stepToLogStages(step), cfg.logTailLines);
   const signatures = scanLogTailForSignatures(logTail);
+  if (step === 'build_phase' || step === 'codegen') {
+    const archSigs = scanCodegenArchiveSignatures(projectRoot);
+    for (const id of archSigs.signature_ids) {
+      if (!signatures.signature_ids.includes(id)) signatures.signature_ids.push(id);
+    }
+    signatures.matched_lines.push(...archSigs.matched_lines);
+  }
   const failedFeatures = collectFailedFeatures(stages, step);
   const includeWorkers = step === 'build_phase' || step === 'codegen';
   const artifactExcerpts = includeWorkers

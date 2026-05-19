@@ -1456,11 +1456,22 @@ async function doTick(stagesObj, config, featureFilterId) {
       if (!features[fid]) features[fid] = {};
 
       if (state.status === 'completed') {
+        const harvestedFiles = state.files_changed || [];
+        // 旧 worker 可能留下「completed 但无 commit/files_changed」伪完成态，须走 resume 而非 succeeded
+        if (harvestedFiles.length === 0 && !state.commit) {
+          state.status = 'crashed';
+          state.reason = 'completed_without_files_changed';
+          state.error  = state.error || 'worker 伪完成：completed 但 files_changed 与 commit 均为空';
+          writeWorkerState(fid, state);
+          crashedIds.push(fid);
+          continue;
+        }
+
         features[fid].status        = 'completed';
         features[fid].completed_at  = state.completed_at || completedAtStr;
         features[fid].last_commit   = state.commit || null;
         features[fid].commit        = state.commit || null;
-        features[fid].files_changed = state.files_changed || [];
+        features[fid].files_changed = harvestedFiles;
         features[fid].smoke_passed  = state.smoke_passed !== false;
         features[fid].smoke_checks  = state.smoke_checks || [];
         features[fid].hang_history  = state.hang_history || [];

@@ -172,6 +172,37 @@ assert(
   'shouldResetCodegenSdkFailures'
 );
 
+const stagesEmpty = {
+  stages: {
+    codegen: {
+      status: 'failed',
+      features: {
+        'FEAT-001': {
+          status: 'failed',
+          error: 'codegen validate：变更文件集为空（empty files_changed），无法进入 code-review',
+          attempts_used: 2,
+          hang_history: [{ hang_kind: 'no_heartbeat' }],
+        },
+      },
+      outputs: { failed_features: ['FEAT-001'], decision: 'needs_fix' },
+    },
+  },
+};
+const resetEmpty = resetCodegenSdkFailures(tmpProject, stagesEmpty, null);
+assert(resetEmpty.reset.includes('FEAT-001'), 'reset empty files_changed + hang_history failures');
+assert(
+  shouldResetCodegenSdkFailures({
+    recovery: { decision: 'fix', category: 'script_bug', evidence: [] },
+    step: 'build_phase',
+    bundle: {
+      error_signatures: { signature_ids: ['codegen_pseudo_completed'] },
+      failed_features: [{ stage: 'codegen', feature_id: 'FEAT-001', error: 'empty files_changed' }],
+    },
+    cfg: { clearStaleCodegenWorkers: true },
+  }),
+  'shouldReset on codegen_pseudo_completed signature'
+);
+
 // 7. Ajv
 const sample = {
   decision:      'retry_only',
