@@ -70,7 +70,7 @@ const ERROR_SIGNATURE_PATTERNS = [
   { id: 'build_phase_max_iter', re: /tick 循环超出最大迭代|max_iterations/i,
     hint: 'build_phase exit 3 常为 tick 空转；先查 codegen exit 4 / has_failed 与 worker 生成物' },
   { id: 'design_review_agent_timeout', re: /Agent timeout after \d+ms/i,
-    hint: 'design-review tick 仅应调度 pending feature；failed 勿重复入队。skill 修复后重置 design_review 失败项为 pending' },
+    hint: 'design-review tick 仅调度 pending 且 PRD 依赖 feature 的 review 已完成；failed 勿重复入队。skill 修复后脚本将 design_review 超时失败项重置为 pending' },
 ];
 
 function scanLogTailForSignatures(logTail) {

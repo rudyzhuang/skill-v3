@@ -953,6 +953,15 @@ async function doTick(stagesObj, config, featureFilterId) {
     // 仅调度 pending（与 design.cjs 一致）；failed 为终态，避免每轮 tick 重复拉起 Agent
     if (reviewStatus !== 'pending') continue;
 
+    // 组内/跨 feature：本期依赖须已完成 design-review（与 design.cjs 依赖门闸对称）
+    const featureMeta = featureMetaMap.get(fid);
+    const reviewDeps  = ((featureMeta && featureMeta.dependencies) || []).filter(d => scopeIds.includes(d));
+    const allReviewDepsOk = reviewDeps.every(depId => {
+      const depStatus = (featureStatuses[depId] && featureStatuses[depId].status) || 'pending';
+      return depStatus === 'completed';
+    });
+    if (!allReviewDepsOk) continue;
+
     // 有 blocking 确定性 gap 的不入队（但仍可 completed）
     const detGaps = (featureStatuses[fid] && featureStatuses[fid].deterministic_gaps) || [];
     if (detGaps.some(isBlockingGap)) {
