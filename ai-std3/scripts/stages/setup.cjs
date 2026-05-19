@@ -28,6 +28,7 @@ const { setupInputs }    = require('../libs/setup-inputs.cjs');
 const { verifyInputs }   = require('../libs/verify-inputs.cjs');
 const { syncConfigEnv }  = require('../libs/sync-config-env.cjs');
 const { registerProject, generateProjectId } = require('../libs/register-project.cjs');
+const gitStageSync = require('../libs/git-stage-sync.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -374,6 +375,37 @@ async function main() {
   stagesObj.pipeline.updated_at          = completedAtStr;
   stagesObj.pipeline.project.project_id  = regResult.projectId;
   stagesObj.pipeline.project.name        = regResult.projectName;
+
+  const configDevPath = syncResult.configDevPath;
+  if (configDevPath && fs.existsSync(configDevPath)) {
+    try {
+      const configDev = JSON.parse(fs.readFileSync(configDevPath, 'utf8'));
+      stagesObj = gitStageSync.applyGitConfigToStages(stagesObj, configDev);
+      const g = gitStageSync.resolveGitConfig(configDev);
+      if (g.remote_url) {
+        const gitSyncLib = require('../../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
+        const init = gitSyncLib.initLocalAndRemote(projectRoot, configDev);
+        if (!init.ok) {
+          log.warn('validation_fail', 'git remote 初始化失败（不阻断 setup）', {
+            reason: init.reason,
+          });
+        } else if (stagesObj.pipeline.project.git) {
+          stagesObj.pipeline.project.git.remote_configured_at = completedAtStr;
+        }
+      }
+      log.info('file_updated', '已从 config.dev.json 同步 pipeline.project.git', {
+        remote: g.remote,
+        default_branch: g.default_branch,
+        auto_commit: g.auto_commit,
+        allow_push: g.allow_push,
+        remote_url_configured: !!g.remote_url,
+      });
+    } catch (e) {
+      log.warn('validation_fail', '读取 config.dev.json 同步 git 配置失败', {
+        reason: e.message,
+      });
+    }
+  }
 
   stagesObj.stages.setup = {
     status:       'completed',

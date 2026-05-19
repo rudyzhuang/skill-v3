@@ -24,6 +24,7 @@ const crypto  = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const gitStageSync = require('../libs/git-stage-sync.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -250,12 +251,16 @@ async function main() {
     process.exit(1);
   }
 
-  // ── 读取配置 ─────────────────────────────────────────────────────
-  const pipeline     = stages.pipeline || {};
-  const projectCfg   = pipeline.project || {};
-  const gitCfg       = projectCfg.git || {};
-  const defaultBranch = gitCfg.default_branch || 'main';
-  const remote        = gitCfg.remote || 'origin';
+  // ── 读取配置（docs/config.dev.json 为真源，同步到 stages.pipeline.project.git）──
+  const devConfig     = gitStageSync.loadConfigDev(projectRoot);
+  const gitResolved   = gitStageSync.resolveGitConfig(devConfig);
+  stages              = gitStageSync.applyGitConfigToStages(stages, devConfig);
+  writeStagesJson(stages);
+  stages              = readStagesJson();
+
+  const defaultBranch = gitResolved.default_branch;
+  const remote        = gitResolved.remote;
+  const allowPush     = gitResolved.allow_push;
 
   // ── 收集已完成的 codegen feature ─────────────────────────────────
   const codegenFeatures = (stages.stages && stages.stages.codegen &&
@@ -529,7 +534,14 @@ async function main() {
   // ── 4. 推送 ──────────────────────────────────────────────────────
   let pushStatus = 'skipped_no_remote';
 
-  if (hasRemote) {
+  if (!allowPush) {
+    pushStatus = 'skipped_allow_push_false';
+    log.info('git_push', 'git.allow_push=false，跳过 push', {
+      remote,
+      branch: defaultBranch,
+      status: pushStatus,
+    });
+  } else if (hasRemote) {
     // push 前再检查一次 stop.signal
     if (getStopReason() !== null) {
       stages = readStagesJson() || stages;
@@ -616,7 +628,7 @@ async function main() {
       branch: defaultBranch,
       status: 'success',
     });
-  } else {
+  } else if (allowPush) {
     log.info('git_push', '无 remote，跳过 push', {
       remote,
       branch: defaultBranch,

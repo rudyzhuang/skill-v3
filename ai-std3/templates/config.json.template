@@ -63,7 +63,9 @@
 "git": {
     "remote": "origin",
     "default_branch": "main",
-    "auto_commit": false
+    "remote_url": "",
+    "auto_commit": false,
+    "allow_push": false
 },
 "build": {
     "artifacts_dir": "dist",

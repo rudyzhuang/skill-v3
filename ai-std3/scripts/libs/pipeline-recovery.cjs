@@ -10,6 +10,7 @@ const fs   = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { getCursorApiKey, getSkillsRoot, readConfigJson, resolvePipelineModel, loadProjectEnv } = require('./pipeline-config.cjs');
+const gitStageSync = require('./git-stage-sync.cjs');
 const { invokeSdkAgent } = require('./invoke-sdk-agent.cjs');
 
 const NON_RECOVERABLE_EXIT = new Set([0, 2, 5, 9]);
@@ -300,11 +301,20 @@ function gitDiffStat(repoRoot) {
 }
 
 function commitAndPush({
-  repairTarget, projectRoot, skillsRoot, stage, reason, autoCommit, requirePushForSkill,
+  repairTarget, projectRoot, skillsRoot, stage, reason, autoCommit, allowPush, requirePushForSkill,
 }) {
   const repoRoot = repairTarget === 'skill'
     ? resolveSkillGitRoot(skillsRoot)
     : projectRoot;
+
+  if (repairTarget === 'project' && !autoCommit) {
+    return {
+      repo: repairTarget,
+      commit: null,
+      pushed: false,
+      push_skipped_reason: 'git.auto_commit=false',
+    };
+  }
 
   const dirty = listDirtyFiles(repoRoot);
   if (dirty.length === 0) {
@@ -351,7 +361,7 @@ function commitAndPush({
   let pushed = false;
   let push_skipped_reason = null;
 
-  const shouldPush = repairTarget === 'skill' || autoCommit === true;
+  const shouldPush = repairTarget === 'skill' || allowPush === true;
   if (shouldPush) {
     const pushR = runGit(repoRoot, ['push']);
     pushed = pushR.status === 0;
@@ -362,7 +372,7 @@ function commitAndPush({
       }
     }
   } else {
-    push_skipped_reason = 'git.auto_commit=false';
+    push_skipped_reason = 'git.allow_push=false';
   }
 
   return { repo: repairTarget, commit, pushed, push_skipped_reason, diff_stat: stat };
@@ -373,7 +383,7 @@ function ensureGitAfterRecovery({
 }) {
   if (recovery.decision !== 'fix') return recovery.git || null;
 
-  const autoCommit = !!(readConfigJson(projectRoot).git && readConfigJson(projectRoot).git.auto_commit);
+  const gitCfg = gitStageSync.resolveGitConfig(readConfigJson(projectRoot));
 
   if (recovery.git && recovery.git.commit && recovery.git.pushed) {
     return recovery.git;
@@ -388,7 +398,8 @@ function ensureGitAfterRecovery({
     skillsRoot,
     stage,
     reason:                recovery.reason,
-    autoCommit,
+    autoCommit:            gitCfg.auto_commit,
+    allowPush:             gitCfg.allow_push,
     requirePushForSkill:   cfg.requirePushForSkillFix,
   });
 

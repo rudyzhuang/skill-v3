@@ -83,11 +83,13 @@
     },
     "git": {
       "type": "object",
-      "required": ["remote", "default_branch", "auto_commit"],
+      "required": ["remote", "default_branch", "auto_commit", "allow_push"],
       "properties": {
         "remote":         { "type": "string", "minLength": 1 },
         "default_branch": { "type": "string", "minLength": 1 },
-        "auto_commit":    { "type": "boolean" }
+        "remote_url":     { "type": "string" },
+        "auto_commit":    { "type": "boolean" },
+        "allow_push":     { "type": "boolean" }
       }
     },
     "build": {

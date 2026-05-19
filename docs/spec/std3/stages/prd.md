@@ -215,7 +215,7 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 > - 命名违反规则（单端使用跨端前缀，或反之）→ `warning`，记入 `validation.warnings[]`（不阻断，除非团队后续收紧策略）。
 
 - 通过后写 `stages.prd`：`status=completed`、`validation.passed=true`、`inputs.req_hash`（req.md SHA-256，bootstrap 已写，此处确认一致）、`inputs.prd_spec_hash`（prd-spec.md SHA-256，Agent-A 完成后已写，此处确认一致）、`outputs.client_targets[]`、`outputs.features[]`（跨端聚合结果，**索引真源**）、`outputs.features_hash`（按 `feature_id` 升序后，每条 feature 仅取 `feature_id/name/priority/phase/description/client_targets/dependencies/sources` 八字段，`JSON.stringify` 序列化后的 SHA-256；下游 stage 命中跳过用）、`outputs.features_total`。
-- 可选 git commit+push（若 `config.dev.json.git.auto_commit=true`）。
+- 阶段完成后：`git.auto_commit` / `git.allow_push` 驱动 commit 与 push（见 [git-config.md](../git-config.md)）。
 
 ## 日志事件（prd）
 

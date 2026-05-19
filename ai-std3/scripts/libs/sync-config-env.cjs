@@ -168,6 +168,14 @@ function syncConfigEnv({ projectRoot, skillsRoot, runId, logger: externalLogger 
           updated = true;
         }
       }
+      const tplGit = (baseConfig.git || templateObj.git || {});
+      if (!existing.git) existing.git = {};
+      for (const key of ['remote', 'default_branch', 'remote_url', 'auto_commit', 'allow_push']) {
+        if (existing.git[key] === undefined && tplGit[key] !== undefined) {
+          existing.git[key] = tplGit[key];
+          updated = true;
+        }
+      }
       if (updated) {
         fs.writeFileSync(destPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
         const stat = fs.statSync(destPath);

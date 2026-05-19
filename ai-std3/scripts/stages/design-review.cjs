@@ -35,6 +35,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const gitStageSync = require('../libs/git-stage-sync.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -1207,6 +1208,10 @@ async function doValidate(stagesObj, targetFeatureIds) {
     design_bundle_hash: dr.inputs && dr.inputs.design_bundle_hash,
     features_reviewed:  targetFeatureIds.length,
   });
+
+  await gitStageSync.finalizeStageGit(projectRoot, 'design-review', {
+    readStagesJson, writeStagesJson, log,
+  });
 }
 
 // ── 主流程 ────────────────────────────────────────────────────────
@@ -1315,6 +1320,11 @@ async function main() {
         }
         if (stagesObj.pipeline) stagesObj.pipeline.updated_at = completedAtStr;
         writeStagesJson(stagesObj);
+        if (!hasFailed && drStage.status === 'completed') {
+          await gitStageSync.finalizeStageGit(projectRoot, 'design-review', {
+            readStagesJson, writeStagesJson, log,
+          });
+        }
       }
     }
 

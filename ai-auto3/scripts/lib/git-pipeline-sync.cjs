@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 /** @see docs/input-spec.md §3.5 — prd_start 使用全仓 add -A，不在此表 */
 const STAGE_TRACKED_PATHS = {
   prd_complete: ['inputs/', 'docs/', '.pipeline/'],
+  prd: ['inputs/', 'docs/', '.pipeline/'],
   prd_review: ['inputs/', 'docs/', '.pipeline/'],
   design: ['inputs/', 'docs/', '.pipeline/'],
   contract: ['inputs/', 'docs/', '.pipeline/'],
@@ -185,10 +186,19 @@ function commitAllTracked(projectRoot, message) {
   return { ok: true, committed: true, commit: sha };
 }
 
+function shouldAutoCommit(config = {}) {
+  return config.git && config.git.auto_commit === true;
+}
+
 function pushIfAllowed(projectRoot, config = {}) {
   const gitCfg = config.git || {};
   if (gitCfg.allow_push !== true) {
-    return { ok: true, pushed: false, push_status: 'not_requested' };
+    return {
+      ok: true,
+      pushed: false,
+      push_status: 'not_requested',
+      reason: 'git.allow_push=false',
+    };
   }
   const remote = gitCfg.remote || 'origin';
   const branch = gitCfg.default_branch || 'main';
@@ -219,6 +229,16 @@ function syncPipelineGit(projectRoot, phaseKey, opts = {}) {
   const isPrdStart = phaseKey === 'prd_start';
   if (!isPrdStart && !relPaths) {
     return { ok: false, reason: `unknown_phase:${phaseKey}` };
+  }
+  if (!isPrdStart && !shouldAutoCommit(config)) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'git.auto_commit=false',
+      phase: phaseKey,
+      committed: false,
+      push_status: 'not_requested',
+    };
   }
   if (!isInsideWorkTree(projectRoot)) {
     return { ok: false, reason: 'not_a_git_repo', hint: 'run prd bootstrap first' };
@@ -266,6 +286,7 @@ function syncAfterFeature(projectRoot, stageKey, featureId, opts = {}) {
 
 module.exports = {
   STAGE_TRACKED_PATHS,
+  shouldAutoCommit,
   initLocalAndRemote,
   mergeGitignoreFromTemplate,
   ensureInputsDir,

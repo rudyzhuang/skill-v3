@@ -26,7 +26,7 @@
 3. **自评**：对照 `acceptance_criteria[]`（脚本注入）确认修改能解释失败原因；不通过则继续改，仍不通过则 `decision=blocked`。
 4. **提交推送**（仅当 `decision=fix`）：
    - `repair_target=skill`：在 **skill 根**（`ai-std3` 所在 git 仓）`git add` → `commit` → `push`（遵守用户代理/远程规则）。
-   - `repair_target=project`：在 **项目根** `git add` → `commit`；若 `config.*.json` 中 `git.auto_commit=true` 且远程可推则 `push`，否则只 commit 并写明 `push_skipped_reason`。
+   - `repair_target=project`：在 **项目根** `git add` → `commit`（须 `git.auto_commit=true`）；若 `git.allow_push=true` 且远程可推则 `push`，否则写明 `push_skipped_reason`。
 5. **输出 JSON**（见下），由 `run-pipeline.cjs` 决定是否重跑本 stage。
 
 ## 决策

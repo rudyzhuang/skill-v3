@@ -26,6 +26,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort, datetimeFromRunId } = require('../libs/logger.cjs');
+const gitStageSync = require('../libs/git-stage-sync.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -1253,6 +1254,10 @@ async function main() {
     exit_code:      0,
     client_targets: clientTargets,
     features_total: features.length,
+  });
+
+  await gitStageSync.finalizeStageGit(projectRoot, 'prd', {
+    readStagesJson, writeStagesJson, log,
   });
 
   process.exit(0);

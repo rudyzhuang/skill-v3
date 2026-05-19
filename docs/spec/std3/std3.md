@@ -535,7 +535,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | `repair_target` | 工作目录 | commit | push |
 | --- | --- | --- | --- |
 | `skill` | `CURSOR_SKILLS_ROOT` 下含 `ai-std3/` 的 **git 根**（通常即 skill 安装仓） | 仅 `ai-std3/**` 相关路径 | **必须**尝试 `push`（失败 → `git.pushed=false`，recovery 仍可 `fix` 但打 `prompt_publish_failed` 同级 WARN） |
-| `project` | 业务 `--project` 根 | 项目内变更（含 `docs/`、源码、`.pipeline/` 允许提交的产物） | `git.auto_commit=true` 且远程可推则 **push**；否则仅 commit，`push_skipped_reason` 必填 |
+| `project` | 业务 `--project` 根 | 项目内变更（含 `docs/`、源码、`.pipeline/` 允许提交的产物） | `git.auto_commit=true` 时阶段结束 **commit**；`git.allow_push=true` 且已配置 `git.remote`/`remote_url` 时 **push**；否则在 `git_sync` / 日志中写明 `push_skipped_reason` |
 | `none` | — | `retry_only` / `blocked` | 不提交 |
 
 **硬约束**（Agent 与脚本共同遵守）：

@@ -192,7 +192,7 @@ pipeline.autorun.feature_max_parallel
 - 汇总 `outputs.design_specs[]`：`{ feature_id, client_target, phase, new_files_count, modify_files_count, design_hash }`。
 - 若有 feature `failed` → `stages.design.status=failed`、`validation.passed=false`，退出码 **4**（可 `--feature=` 重跑）。
 - 全部通过 → `status=completed`、`validation.passed=true`（`phase_plan_hash` 与 `prd_spec_hash` 已由 bootstrap 写入，此处确认一致）、更新各 `features.<id>.design_hash`（若步骤 2 已逐个写入则无需再算）。
-- 可选 git commit+push（`config.dev.json.git.auto_commit=true`）。
+- 阶段完成后：`git.auto_commit=true` → commit；`git.allow_push=true` 且 remote 可用 → push（见 [git-config.md](../git-config.md)）。
 
 ## 日志事件（design）
 
