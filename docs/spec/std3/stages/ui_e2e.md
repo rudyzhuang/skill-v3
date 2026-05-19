@@ -23,7 +23,7 @@
 | `libs/ui-e2e-mobile-device.cjs` | 模拟器/真机、构建、安装、设备预检 |
 | `libs/ui-e2e-triage.cjs` | 失败时派发 Agent，产出 `ui-e2e-triage-<feature_id>.json`，驱动修复 |
 | `libs/ui-e2e-repair-chain.cjs` | 对单 feature 顺序 spawn：`code-review` → `merge_push` → `build` → `deploy` → `ui-e2e` |
-| `libs/skill-prompt-publish.cjs` | **仅**在 `fix_prompt` 路径：于 **ai-std3 skill 目录** git commit + push 提示词变更（**不**动业务仓） |
+| `libs/skill-prompt-publish.cjs` | **`fix_prompt` / `fix_both`**：`prompts/**` commit + push（`publishSkillPrompts`；push 失败记 `prompt_publish_failed`） |
 | `libs/ui-e2e-validate.cjs` | 汇总场景结果、报告、stage 门闸 |
 
 > 实现目录前缀：`ai-std3/scripts/`（`stages/` 为主脚本，`libs/` 为子脚本）。

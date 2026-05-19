@@ -1163,7 +1163,7 @@ async function main() {
           stages.stages.deploy.outputs.agent_fix_attempts = (stages.stages.deploy.outputs.agent_fix_attempts || 0) + 1;
           const fixAttempts = stages.stages.deploy.outputs.agent_fix_attempts;
 
-          log.info('deploy_script_patched', `[deploy] fix_script #${fixAttempts}，须人工重跑 --from-stage=deploy`, {
+          log.info('deploy_script_patched', `[deploy] fix_script #${fixAttempts}，分诊已改 skill 脚本，重试部署`, {
             files:   (triage.patch_hints || []).map(h => h.path),
             attempt: fixAttempts,
           });
@@ -1172,10 +1172,24 @@ async function main() {
             log.error('stage_failed', `[deploy] fix_script 次数用尽（${agentFixMaxAttempts}），退出码 4`, {
               stage: 'deploy', exit_code: 4,
             });
+            finalExitCode = 4;
+            keepTrying    = false;
+          } else {
+            const retryRes = await retryOneService(lastFailedService);
+            if (retryRes.success) {
+              log.info('deploy_service_complete', `[deploy] fix_script 后重试成功 service=${lastFailedService.name || lastFailedService.client_target}`, {
+                service_name: lastFailedService.name || lastFailedService.client_target,
+                url:          retryRes.url,
+              });
+              overallFailed = false;
+              lastError     = null;
+              finalExitCode = 0;
+              keepTrying    = false;
+            } else {
+              lastError = retryRes.error;
+              // 继续分诊循环
+            }
           }
-          // fix_script 需要脚本自修复后外层重跑，本次退出码 4
-          finalExitCode = 4;
-          keepTrying    = false;
         } else {
           finalExitCode = 8;
           keepTrying    = false;

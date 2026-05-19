@@ -551,7 +551,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | --- | --- | --- |
 | `enabled` | `true` | 总开关 |
 | `max_attempts_per_stage` | `2` | 每个 step 每 `run_id` 最多 recovery 轮次 |
-| `recoverable_exit_codes` | `[3, 4]` | 触发 recovery 的 stage 退出码 |
+| `recoverable_exit_codes` | `[3, 4, 6, 8]` | 触发 recovery 的 stage 退出码（**6**=merge_push 冲突，**8**=deploy 重试用尽等） |
 | `log_tail_lines` | `200` | 注入 Agent 的 stage 日志尾行数 |
 | `require_push_for_skill_fix` | `true` | skill 修复后 push 失败是否仍视为 `fix`（默认仍 `fix`，仅 WARN） |
 
@@ -596,6 +596,25 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | `schemas/pipeline-recovery-output.schema.json` | recovery JSON |
 
 > **实现状态**：上述脚本已在 `ai-std3` 落地；需 `inputs/config.env` 中配置 `CURSOR_API_KEY` 并经 setup 同步后，才会派发修复 SDK Agent，否则打 `recovery_skipped`。
+
+#### 各 stage 修复能力矩阵（setup / report 除外）
+
+| Step / Stage | Stage 内修复 | 实现 | 编排级 `pipeline-recovery`（默认可恢复 exit） |
+| --- | --- | --- | --- |
+| prd / prd-review | 瞬时重试 | `agent_retry`（schema/缺文件） | ✅ 3/4 |
+| design_phase | 同上 | design + design-review `agent_retry` | ✅ 3/4 |
+| build_phase | 同上 + codegen resume | create-ui-scenarios / codegen | ✅ 3/4 |
+| code-review | 瞬时重试 | `agent_retry` | ✅ 3/4 |
+| merge_push | 脚本 | `git pull --rebase` 后再 push | ✅ **6**/3/4 |
+| build | — | 无分诊；失败记 `outputs` | ✅ 3/4 |
+| deploy | **专用分诊** | `deploy-triage` → `retry_deploy` / **`fix_script` 后同 stage 重部署** / `blocked` | ✅ 3/4/8；`blocked` 跳过 recovery |
+| ui_e2e | **专用分诊+子链** | 场景重试 + `ui-e2e-triage` + **`skill-prompt-publish`** + repair chain | ✅ 3/4；`blocked_features` 跳过 recovery |
+
+**统一约定**：
+
+- 所有 **SDK 分诊/修复 Agent** 均经 `libs/invoke-sdk-agent.cjs` + `CURSOR_API_KEY`。
+- **无 stage 分诊** 的 step（build、merge_push、多数 Agent stage）在 exit **3/4/6/8** 时由 **`pipeline-recovery`** 兜底（可改 skill 或 project 后重跑本 step）。
+- **setup**：退出码 **2** 不触发 recovery；**report**：永不触发。
 
 ---
 

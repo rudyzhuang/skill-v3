@@ -51,6 +51,7 @@ const {
   resetMobileSessions,
 } = require('../libs/ui-e2e-runner.cjs');
 const { ensureDevicesForScenarios } = require('../libs/ui-e2e-mobile-device.cjs');
+const { publishSkillPrompts } = require('../libs/skill-prompt-publish.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -654,6 +655,55 @@ async function runTriageAgent({ featureId, failedScenarioResults, stages, sessio
   return triage;
 }
 
+// ── fix_prompt：提交并推送 skill 提示词 ───────────────────────────
+function publishFixPrompt({ featureId, triage }) {
+  const skillsRoot = getSkillsRoot();
+  const msg = `fix(ui-e2e): ${featureId} — ${String(triage.reason || 'triage').slice(0, 72)}`;
+  return publishSkillPrompts({
+    skillsRoot,
+    message: msg,
+    files:   triage.prompt_files || [],
+    log,
+  });
+}
+
+async function rerunFailedScenariosForFeature({
+  featureId,
+  failedScenarios,
+  scenarioQueue,
+  config,
+  stages,
+  scenarioResultsMap,
+}) {
+  const retryQueue = scenarioQueue.filter(
+    (sc) =>
+      sc.feature_id === featureId &&
+      failedScenarios.some((f) => f.scenario_id === sc.scenario_id)
+  );
+  for (const sc of retryQueue) {
+    const result = await runScenario({ sc, config, stages, datetime: log.datetime });
+    scenarioResultsMap[sc.scenario_id] = result;
+    stages = readStagesJson() || stages;
+    if (!stages.stages.ui_e2e.scenarios) stages.stages.ui_e2e.scenarios = {};
+    stages.stages.ui_e2e.scenarios[sc.scenario_id] = {
+      feature_id:       result.feature_id,
+      status:           result.status,
+      started_at:       result.started_at || null,
+      completed_at:     result.completed_at || null,
+      duration_ms:      result.duration_ms || null,
+      screenshot_paths: result.snapshot_paths || [],
+      error:            result.failure_summary || null,
+    };
+    writeStagesJson(stages);
+  }
+  const stillFailed = retryQueue.filter(
+    (sc) =>
+      scenarioResultsMap[sc.scenario_id] &&
+      ['failed', 'timed_out'].includes(scenarioResultsMap[sc.scenario_id].status)
+  );
+  return { retryQueue, stillFailed };
+}
+
 // ── feature 修复子链 ──────────────────────────────────────────────
 function runRepairChain({ featureId, stages }) {
   log.info('repair_chain_start', `[ui_e2e] feature=${featureId} 修复子链启动`, {
@@ -1228,49 +1278,50 @@ async function main() {
           featureBlocked = true;
 
         } else if (triage.decision === 'fix_prompt') {
-          // 修改 skill 提示词（此处仅记录，实际由分诊 Agent 写入）
-          log.info('prompt_published', `[ui_e2e] feature=${featureId} fix_prompt 路径`, {
-            feature_id: featureId,
-            files:      triage.prompt_files || [],
-            skill_commit: null,
-          });
-          // 重跑该 feature 下失败场景
-          const retryQueue = scenarioQueue.filter(sc =>
-            sc.feature_id === featureId && failedScenarios.some(f => f.scenario_id === sc.scenario_id)
-          );
-          for (const sc of retryQueue) {
-            const result = await runScenario({ sc, config, stages, datetime: log.datetime });
-            scenarioResultsMap[sc.scenario_id] = result;
-            stages = readStagesJson() || stages;
-            if (!stages.stages.ui_e2e.scenarios) stages.stages.ui_e2e.scenarios = {};
-            stages.stages.ui_e2e.scenarios[sc.scenario_id] = {
-              feature_id:       result.feature_id,
-              status:           result.status,
-              started_at:       result.started_at || null,
-              completed_at:     result.completed_at || null,
-              duration_ms:      result.duration_ms || null,
-              screenshot_paths: result.snapshot_paths || [],
-              error:            result.failure_summary || null,
-            };
-            writeStagesJson(stages);
+          const pub = publishFixPrompt({ featureId, triage });
+          if (!pub.ok) {
+            log.error('prompt_publish_failed', `[ui_e2e] feature=${featureId} fix_prompt 未生效：${pub.error || 'push 失败'}`, {
+              feature_id: featureId,
+              files:      triage.prompt_files || [],
+              skill_commit: pub.commit || null,
+            });
+          } else {
+            const { stillFailed } = await rerunFailedScenariosForFeature({
+              featureId,
+              failedScenarios,
+              scenarioQueue,
+              config,
+              stages,
+              scenarioResultsMap,
+            });
+            if (stillFailed.length === 0) featureFixed = true;
+            else {
+              failedScenarios.splice(
+                0,
+                failedScenarios.length,
+                ...stillFailed.map((sc) => scenarioResultsMap[sc.scenario_id])
+              );
+            }
           }
-          // 检查重跑结果（含 timed_out 状态）
-          const stillFailed = retryQueue.filter(sc =>
-            scenarioResultsMap[sc.scenario_id] &&
-            ['failed', 'timed_out'].includes(scenarioResultsMap[sc.scenario_id].status)
-          );
-          if (stillFailed.length === 0) featureFixed = true;
-          else failedScenarios.splice(0, failedScenarios.length, ...stillFailed.map(sc => scenarioResultsMap[sc.scenario_id]));
 
         } else if (triage.decision === 'fix_code' || triage.decision === 'fix_both') {
-          // fix_both: 先执行 fix_prompt 步骤（改 skill 提示词），再执行 fix_code 子链
           if (triage.decision === 'fix_both') {
-            log.info('prompt_published', `[ui_e2e] feature=${featureId} fix_both：先执行 fix_prompt 阶段`, {
-              feature_id: featureId,
-              files: triage.prompt_files || [],
-              skill_commit: null,
-            });
-            // fix_prompt 部分只记录，实际 patch 由分诊 Agent 写入 skill 目录
+            const pub = publishFixPrompt({ featureId, triage });
+            if (!pub.ok) {
+              log.error('prompt_publish_failed', `[ui_e2e] feature=${featureId} fix_both 提示词 push 失败`, {
+                feature_id: featureId,
+                files: triage.prompt_files || [],
+              });
+            } else {
+              await rerunFailedScenariosForFeature({
+                featureId,
+                failedScenarios,
+                scenarioQueue,
+                config,
+                stages,
+                scenarioResultsMap,
+              });
+            }
           }
 
           repairChainTriggered = true;

@@ -50,7 +50,7 @@ function readRecoveryConfig(projectRoot) {
     maxAttemptsPerStage:        Number(rec.max_attempts_per_stage) || 2,
     recoverableExitCodes:     Array.isArray(rec.recoverable_exit_codes)
       ? rec.recoverable_exit_codes.map(Number)
-      : [3, 4],
+      : [3, 4, 6, 8],
     logTailLines:             Number(rec.log_tail_lines) || 200,
     requirePushForSkillFix:   rec.require_push_for_skill_fix !== false,
   };

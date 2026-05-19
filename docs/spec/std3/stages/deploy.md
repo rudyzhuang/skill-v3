@@ -191,7 +191,7 @@ node ai-std3/scripts/stages/deploy.cjs --project=<业务项目根绝对路径> [
 
 | decision | 行为 | 退出码（若仍失败） |
 | --- | --- | --- |
-| `fix_script` | Agent 或紧随其后的 **同一次** Agent 会话修改 `ai-std3/scripts/**` 中 deploy 相关脚本；`outputs.agent_fix_attempts += 1`；若 `≤ pipeline.stages.deploy.agent_fix_max_attempts`（默认 **2**）→ **整段 deploy 重试**（从失败 service 起） | 用尽 → **4**（可再人工改脚本后 `--from-stage=deploy`） |
+| `fix_script` | 分诊 Agent **同轮**修改 `ai-std3/scripts/**` deploy 相关脚本；`agent_fix_attempts += 1` 后 **本 stage 内**对失败 service 调用 `retryOneService`（与 `retry_deploy` 相同路径）；用尽 → **4** | 用尽仍失败 → exit **4**（编排级 recovery 可再兜底） |
 | `retry_deploy` | 不改脚本，仅重试部署（如瞬时 5xx）；`outputs.deploy_retries += 1`；`≤ deploy_retry_max`（默认 **1**） | 仍失败 → 再次分诊或 **8** |
 | `blocked` | 写 `outputs.blocked_reason`、`outputs.user_actions[]`；**立即终止流水线** | **9** |
 

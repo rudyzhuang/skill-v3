@@ -4,7 +4,7 @@
     "recovery": {
     "enabled": true,
     "max_attempts_per_stage": 2,
-    "recoverable_exit_codes": [3, 4],
+    "recoverable_exit_codes": [3, 4, 6, 8],
     "log_tail_lines": 200,
     "require_push_for_skill_fix": true
     },
