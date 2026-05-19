@@ -73,6 +73,47 @@ const runId = args['run-id'] || generateRunId();
 const log = createLogger({ projectRoot, stage: 'codegen', runId });
 
 // ── 工具函数 ──────────────────────────────────────────────────────
+const AI_STD4_NODE_MODULES = path.join(skillsRoot, 'ai-std4', 'node_modules');
+
+/** worker 子进程需能 resolve ai-std4 的 node_modules（@cursor/sdk 等） */
+function buildWorkerEnv(extra = {}) {
+  const nodePathParts = [AI_STD4_NODE_MODULES];
+  if (process.env.NODE_PATH) nodePathParts.push(process.env.NODE_PATH);
+  return Object.assign({}, process.env, {
+    NODE_PATH: nodePathParts.join(path.delimiter),
+  }, extra);
+}
+
+/** 依赖 feature 已 failed 时，将下游标为 blocked，避免 build_phase 无限 tick */
+function propagateBlockedByFailedDeps(features, targetIds, root) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const fid of targetIds) {
+      const feat = features[fid];
+      if (!feat) continue;
+      if (['completed', 'failed', 'blocked', 'pending_dep'].includes(feat.status)) continue;
+
+      const designFile = path.join(root, 'docs', 'designs', `${fid}.design.json`);
+      let deps = [];
+      try {
+        const dd = JSON.parse(fs.readFileSync(designFile, 'utf8'));
+        deps = dd.dependencies || [];
+      } catch (_) { continue; }
+
+      const failedDep = deps.find(depId => {
+        const dep = features[depId];
+        return dep && dep.status === 'failed';
+      });
+      if (failedDep) {
+        feat.status = 'blocked';
+        feat.error  = feat.error || `dependency_failed:${failedDep}`;
+        changed = true;
+      }
+    }
+  }
+}
+
 function fileSha256(filePath) {
   if (!fs.existsSync(filePath)) return null;
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -617,7 +658,7 @@ function spawnWorker(featureId, attemptIndex, stagesObj, config) {
   const cgFeature = stagesObj.stages.codegen.features[featureId];
   const agentId   = `codegen-worker-${featureId}`;
 
-  const env = Object.assign({}, process.env, {
+  const env = buildWorkerEnv({
     AI_STD4_PROJECT:       projectRoot,
     AI_STD4_FEATURE_ID:    featureId,
     AI_STD4_ATTEMPT_INDEX: String(attemptIndex),
@@ -703,7 +744,7 @@ function spawnInlineWorker(featureId, attemptIndex, stagesObj, config) {
 
   const child = spawn('node', [tmpScript], {
     cwd:      wtPath,
-    env:      Object.assign({}, process.env, {
+    env:      buildWorkerEnv({
       AI_STD4_PROJECT:       projectRoot,
       AI_STD4_FEATURE_ID:    featureId,
       AI_STD4_ATTEMPT_INDEX: String(attemptIndex),
@@ -777,6 +818,8 @@ const wtPath       = ${JSON.stringify(wtPath)};
 const projectRoot  = ${JSON.stringify(projectRoot)};
 const skillsRoot   = ${JSON.stringify(skillsRoot)};
 const runId        = ${JSON.stringify(runId)};
+const aiStd4NodeModules = path.join(skillsRoot, 'ai-std4', 'node_modules');
+module.paths.unshift(aiStd4NodeModules);
 const config       = ${cfgJson};
 const branch       = ${JSON.stringify(cgFeature.branch || '')};
 const baseCommit   = ${JSON.stringify(cgFeature.base_commit || null)};
@@ -907,7 +950,7 @@ async function main() {
   // @cursor/sdk（CURSOR_API_KEY，见 inputs/config.env）
   try {
     const { Agent } = require('@cursor/sdk');
-    const { getCursorApiKey, resolvePipelineModel, loadProjectEnv } = require('../libs/pipeline-config.cjs');
+    const { getCursorApiKey, resolvePipelineModel, loadProjectEnv } = require(path.join(skillsRoot, 'ai-std4', 'scripts', 'libs', 'pipeline-config.cjs'));
     loadProjectEnv(projectRoot);
     const apiKey = getCursorApiKey();
     if (!apiKey) {
@@ -1489,6 +1532,8 @@ async function doTick(stagesObj, config, featureFilterId) {
     });
   }
 
+  propagateBlockedByFailedDeps(features, targetIds, projectRoot);
+
   if (stagesObj.pipeline) stagesObj.pipeline.updated_at = startedAtStr;
   stagesObj.stages.codegen.features = features;
   writeStagesJson(stagesObj);
@@ -1497,7 +1542,7 @@ async function doTick(stagesObj, config, featureFilterId) {
   const allDone = targetIds.every(fid => {
     const feat = features[fid];
     if (!feat) return false;
-    return ['completed', 'failed', 'blocked'].includes(feat.status);
+    return ['completed', 'failed', 'blocked', 'pending_dep'].includes(feat.status);
   });
   const hasFailed = targetIds.some(fid => {
     const feat = features[fid];
