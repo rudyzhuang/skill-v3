@@ -1,0 +1,30 @@
+{
+  "feature_id": "PROJECT-CREATE-001",
+  "attempt_index": 2,
+  "previous_hang_kind": "fs_idle",
+  "snapshot_commit": null,
+  "base_commit": "7892f413081fca842ca328274473c8ca4660fde7",
+  "file_signatures": [],
+  "progress": {
+    "acceptance_done": [],
+    "acceptance_pending": [],
+    "files_touched": [],
+    "last_phase": null,
+    "last_command": null
+  },
+  "acceptance_full": [
+    "POST /api/projects 在有效 Session 且用户角色为 admin 或 super_admin 时，接受 body { name_zh, name_en, description, client_targets: string[], is_new: boolean }，校验通过返回 201 与 { id, name_zh, name_en, status, client_targets, is_new, source: 'admin', updated_at }；缺必填或 client_targets 含非法端名返回 400 与可读 errors[]；无 Session 返回 401；operator 或未授权角色返回 403",
+    "POST /api/projects 成功创建后，同一项目可通过 GET /api/projects（PROJECT-LIST-001）查到，且 name_zh/name_en/status/client_targets/is_new 与创建响应一致",
+    "admin /projects/new 表单展示项目名称（中文）、项目名称（英文）、项目简介、客户端目标多选（选项至少含 admin、backend，与 inputs/req.md 及 prd-spec 一致）、以及标识「新增」的字段（如 is_new 勾选或只读标签）；提交前前端校验必填项，成功跳转 / 或 /projects，失败展示字段级或全局错误",
+    "admin 列表页「新建项目」入口仅 admin/super_admin 可见；operator 访问 /projects/new 时被路由守卫拒绝（重定向列表或展示无权限提示），且不得通过 UI 提交创建",
+    "表单与 API 请求/响应中不得包含 config.env 中的 API Key 或默认管理员明文密码；创建接口路径为 /api/* Session 鉴权，与 Open API POST /api/v1/projects 分离但共用 projects 表"
+  ],
+  "do_not_overwrite": [],
+  "constraints": [
+    "仅对 do_not_overwrite[] 列出的文件做增量 edit；禁止清空或重写",
+    "禁止删除/重命名 do_not_overwrite[] 中任何文件",
+    "禁止 git reset --hard / git checkout <path> / rm 等抹除操作",
+    "仅完成 progress.acceptance_pending[]；progress.acceptance_done[] 不重复实现",
+    "心跳间隔必须 <= heartbeat_interval_s 秒；外部命令前后各打一次心跳"
+  ]
+}
