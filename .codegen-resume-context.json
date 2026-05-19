@@ -1,0 +1,30 @@
+{
+  "feature_id": "BACKEND-API-QUERY-001",
+  "attempt_index": 2,
+  "previous_hang_kind": "fs_idle",
+  "snapshot_commit": null,
+  "base_commit": "8624e95c8d1b5677ccf25b214aa3e3b6a182b24f",
+  "file_signatures": [],
+  "progress": {
+    "acceptance_done": [],
+    "acceptance_pending": [],
+    "files_touched": [],
+    "last_phase": null,
+    "last_command": null
+  },
+  "acceptance_full": [
+    "GET /api/v1/projects 携带有效 Authorization: Bearer <api_key> 或 X-API-Key 头时返回 200，body 为 { items: ProjectSummary[], total, page, page_size }，无项目时 items=[] 且 total=0",
+    "GET /api/v1/projects/:id 在有效 API Key 下对存在 id 返回 200 与 ProjectDetail（含 name_zh、name_en、description、client_targets、status、is_new、updated_at；可选 pipeline_status 摘要）；不存在返回 404 JSON 错误体",
+    "缺少 API Key、Bearer 格式错误或 key 未在 api_keys 表匹配（或 enabled=0）时两接口均返回 401，响应体不含 config.env 中的密钥明文或 key_hash",
+    "经 POST /api/v1/projects（BACKEND-API-PIPELINE-001）或管理端 POST /api/projects 登记的项目，在列表与详情查询中字段一致且均可被 :id 查到",
+    "支持 query 参数 page（默认 1）、page_size（默认 20，上限 100）、status、q（名称中英文模糊匹配至少其一生效）"
+  ],
+  "do_not_overwrite": [],
+  "constraints": [
+    "仅对 do_not_overwrite[] 列出的文件做增量 edit；禁止清空或重写",
+    "禁止删除/重命名 do_not_overwrite[] 中任何文件",
+    "禁止 git reset --hard / git checkout <path> / rm 等抹除操作",
+    "仅完成 progress.acceptance_pending[]；progress.acceptance_done[] 不重复实现",
+    "心跳间隔必须 <= heartbeat_interval_s 秒；外部命令前后各打一次心跳"
+  ]
+}

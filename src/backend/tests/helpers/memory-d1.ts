@@ -6,6 +6,21 @@ import { hashApiKey } from '../../src/lib/api-key';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+type D1MetaRecord = D1Meta & Record<string, unknown>;
+
+function d1Meta(overrides: Partial<D1Meta> = {}): D1MetaRecord {
+  return {
+    duration: 0,
+    size_after: 0,
+    rows_read: 0,
+    rows_written: 0,
+    changed_db: false,
+    last_row_id: 0,
+    changes: 0,
+    ...overrides,
+  };
+}
+
 function createPrepared(db: Database.Database, sql: string) {
   const stmt = db.prepare(sql);
 
@@ -14,7 +29,7 @@ function createPrepared(db: Database.Database, sql: string) {
       return {
         async all<T>(): Promise<D1Result<T>> {
           const rows = stmt.all(...values) as T[];
-          return { results: rows, success: true, meta: {} };
+          return { results: rows, success: true, meta: d1Meta() };
         },
         async first<T>(): Promise<T | null> {
           const row = stmt.get(...values) as T | undefined;
@@ -24,11 +39,12 @@ function createPrepared(db: Database.Database, sql: string) {
           const info = stmt.run(...values);
           return {
             success: true,
-            meta: {
+            meta: d1Meta({
               changes: info.changes,
               last_row_id: Number(info.lastInsertRowid),
-            },
-          };
+              changed_db: info.changes > 0,
+            }),
+          } as D1Result;
         },
       };
     },
@@ -45,9 +61,10 @@ export function createMemoryD1(): D1Database {
       return createPrepared(sqlite, sql);
     },
     async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
-      return Promise.all(
-        statements.map((s) => (s as ReturnType<typeof createPrepared>['bind'] extends never ? never : s).run()),
+      const runs = statements.map((s) =>
+        (s as { run(): Promise<D1Result> }).run(),
       );
+      return Promise.all(runs);
     },
     async exec(query: string): Promise<D1ExecResult> {
       sqlite.exec(query);

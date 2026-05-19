@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hashApiKey } from '../src/lib/api-key';
 import { app, type Env } from '../src/index';
+import type { ProjectDetail, ProjectListResponse } from '../src/types/project';
 import { createMemoryD1, insertApiKey, insertProject } from './helpers/memory-d1';
 
 const TEST_KEY = 'test-open-api-key-secret';
@@ -32,7 +33,7 @@ describe('GET /api/v1/projects', () => {
     const res = await request(db, '/api/v1/projects');
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as ProjectListResponse;
     expect(body).toEqual({
       items: [],
       total: 0,
@@ -62,7 +63,7 @@ describe('GET /api/v1/projects', () => {
     const res = await request(db, '/api/v1/projects?page=1&page_size=1');
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as ProjectListResponse;
     expect(body.total).toBe(2);
     expect(body.page).toBe(1);
     expect(body.page_size).toBe(1);
@@ -96,14 +97,25 @@ describe('GET /api/v1/projects', () => {
     });
 
     const byStatus = await request(db, '/api/v1/projects?status=completed');
-    const statusBody = await byStatus.json();
+    const statusBody = (await byStatus.json()) as ProjectListResponse;
     expect(statusBody.total).toBe(1);
     expect(statusBody.items[0].id).toBe('match-en');
 
     const byQ = await request(db, '/api/v1/projects?q=唯一');
-    const qBody = await byQ.json();
+    const qBody = (await byQ.json()) as ProjectListResponse;
     expect(qBody.total).toBe(1);
     expect(qBody.items[0].id).toBe('match-zh');
+  });
+
+  it('caps page_size at 100', async () => {
+    const db = createMemoryD1();
+    await insertApiKey(db, TEST_KEY);
+
+    const res = await request(db, '/api/v1/projects?page_size=500');
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as ProjectListResponse;
+    expect(body.page_size).toBe(100);
   });
 
   it('accepts X-API-Key header', async () => {
@@ -196,7 +208,7 @@ describe('GET /api/v1/projects/:id', () => {
     const res = await request(db, '/api/v1/projects/detail-1');
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = (await res.json()) as ProjectDetail;
     expect(body).toMatchObject({
       id: 'detail-1',
       name_zh: '详情项目',
@@ -217,7 +229,7 @@ describe('GET /api/v1/projects/:id', () => {
 
     const res = await request(db, '/api/v1/projects/missing-id');
     expect(res.status).toBe(404);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBeTruthy();
   });
 
@@ -259,9 +271,29 @@ describe('GET /api/v1/projects/:id', () => {
       .run();
 
     const res = await request(db, '/api/v1/projects/bad-targets');
-    const body = await res.json();
+    const body = (await res.json()) as ProjectDetail;
     expect(body.client_targets).toEqual(['admin', 'backend']);
     expect(body.client_targets_note).toContain('admin|backend');
+  });
+
+  it('finds project created via open_api pipeline source', async () => {
+    const db = createMemoryD1();
+    await insertApiKey(db, TEST_KEY);
+    await insertProject(db, {
+      id: 'pipeline-created',
+      name_zh: '流水线项目',
+      name_en: 'Pipeline Project',
+      description: 'from POST /api/v1/projects',
+      client_targets: ['backend'],
+      source: 'open_api',
+    });
+
+    const listBody = (await (await request(db, '/api/v1/projects')).json()) as ProjectListResponse;
+    expect(listBody.items.some((i) => i.id === 'pipeline-created')).toBe(true);
+
+    const detail = (await (await request(db, '/api/v1/projects/pipeline-created')).json()) as ProjectDetail;
+    expect(detail.name_zh).toBe('流水线项目');
+    expect(detail.description).toBe('from POST /api/v1/projects');
   });
 
   it('finds project created via admin source channel', async () => {
@@ -277,11 +309,11 @@ describe('GET /api/v1/projects/:id', () => {
     });
 
     const listRes = await request(db, '/api/v1/projects');
-    const listBody = await listRes.json();
-    expect(listBody.items.some((i: { id: string }) => i.id === 'admin-created')).toBe(true);
+    const listBody = (await listRes.json()) as ProjectListResponse;
+    expect(listBody.items.some((i) => i.id === 'admin-created')).toBe(true);
 
     const detailRes = await request(db, '/api/v1/projects/admin-created');
-    const detail = await detailRes.json();
+    const detail = (await detailRes.json()) as ProjectDetail;
     expect(detail.name_zh).toBe('管理端项目');
     expect(detail.name_en).toBe('Admin Project');
   });
