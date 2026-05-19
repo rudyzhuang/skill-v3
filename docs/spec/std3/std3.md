@@ -613,7 +613,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 **统一约定**：
 
 - 所有 **SDK 分诊/修复 Agent** 均经 `libs/invoke-sdk-agent.cjs` + `CURSOR_API_KEY`。
-- **无 stage 分诊** 的 step（build、merge_push、多数 Agent stage）在 exit **3/4/6/8** 时由 **`pipeline-recovery`** 兜底（可改 skill 或 project 后重跑本 step）。
+- **无 stage 分诊** 的 step（build、多数 Agent stage）在 exit **3/4/6/8** 时由 **`pipeline-recovery`** 兜底（可改 skill 或 project 后重跑本 step）。
 - **setup**：退出码 **2** 不触发 recovery；**report**：永不触发。
 
 ---
@@ -644,7 +644,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | code-review 单 feature 评审 Agent 超时 | 3 | 调大 `timeouts.stages.code_review_s`；其它 feature **不受影响**，重跑 `--from-stage=code-review --feature=<id>` |
 | code-review schema 校验失败 / deterministic_issues 遗漏 | — | 自动 `agent_retry`（≤ `max_retries`）；超出后该 feature `failed`，按上一行处理 |
 | code-review stage 级 `decision=failed` | 4 | 至少一个 feature 失败；按 `outputs.failed_features[]` 逐一处理后 `--from-stage=code-review` |
-| merge_push 冲突 | 6 | 人工解冲突后重跑 `--from-stage=merge_push` |
+| merge_push 冲突 | 6 / 9 | 先经 stage 内分诊；仍失败则 `--from-stage=merge_push` 或 pipeline-recovery |
 | merge_push push 失败 | 7 | 网络/权限问题，修复后重跑 `--from-stage=merge_push` |
 | build 单端超时 | 3 | 调大 `timeouts.stages.build_s` 或 `pipeline.stages.build.client_max_parallel` 后重跑 `--from-stage=build` |
 | build 命令/产物校验失败 | 4 | 查 `.pipeline/reports/build-summary.md` 与 `logs/stages/build/*`；修代码或 `build.client_targets` / `commands` 后重跑 `--from-stage=build` |
