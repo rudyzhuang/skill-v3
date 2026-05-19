@@ -1,7 +1,12 @@
 import type { D1Database } from '@cloudflare/workers-types';
 
-export type UserRole = 'admin' | 'user';
-export type UserStatus = 'active' | 'disabled';
+export const USER_ROLES = ['super_admin', 'admin', 'operator'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const USER_STATUSES = ['active', 'disabled'] as const;
+export type UserStatus = (typeof USER_STATUSES)[number];
+
+export const ADMIN_ROLES: UserRole[] = ['admin', 'super_admin'];
 
 export interface UserRow {
   id: string;
@@ -9,6 +14,7 @@ export interface UserRow {
   password_hash: string;
   role: UserRole;
   status: UserStatus;
+  is_bootstrap: number;
   created_at: string;
 }
 
@@ -25,8 +31,28 @@ export interface UserSummary {
   role: UserRole;
 }
 
+export interface UserListItem {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  is_bootstrap: boolean;
+  created_at: string;
+}
+
 export function toUserSummary(row: UserRow): UserSummary {
   return { id: row.id, email: row.email, role: row.role };
+}
+
+export function toUserListItem(row: UserRow): UserListItem {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    is_bootstrap: row.is_bootstrap === 1,
+    created_at: row.created_at,
+  };
 }
 
 export async function findUserByEmail(
@@ -35,7 +61,7 @@ export async function findUserByEmail(
 ): Promise<UserRow | null> {
   return db
     .prepare(
-      `SELECT id, email, password_hash, role, status, created_at
+      `SELECT id, email, password_hash, role, status, is_bootstrap, created_at
        FROM users WHERE email = ? COLLATE NOCASE`,
     )
     .bind(email.trim().toLowerCase())
@@ -48,7 +74,7 @@ export async function findUserById(
 ): Promise<UserRow | null> {
   return db
     .prepare(
-      `SELECT id, email, password_hash, role, status, created_at
+      `SELECT id, email, password_hash, role, status, is_bootstrap, created_at
        FROM users WHERE id = ?`,
     )
     .bind(id)
@@ -61,8 +87,8 @@ export async function insertUser(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO users (id, email, password_hash, role, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, email, password_hash, role, status, is_bootstrap, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       user.id,
@@ -70,9 +96,72 @@ export async function insertUser(
       user.password_hash,
       user.role,
       user.status,
+      user.is_bootstrap,
       user.created_at,
     )
     .run();
+}
+
+export async function listUsers(
+  db: D1Database,
+  options: { limit?: number; offset?: number } = {},
+): Promise<{ items: UserListItem[]; total: number }> {
+  const countRow = await db
+    .prepare(`SELECT COUNT(*) AS total FROM users`)
+    .first<{ total: number }>();
+  const total = countRow?.total ?? 0;
+
+  let query = `SELECT id, email, password_hash, role, status, is_bootstrap, created_at
+               FROM users ORDER BY created_at DESC`;
+  const bindings: unknown[] = [];
+
+  if (options.limit !== undefined) {
+    query += ` LIMIT ?`;
+    bindings.push(options.limit);
+    if (options.offset !== undefined) {
+      query += ` OFFSET ?`;
+      bindings.push(options.offset);
+    }
+  }
+
+  const stmt = db.prepare(query);
+  const bound = bindings.length > 0 ? stmt.bind(...bindings) : stmt;
+  const { results } = await bound.all<UserRow>();
+
+  return {
+    items: (results ?? []).map(toUserListItem),
+    total,
+  };
+}
+
+export async function updateUserFields(
+  db: D1Database,
+  id: string,
+  fields: { role?: UserRole; status?: UserStatus },
+): Promise<UserRow | null> {
+  const sets: string[] = [];
+  const bindings: unknown[] = [];
+
+  if (fields.role !== undefined) {
+    sets.push('role = ?');
+    bindings.push(fields.role);
+  }
+  if (fields.status !== undefined) {
+    sets.push('status = ?');
+    bindings.push(fields.status);
+  }
+
+  if (sets.length === 0) {
+    return findUserById(db, id);
+  }
+
+  bindings.push(id);
+  await db
+    .prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`)
+    .bind(...bindings)
+    .run();
+
+  return findUserById(db, id);
 }
 
 export async function findSessionById(
@@ -122,6 +211,20 @@ export interface ProjectRow {
   pipeline_summary: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export async function findProjectById(
+  db: D1Database,
+  id: string,
+): Promise<ProjectRow | null> {
+  return db
+    .prepare(
+      `SELECT id, name_zh, name_en, description, client_targets, status, is_new,
+              source, root_path, pipeline_summary, created_at, updated_at
+       FROM projects WHERE id = ?`,
+    )
+    .bind(id)
+    .first<ProjectRow>();
 }
 
 export async function insertProject(

@@ -55,6 +55,7 @@ describe('ProjectListPage', () => {
           status: 'active',
           client_targets: ['admin'],
           pipeline_summary: null,
+          is_new: false,
           updated_at: '2026-05-01T10:00:00.000Z',
         },
       ],

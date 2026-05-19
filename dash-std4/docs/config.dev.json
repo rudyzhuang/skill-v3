@@ -74,7 +74,18 @@
     "artifacts_dir": "dist",
     "install_before_build": true,
     "fail_fast": false,
-    "client_targets": {},
+    "client_targets": {
+      "admin": { "sub_platforms": [{ "id": "default" }] },
+      "backend": {
+        "sub_platforms": [
+          {
+            "id": "default",
+            "build": "npm run build",
+            "artifact_globs": ["dist/**"]
+          }
+        ]
+      }
+    },
     "commands": {
       "build": "npm run build",
       "install": "npm ci",

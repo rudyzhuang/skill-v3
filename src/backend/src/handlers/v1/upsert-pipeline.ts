@@ -13,6 +13,9 @@ export async function handleUpsertPipeline(
   c: Context<{ Bindings: Env; Variables: ApiKeyAuthVariables }>,
 ): Promise<Response> {
   const projectId = c.req.param('id');
+  if (!projectId) {
+    return c.json({ error: 'Project not found', code: 'not_found' }, 404);
+  }
 
   const exists = await projectExists(c.env.DB, projectId);
   if (!exists) {

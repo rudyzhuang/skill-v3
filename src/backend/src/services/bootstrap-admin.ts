@@ -36,6 +36,7 @@ export async function bootstrapAdmin(env: BootstrapEnv): Promise<void> {
     password_hash: passwordHash,
     role: 'admin',
     status: 'active',
+    is_bootstrap: 1,
     created_at: now,
   });
 }
