@@ -6,7 +6,10 @@
     "max_attempts_per_stage": 2,
     "recoverable_exit_codes": [3, 4, 6, 8],
     "log_tail_lines": 200,
-    "require_push_for_skill_fix": true
+    "require_push_for_skill_fix": true,
+    "run_self_test_after_skill_fix": true,
+    "clear_stale_codegen_workers": true,
+    "artifact_excerpt_max_bytes": 12000
     },
     "autorun": {
     "allow_destructive_deploy": false,
