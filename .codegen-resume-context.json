@@ -1,0 +1,30 @@
+{
+  "feature_id": "PROJECT-LIST-001",
+  "attempt_index": 2,
+  "previous_hang_kind": "fs_idle",
+  "snapshot_commit": null,
+  "base_commit": "60fef3b1d1a1c0e43ab0261bbd8e088810a7418d",
+  "file_signatures": [],
+  "progress": {
+    "acceptance_done": [],
+    "acceptance_pending": [],
+    "files_touched": [],
+    "last_phase": null,
+    "last_command": null
+  },
+  "acceptance_full": [
+    "GET /api/projects 在有效 Session 下返回 200，body 为 { items: [{ id, name_zh, name_en, status, client_targets, pipeline_summary, updated_at }] }；无项目时 items=[] 且非 5xx；无 Session 或会话失效返回 401",
+    "GET /api/projects 支持 query 参数 status（枚举 active|blocked|completed|unknown）、q（中英文名称模糊匹配至少一生效）、sort（至少支持 updated_at_desc，默认 updated_at DESC）",
+    "admin 在 / 与 /projects 展示项目列表：含项目名称（中/英或主显名）、状态徽章（与 backend status 及 pipeline_summary 一致）；空列表显示明确空态文案；请求中展示加载态，失败展示可读错误且不白屏",
+    "列表每行提供「查看看板」或等效操作，使用 target=_blank 打开 /projects/:projectId/dashboard（projectId 为 backend 返回的 id）",
+    "列表页提供跳转「新建项目」入口（链至 /projects/new，由 PROJECT-CREATE-001 实现表单）；operator/admin/super_admin 均可访问列表，写操作权限不在本 feature 范围"
+  ],
+  "do_not_overwrite": [],
+  "constraints": [
+    "仅对 do_not_overwrite[] 列出的文件做增量 edit；禁止清空或重写",
+    "禁止删除/重命名 do_not_overwrite[] 中任何文件",
+    "禁止 git reset --hard / git checkout <path> / rm 等抹除操作",
+    "仅完成 progress.acceptance_pending[]；progress.acceptance_done[] 不重复实现",
+    "心跳间隔必须 <= heartbeat_interval_s 秒；外部命令前后各打一次心跳"
+  ]
+}

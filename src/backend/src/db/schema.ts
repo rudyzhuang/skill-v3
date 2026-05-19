@@ -106,3 +106,48 @@ export async function deleteSession(
 ): Promise<void> {
   await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(sessionId).run();
 }
+
+export type ProjectStatus = 'active' | 'blocked' | 'completed' | 'unknown';
+
+export interface ProjectRow {
+  id: string;
+  name_zh: string;
+  name_en: string;
+  description: string | null;
+  client_targets: string;
+  status: ProjectStatus;
+  is_new: number;
+  source: string | null;
+  root_path: string | null;
+  pipeline_summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function insertProject(
+  db: D1Database,
+  project: ProjectRow,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO projects (
+        id, name_zh, name_en, description, client_targets, status, is_new,
+        source, root_path, pipeline_summary, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      project.id,
+      project.name_zh,
+      project.name_en,
+      project.description,
+      project.client_targets,
+      project.status,
+      project.is_new,
+      project.source,
+      project.root_path,
+      project.pipeline_summary,
+      project.created_at,
+      project.updated_at,
+    )
+    .run();
+}

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { bootstrapAdmin, type BootstrapEnv } from './services/bootstrap-admin';
 import { authRoutes } from './routes/auth';
+import { projectsRoutes } from './routes/projects';
 import type { AppEnv } from './services/auth';
 
 export type Env = AppEnv &
@@ -31,7 +32,7 @@ export function createApp() {
   app.use(
     '/api/*',
     cors({
-      origin: (origin) => {
+      origin: (origin, c) => {
         if (!origin) {
           return '';
         }
@@ -46,6 +47,7 @@ export function createApp() {
   app.get('/health', (c) => c.json({ ok: true }));
 
   app.route('/api/auth', authRoutes);
+  app.route('/api/projects', projectsRoutes);
 
   return app;
 }
