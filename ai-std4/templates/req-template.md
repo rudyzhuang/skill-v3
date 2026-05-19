@@ -22,11 +22,8 @@
 ## 核心功能 *
 
 <!-- 按优先级列出功能，示例格式：
-| feature_id      | 功能名称      | 优先级 | 阶段 | 涉及端 | 简述 |
-| --- | --- | --- | --- | --- | --- |
-| AUTH-LOGIN-001  | 用户登录/注册 | P0 | mvp | backend, website | JWT 鉴权（跨端用业务域前缀） |
-| NOTE-CRUD-001   | 笔记 CRUD    | P0 | mvp | backend, website, mobile | 跨端 feature |
-| WEB-HOME-001    | 首页展示      | P1 | mvp | website | 单端 feature，用端名前缀 |
+1. 主要功能
+2. 
 -->
 
 ## 非功能需求
@@ -35,11 +32,22 @@
 
 ## 部署与域名要求 *
 
+### 主域名 *
+
+DOMAIN=
+
+### 各端域名 *
+#### dev 环境
 <!-- 示例：
-- 云平台：Cloudflare
-- website 域名：notes.example.com
-- backend 域名：api.example.com
-- 环境：dev / release
+- website url = https://dev-www.<DOMAIN>
+- admin url = https://dev-admin.<DOMAIN>
+- backend url = https://dev-api.<DOMAIN>
+-->
+#### release 环境
+<!-- 示例：
+- website url = https://www.<DOMAIN>
+- admin url = https://admin.<DOMAIN>
+- backend url = https://api.<DOMAIN>
 -->
 
 ## 鉴权方案 *
