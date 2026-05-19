@@ -69,6 +69,8 @@ const ERROR_SIGNATURE_PATTERNS = [
     hint: '先跑 setup；勿在 tick 中丢失 stages.json' },
   { id: 'build_phase_max_iter', re: /tick 循环超出最大迭代|max_iterations/i,
     hint: 'build_phase exit 3 常为 tick 空转；先查 codegen exit 4 / has_failed 与 worker 生成物' },
+  { id: 'design_review_agent_timeout', re: /Agent timeout after \d+ms/i,
+    hint: 'design-review tick 仅应调度 pending feature；failed 勿重复入队。skill 修复后重置 design_review 失败项为 pending' },
 ];
 
 function scanLogTailForSignatures(logTail) {
@@ -92,7 +94,9 @@ function collectFailedFeatures(stages, step) {
   if (!stages || !stages.stages) return out;
   const keys = step === 'build_phase'
     ? ['codegen', 'create_ui_scenarios']
-    : [stageKeyInJson(step)];
+    : step === 'design_phase'
+      ? ['design', 'design_review']
+      : [stageKeyInJson(step)];
   for (const sk of keys) {
     const st = stages.stages[sk];
     if (!st) continue;
@@ -377,6 +381,77 @@ function resetCodegenSdkFailures(projectRoot, stages, log) {
     });
   }
   return { reset };
+}
+
+const DESIGN_REVIEW_TIMEOUT_RE = /Agent timeout after \d+ms/i;
+
+/**
+ * skill 修复 design-review 调度后，将超时失败的 review feature 重置为 pending 以便重跑。
+ */
+function resetDesignReviewFailures(projectRoot, stages, log) {
+  const dr = stages && stages.stages && stages.stages.design_review;
+  if (!dr || !dr.features) return { reset: [] };
+
+  const resetIds = [];
+  for (const [fid, feat] of Object.entries(dr.features)) {
+    if (!feat || feat.status !== 'failed') continue;
+    if (!DESIGN_REVIEW_TIMEOUT_RE.test(feat.error || '')) continue;
+    resetIds.push(fid);
+    feat.status = 'pending';
+    feat.error = null;
+    feat.started_at = null;
+    feat.completed_at = null;
+    feat.attempts = 0;
+    feat.review_file = null;
+    feat.review_hash = null;
+    feat.decision = null;
+    feat.can_enter_codegen = false;
+    const reviewPath = path.join(projectRoot, '.pipeline', `design-review-${fid}.json`);
+    try {
+      if (fs.existsSync(reviewPath)) fs.unlinkSync(reviewPath);
+    } catch (_) { /* */ }
+  }
+
+  if (resetIds.length === 0) return { reset: [] };
+
+  dr.status = 'running';
+  dr.completed_at = null;
+  if (dr.outputs) {
+    dr.outputs.failed_features = (dr.outputs.failed_features || []).filter(fid => !resetIds.includes(fid));
+    if (dr.outputs.decision === 'needs_fix') dr.outputs.decision = null;
+  }
+
+  if (log) {
+    log.info('recovery_design_review_reset', '已重置 design-review 超时失败 feature 为 pending', {
+      feature_ids: resetIds,
+    });
+  }
+  return { reset: resetIds };
+}
+
+function touchesDesignReviewSkillPath(filesChanged) {
+  if (!Array.isArray(filesChanged)) return false;
+  return filesChanged.some(f => {
+    const n = String(f).replace(/\\/g, '/');
+    return /ai-std4\/scripts\/stages\/design-review\.cjs/.test(n) ||
+      /ai-std4\/scripts\/libs\/pipeline-recovery/.test(n);
+  });
+}
+
+function shouldResetDesignReviewFailures({ recovery, step, bundle }) {
+  if (step !== 'design_phase') return false;
+  if (recovery.decision !== 'fix' && recovery.decision !== 'retry_only') return false;
+  if (recovery.decision === 'retry_only') return true;
+  if (recovery.repair_target === 'skill' && touchesDesignReviewSkillPath(recovery.files_changed)) {
+    return true;
+  }
+  const sigIds = (bundle && bundle.error_signatures && bundle.error_signatures.signature_ids) || [];
+  if (sigIds.includes('design_review_agent_timeout')) return true;
+  const failed = (bundle && bundle.failed_features) || [];
+  return failed.some(f =>
+    (f.stage === 'design_review' || f.stage === 'design-review') &&
+    DESIGN_REVIEW_TIMEOUT_RE.test(f.error || '')
+  );
 }
 
 /** 子进程执行重置，避免 run-pipeline 进程内 require 缓存旧版 pipeline-recovery */
@@ -926,6 +1001,14 @@ async function runOneRecoveryAttempt({
     invokeCodegenSdkResetSubprocess(projectRoot, log);
   }
 
+  if (shouldResetDesignReviewFailures({ recovery, step, bundle })) {
+    const stDr = readStagesJson() || stages || { pipeline: {}, stages: {} };
+    const drReset = resetDesignReviewFailures(projectRoot, stDr, log);
+    if (drReset.reset.length > 0) {
+      writeStagesJson(stDr);
+    }
+  }
+
   const histEntry = {
     stage:         step,
     run_id:        runId,
@@ -1068,6 +1151,8 @@ module.exports = {
   clearStaleCodegenWorkers,
   resetCodegenSdkFailures,
   shouldResetCodegenSdkFailures,
+  resetDesignReviewFailures,
+  shouldResetDesignReviewFailures,
   isSdkRecoverableCodegenError,
   runSkillRecoverySelfTests,
   shouldClearCodegenWorkers,

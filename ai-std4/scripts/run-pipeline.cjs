@@ -361,6 +361,14 @@ async function runDesignPhase() {
       if (drStatus === 'failed')  return 4;
       return 0;
     }
+
+    if (designReviewHasInFlightFeatures(stages)) {
+      const pollMs = resolveDesignPhasePollMs();
+      log.info('design_phase_poll', `design-review 有在途 Agent，等待 ${pollMs}ms 后下一轮 tick`, {
+        phase: 'design_phase', poll_ms: pollMs, iteration: i + 1,
+      });
+      await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
   }
 
   log.error('stage_failed', `design_phase tick 循环超出最大迭代次数（${MAX_ITER}）`, {
@@ -374,6 +382,19 @@ function resolveBuildPhasePollMs() {
   const n = Number(process.env.PIPELINE_BUILD_PHASE_POLL_MS);
   if (Number.isFinite(n) && n >= 500) return Math.floor(n);
   return 5000;
+}
+
+/** design_phase tick 轮询间隔（design-review Agent 单轮可达 15min+，避免紧循环重复 tick） */
+function resolveDesignPhasePollMs() {
+  const n = Number(process.env.PIPELINE_DESIGN_PHASE_POLL_MS);
+  if (Number.isFinite(n) && n >= 500) return Math.floor(n);
+  return 30000;
+}
+
+function designReviewHasInFlightFeatures(stages) {
+  const dr = stages && stages.stages && stages.stages.design_review;
+  if (!dr || !dr.features) return false;
+  return Object.values(dr.features).some(f => f && f.status === 'running');
 }
 
 // ── build_phase 复合编排（§3.2）──────────────────────────────────

@@ -22,11 +22,14 @@ const {
   readRecoveryConfig,
   scanLogTailForSignatures,
   collectCodegenWorkerExcerpts,
+  collectFailedFeatures,
   clearStaleCodegenWorkers,
   shouldClearCodegenWorkers,
   touchesCodegenSkillPath,
   resetCodegenSdkFailures,
   shouldResetCodegenSdkFailures,
+  resetDesignReviewFailures,
+  shouldResetDesignReviewFailures,
 } = require('./libs/pipeline-recovery.cjs');
 
 let failed = 0;
@@ -201,6 +204,34 @@ assert(
     cfg: { clearStaleCodegenWorkers: true },
   }),
   'shouldReset on codegen_pseudo_completed signature'
+);
+
+// 6c. design_review reset + collectFailedFeatures(design_phase)
+const stagesDr = {
+  stages: {
+    design_review: {
+      status: 'failed',
+      features: {
+        'AUTH-LOGIN-001': { status: 'failed', error: 'Agent timeout after 900000ms', attempts: 5 },
+        'PROJECT-DASH-001': { status: 'completed', error: null },
+      },
+      outputs: { failed_features: ['AUTH-LOGIN-001'], decision: 'needs_fix' },
+    },
+  },
+};
+const drFailed = collectFailedFeatures(stagesDr, 'design_phase');
+assert(drFailed.some(f => f.feature_id === 'AUTH-LOGIN-001' && f.stage === 'design_review'), 'design_phase failed_features');
+const drReset = resetDesignReviewFailures(tmpProject, stagesDr, null);
+assert(drReset.reset.includes('AUTH-LOGIN-001'), 'reset design-review timeout failures');
+assert(stagesDr.stages.design_review.features['AUTH-LOGIN-001'].status === 'pending', 'failed → pending');
+assert(stagesDr.stages.design_review.status === 'running', 'design_review running after reset');
+assert(
+  shouldResetDesignReviewFailures({
+    recovery: { decision: 'fix', repair_target: 'skill', files_changed: ['ai-std4/scripts/stages/design-review.cjs'] },
+    step: 'design_phase',
+    bundle: { error_signatures: { signature_ids: ['design_review_agent_timeout'] }, failed_features: [] },
+  }),
+  'shouldResetDesignReviewFailures on skill fix'
 );
 
 // 7. Ajv

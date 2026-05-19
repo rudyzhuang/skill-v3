@@ -655,11 +655,17 @@ async function runReviewAgentForFeature({ featureId, featureMeta, stagesObj, mod
     if (result.timedOut) {
       timedOut  = true;
       lastError = result.error;
-      log.error('agent_failed', `design-review Agent(${featureId}) 超时`, {
-        agent_id: agentId, feature_id: featureId,
-        max_attempts: maxRetries + 1, last_error: result.error, exit_code: 3,
+      if (attempt > maxRetries) {
+        log.error('agent_failed', `design-review Agent(${featureId}) 超时`, {
+          agent_id: agentId, feature_id: featureId,
+          max_attempts: maxRetries + 1, last_error: result.error, exit_code: 3,
+        });
+        return { success: false, timedOut: true, featureId, error: result.error, durationMs: dms };
+      }
+      log.warn('agent_retry', `design-review Agent(${featureId}) 超时，重试`, {
+        agent_id: agentId, feature_id: featureId, attempt, reason: result.error,
       });
-      return { success: false, timedOut: true, featureId, error: result.error, durationMs: dms };
+      continue;
     }
 
     if (!result.success) {
@@ -864,6 +870,21 @@ function checkAndReleaseGroups(dr, depGroups) {
   return { newlyReleasedGroups: newlyReleased };
 }
 
+function parseFeatureStartedAtMs(startedAt) {
+  if (!startedAt) return NaN;
+  const t = new Date(startedAt).getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
+/** running 超过单 feature 最大墙钟（含重试）则视为僵尸（进程中断遗留） */
+function isStaleRunningFeature(feat, timeoutMs, maxRetries) {
+  if (!feat || feat.status !== 'running') return false;
+  const startedMs = parseFeatureStartedAtMs(feat.started_at);
+  if (!Number.isFinite(startedMs)) return true;
+  const wallMs = timeoutMs * (maxRetries + 1) + 120000;
+  return Date.now() - startedMs > wallMs;
+}
+
 // ── tick：单轮调度 ────────────────────────────────────────────────
 async function doTick(stagesObj, config, featureFilterId) {
   // 若 bootstrap 尚未完成，先执行 bootstrap
@@ -888,19 +909,35 @@ async function doTick(stagesObj, config, featureFilterId) {
     ? targetFeatureIds.filter(id => id === featureFilterId)
     : targetFeatureIds;
 
-  // 上轮 tick 被中断时，遗留的 running 无对应 Agent，须重置为 pending 才能再次调度（与 design.cjs 一致）
+  const timeoutMs = config.timeoutS * 1000;
+
+  // 仅重置「过期」running（进程中断遗留）；仍在墙钟内的 running 表示 Agent 在途，勿重复入队
   const zombieResetList = [];
   for (const fid of scopeIds) {
-    if (featureStatuses[fid] && featureStatuses[fid].status === 'running') {
+    const feat = featureStatuses[fid];
+    if (!feat || feat.status !== 'running') continue;
+    if (isStaleRunningFeature(feat, timeoutMs, config.maxRetries)) {
       featureStatuses[fid].status = 'pending';
       zombieResetList.push(fid);
     }
   }
   if (zombieResetList.length > 0) {
     writeStagesJson(stagesObj);
-    log.warn('zombie_reset', `design-review tick 重置 ${zombieResetList.length} 个僵尸 running feature`, {
+    log.warn('zombie_reset', `design-review tick 重置 ${zombieResetList.length} 个过期 running feature`, {
       feature_ids: zombieResetList,
     });
+  }
+
+  const activeRunningIds = scopeIds.filter(fid => {
+    const feat = featureStatuses[fid];
+    return feat && feat.status === 'running' && !isStaleRunningFeature(feat, timeoutMs, config.maxRetries);
+  });
+  if (activeRunningIds.length > 0) {
+    writeStagesJson(stagesObj);
+    log.info('agent_batch_deferred', `design-review tick 推迟：${activeRunningIds.length} 个 feature Agent 仍在执行`, {
+      feature_ids: activeRunningIds,
+    });
+    return { allDone: false, hasFailed: false, timedOutDetected: false };
   }
 
   // 找就绪 feature：design.features.<id>.status=completed 且 review 未完成/失败
@@ -912,9 +949,9 @@ async function doTick(stagesObj, config, featureFilterId) {
     const designStatus = designFeatures[fid] && designFeatures[fid].status;
     if (designStatus !== 'completed') continue;
 
-    const reviewStatus = featureStatuses[fid] && featureStatuses[fid].status;
-    // 已 completed 或正在 running 的跳过
-    if (reviewStatus === 'completed' || reviewStatus === 'running') continue;
+    const reviewStatus = (featureStatuses[fid] && featureStatuses[fid].status) || 'pending';
+    // 仅调度 pending（与 design.cjs 一致）；failed 为终态，避免每轮 tick 重复拉起 Agent
+    if (reviewStatus !== 'pending') continue;
 
     // 有 blocking 确定性 gap 的不入队（但仍可 completed）
     const detGaps = (featureStatuses[fid] && featureStatuses[fid].deterministic_gaps) || [];
