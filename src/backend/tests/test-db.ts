@@ -76,10 +76,10 @@ export class TestD1 implements D1Database {
 
 export function createTestDb(): TestD1 {
   const sqlite = new Database(':memory:');
-  const migration = readFileSync(
-    join(__dirname, '../migrations/0001_users_sessions.sql'),
-    'utf8',
-  );
-  sqlite.exec(migration);
+  const migrationsDir = join(__dirname, '../migrations');
+  for (const file of ['0001_users_sessions.sql', '0002_projects.sql']) {
+    const migration = readFileSync(join(migrationsDir, file), 'utf8');
+    sqlite.exec(migration);
+  }
   return new TestD1(sqlite);
 }
