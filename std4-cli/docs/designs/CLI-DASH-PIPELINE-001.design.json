@@ -1,0 +1,59 @@
+{
+  "feature_id": "CLI-DASH-PIPELINE-001",
+  "client_target": "cli",
+  "client_targets": ["cli", "dash"],
+  "title": "监听流水线阶段并向 Dash 上报状态",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/lib/pipeline-stages-monitor.ts",
+        "role": "对业务项目根下 `.pipeline/stages.json` 做跨平台轮询或 fs.watch；解析变更、去抖合并、向 reporter 投递快照（含文件缺失/JSON 损坏时的错误通道）"
+      },
+      {
+        "path": "src/cli/lib/map-stages-json-to-dash-payload.ts",
+        "role": "将 ai-std4 `stages.json` 子集映射为 Dash Open API `PUT /api/v1/projects/:id/pipeline` 期望体：含 `current_stage`、`stages[]`/`stages` 映射、`features`、`blocking_issues`、`log_tail`（截断至长度上限）等，与 dash-std4 `pipeline-upsert` 校验语义一致"
+      },
+      {
+        "path": "src/cli/lib/dash-pipeline-client.ts",
+        "role": "基于可配置 Base URL 与 `Authorization: Bearer` 调用流水线上报；处理 401/404/400/413 等可区分状态码；不在日志或异常中打印密钥"
+      },
+      {
+        "path": "src/cli/runtime/pipeline-dash-reporter.ts",
+        "role": "组合 monitor + mapper + client：绑定 `project_id`（来自 stages.json `pipeline.project.project_id` 或 Query 模式上下文）、可选运行实例键（如 `recovery_history` 末条 `run_id` 或 CLI 生成 correlation id 写入载荷约定字段），串行化上报避免与主循环死锁"
+      },
+      {
+        "path": "src/dash/contracts/pipeline-upsert.ts",
+        "role": "Dash 端上报契约的 TypeScript 类型与路径常量（`PUT /api/v1/projects/:id/pipeline`），供 CLI 编译期对齐 dash-std4 Open API；不含任何密钥默认值"
+      }
+    ],
+    "modify_files": []
+  },
+  "api_outline": [
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/pipeline",
+      "summary": "API Key（Bearer）鉴权下上报流水线运行数据：stages、features、blocking_issues、log_tail、current_stage 等与 `.pipeline/stages.json` 可对齐字段；写入 pipeline_snapshots 并更新 projects.pipeline_summary；与 dash-std4 BACKEND-API-PIPELINE-001 一致"
+    }
+  ],
+  "acceptance": [
+    "在业务项目存在合法 `.pipeline/stages.json` 且配置有效 `DASH_STD4_API_BASE`（或等价键）与 API Key 时，修改任意 stage 的 `status` 或 `pipeline.current_stage` 后，在配置的去抖窗口内至少发出一次 `PUT /api/v1/projects/<project_id>/pipeline`，且请求头含 `Authorization: Bearer`、JSON 体含与 dash-std4 文档一致的上报字段集合（至少包含可观测的 `stages` 与 `current_stage` 或经 normalize 后的等价结构）",
+    "上报 JSON 与 stdout/文件日志中不得出现 `DASH_STD4_API_KEY`、`CURSOR_API_KEY` 等密钥明文；stage 状态枚举与字段命名与 dash-std4 流水线上报校验/OpenAPI 描述一致，可通过对照 dash-std4 `pipeline-upsert` 或 OpenAPI 示例完成人工核对",
+    "当 `.pipeline/stages.json` 缺失、不可读或 JSON 解析失败时，CLI 以明确级别记录诊断信息且不导致 Query/Create 主进程未捕获崩溃，并具备可配置降级（停止上报或按间隔重试直至文件恢复）",
+    "同一 `project_id` 下多次流水线执行可通过载荷内运行实例标识（优先取自 `pipeline.recovery_history` 最近项的 `run_id`，否则为 CLI 生成的稳定 correlation id）与连续 PUT 更新区分；Dash 侧表现为对最新快照的覆盖语义，与 BACKEND-API-PIPELINE-001 文档中的冲突/更新规则一致"
+  ],
+  "constraints": [
+    "Dash Base URL 仅来自配置或环境变量，禁止在仓库内写死生产域名；鉴权方式与 prd-spec 一致：`Authorization: Bearer <DASH_STD4_API_KEY>`",
+    "监听与路径拼接须同时适用于 macOS 与 Windows；`project_id` 须与 CLI-MODE-QUERY-001 拉取/物化项目的标识一致，避免错报",
+    "`log_tail` 与整体 payload 大小不得超过 dash-std4 文档规定上限，超出须在客户端截断并可在日志中标记 truncated（不含敏感内容）",
+    "上报不得阻塞 ai-std4 子进程主路径：应采用异步队列或微任务调度，与 FEISHU-BIDIR-001 阶段投递并存时不重复阻塞（可共享非阻塞出站模式）",
+    "服务端实现以 dash-std4 仓库为准；本仓库 `src/dash/contracts` 仅承载与 Open API 对齐的类型与常量，不替代服务端路由实现"
+  ],
+  "dependencies": [],
+  "risks": [
+    "fs.watch 在网络盘或部分编辑器「安全保存」场景下可能丢事件，须保留轮询回退或与去抖组合的合并策略以避免漏报",
+    "`.pipeline/stages.json` 体积或 `log_tail` 增长可能导致 413；需在客户端预处理并与 Dash 侧上限保持版本对齐",
+    "ai-std4 与 dash-std4 对 stages 子集演进不一致时可能出现校验失败（400）；需契约版本字段或兼容性文档跟进",
+    "高频 stage 抖动可能触发 Dash 限速（429）；与 CLI-RETRY-NFR-001 协同前须有简单退避或合并上报窗口"
+  ]
+}

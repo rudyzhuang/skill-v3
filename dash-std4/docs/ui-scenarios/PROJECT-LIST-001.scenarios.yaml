@@ -1,0 +1,315 @@
+feature_id: PROJECT-LIST-001
+client_target: admin
+scenarios:
+  - id: PROJECT-LIST-001-SMOKE-001
+    title: 登录后默认进入项目列表页
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/"
+      - type: element_present
+        selector_hint: 项目列表表格或列表主区域
+      - type: element_present
+        selector_hint: 顶栏项目列表导航或页面标题
+
+  - id: PROJECT-LIST-001-HAPPY-001
+    title: 已登录访问 /projects 展示项目名称、状态徽章与更新时间
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects"
+      - type: element_present
+        selector_hint: 项目列表表格
+      - type: element_present
+        selector_hint: 列表行中的项目名称列（中文或英文主显名）
+      - type: element_present
+        selector_hint: 列表行中的项目状态徽章
+      - type: element_present
+        selector_hint: 列表行中的流水线摘要或占位符列（与登记 status 区分展示）
+      - type: element_present
+        selector_hint: 列表行中的最近更新时间列
+      - type: text_absent
+        value: "500"
+      - type: text_absent
+        value: "Internal Server Error"
+
+  - id: PROJECT-LIST-001-GUARD-001
+    title: 未登录访问项目列表重定向至登录（等同 GET /api/projects 401）
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 登录按钮
+
+  - id: PROJECT-LIST-001-FILTER-001
+    title: 列表支持按状态筛选、名称搜索与更新时间排序
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 2000
+      - action: select
+        selector_hint: 状态筛选下拉框
+        value: "active"
+      - action: wait
+        timeout_ms: 1500
+      - action: type
+        selector_hint: 项目名称搜索输入框
+        value: "E2E"
+      - action: wait
+        timeout_ms: 1500
+      - action: click
+        selector_hint: 按更新时间降序排序选项或表头
+      - action: wait
+        timeout_ms: 1500
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects"
+      - type: element_present
+        selector_hint: 项目列表表格
+      - type: text_absent
+        value: "未捕获异常"
+
+  - id: PROJECT-LIST-001-EMPTY-001
+    title: 无已登记项目时展示明确空态文案
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects"
+      - type: text_present
+        value: "暂无"
+      - type: element_present
+        selector_hint: 项目列表空态提示区域
+      - type: text_absent
+        value: "未捕获异常"
+
+  - id: PROJECT-LIST-001-LOAD-001
+    title: 列表请求过程中展示加载态且完成后呈现主内容
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 300
+      - action: snapshot
+      - action: wait
+        timeout_ms: 3000
+    expect:
+      - type: url_contains
+        value: "/projects"
+      - type: element_present
+        selector_hint: 项目列表表格或列表空态提示区域
+      - type: text_absent
+        value: "白屏"
+
+  - id: PROJECT-LIST-001-ERROR-001
+    title: 列表接口失败时展示可读错误且不白屏
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 5000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects"
+      - type: element_present
+        selector_hint: 项目列表错误提示或重试区域
+      - type: text_absent
+        value: "未捕获异常"
+      - type: text_absent
+        value: "Uncaught"
+
+  - id: PROJECT-LIST-001-DASH-001
+    title: 列表行「查看看板」在新标签打开且 URL 含 projectId
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表表格第一行的查看看板链接或按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects/"
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 项目流水线看板页标题或看板主容器
+
+  - id: PROJECT-LIST-001-NAV-001
+    title: 列表页提供跳转新建项目入口（链至 /projects/new）
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 新建项目按钮或链接
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/projects/new"
+      - type: element_present
+        selector_hint: 项目名称（中文）输入框
+
+  - id: PROJECT-LIST-001-ROUTE-001
+    title: 根路径 / 与 /projects 均可展示同一项目列表
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+      - action: navigate
+        url: "{base_url}/projects"
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects"
+      - type: element_present
+        selector_hint: 项目列表表格或列表空态提示区域

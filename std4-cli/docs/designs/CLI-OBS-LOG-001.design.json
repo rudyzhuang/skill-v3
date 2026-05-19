@@ -1,0 +1,61 @@
+{
+  "feature_id": "CLI-OBS-LOG-001",
+  "client_target": "cli",
+  "client_targets": ["cli"],
+  "title": "本地可观测性：结构化日志、退出码与 CLI 基础信息",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/obs/logger.ts",
+        "role": "统一日志门面：分级（如 error/warn/info/debug）、可选 JSON 行结构（含 ts、level、msg、feature、correlationId 等可检索字段）；双 sink——stdout 与可配置滚动文件；集成密钥/Authorization/Bearer 等敏感子串脱敏；禁止将完整 env 或 config 原文 dump 到日志。"
+      },
+      {
+        "path": "src/cli/obs/log-file-rotation.ts",
+        "role": "滚动文件策略：按大小或按日滚动、保留份数与目录创建（跨平台路径）；失败时降级为仅 stdout 并输出一次性告警行，不因磁盘错误导致静默无日志。"
+      },
+      {
+        "path": "src/cli/obs/exit-codes.ts",
+        "role": "集中定义各场景退出码常量与简短文档注释（成功 0、用法/help 0 或约定非零、用户取消、配置/校验错误、Dash/外部 API 失败、子进程非零、内部未捕获异常等）；供 query/create 与子进程汇聚统一 re-export。"
+      },
+      {
+        "path": "src/cli/obs/cli-meta.ts",
+        "role": "解析 package.json version、可选构建时注入的 commit/buildId；为 --version 与人可读 banner 提供单一真源。"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/cli/cli-entry.ts",
+        "role": "接入 commander/yargs（或当期 CLI 解析库）：全局 --help/--version；全局 --log-level、--log-format（text|json）、--log-file（可选）；初始化 logger 后注册子命令；进程未捕获异常与 rejection 最后兜底日志并映射退出码。"
+      },
+      {
+        "path": "src/cli/create/create-command.ts",
+        "role": "与 PRD 对齐：支持 --non-interactive；在缺少必填参数时立即 non-zero 退出、打印明确缺失项列表且不进入交互；交互模式下行为不变。"
+      },
+      {
+        "path": "src/cli/query/query-command.ts",
+        "role": "在轮询、materialize、spawn run-pipeline、Dash 错误等关键点调用统一 logger，字段含子命令名与 project/job 标识（不含密钥）；子进程退出码经 exit-codes 映射后退出。"
+      }
+    ]
+  },
+  "api_outline": [],
+  "acceptance": [
+    "执行 `<entry> --help` 时 stdout 含主要子命令（至少 query、create 或与当期入口一致）、全局日志相关选项说明及一行典型用法示例；执行 `<entry> --version` 时 stdout 含语义化版本号且可与 package.json 字段逐项比对一致。",
+    "在未指定 `--log-file` 时 stderr/stdout 仍输出分级日志；指定 `--log-file` 且目录可写时，同一条关键事件在控制台与滚动文件中均可检索到相同 level 与 msg（时间戳格式允许差异），且日志全文不出现 `Authorization:`、`Bearer `、已知密钥 env 名对应的取值明文。",
+    "模拟缺少必填项执行 `create --non-interactive` 时进程立即以非零退出，stderr 或结构化日志中出现至少一个明示缺失参数名的短语，且 stdin 不被读取（可通过非 TTY 或空 stdin 管道验证无阻塞交互）。",
+    "对「用法错误（未知选项）」「配置文件/env 缺失或解析失败」「模拟 Dash HTTP 4xx/5xx」「子进程以固定非零码退出」四类场景各跑一次最小复现，四次退出码彼此不同且与 `docs/` 或源码内 `exit-codes.ts` 注释表一致（脚本可用 `echo $?` 或等价方式断言）。",
+    "当日志文件目录不可写或磁盘满时，进程仍能完成一次 `--version` 或 `--help` 输出；若配置了文件日志则出现至少一行说明降级/告警的日志，且不因崩溃退出码 0。"
+  ],
+  "constraints": [
+    "实现栈为 TypeScript / Node.js 18+；路径与换行在 macOS、Windows 上与 prd-spec 一致。",
+    "日志与错误输出不得包含 DASH_STD4_API_KEY、CURSOR_API_KEY、飞书 App Secret、Bearer token、原始 Authorization 头等敏感明文；对象序列化前须经过脱敏或 allowlist 字段。",
+    "滚动日志默认策略（单文件上限、保留个数、路径默认值）须在 README 或 obs 模块顶部注释中写明；CI 场景依赖 `--non-interactive` 与稳定退出码，不得依赖 TTY 着色副作用作为唯一信号。",
+    "与 CLI-MODE-CREATE-001、CLI-MODE-QUERY-001、CLI-VENDOR-STD4-001 的实现并行时，本 feature 提供 logger 与 exit-codes 的单一导入入口，避免各子命令复制粘贴映射表。"
+  ],
+  "dependencies": [],
+  "risks": [
+    "第三方 CLI 解析库对全局选项与子命令顺序敏感，若 `--log-level` 置于子命令之后可能不生效，需在文档中固定推荐写法或实现二次解析。",
+    "JSON 日志与人工 grep 混用时字段激增可能导致磁盘压力；需在默认级别与采样策略上与后续 CLI-RETRY-NFR-001 协调。",
+    "子进程退出码与 CLI 映射若过多层包装，可能与 Unix 惯例（>125）冲突；需在 exit-codes 表中预留区间并文档化。"
+  ]
+}

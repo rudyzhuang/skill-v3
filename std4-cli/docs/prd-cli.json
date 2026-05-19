@@ -1,0 +1,140 @@
+{
+  "client_target": "cli",
+  "project_name": "Std4Cli",
+  "features": [
+    {
+      "feature_id": "CLI-MODE-QUERY-001",
+      "name": "Query 模式：轮询 Dash 待开发项目并串行执行全量流水线",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "CLI 以 Query 模式常驻：按配置轮询 DashStd4 Open API 获取待开发/待处理项目，将项目 materialize 到本地工作区后，以 CURSOR_SKILLS_ROOT 指向 CLI 内 vendor 的方式串行 spawn ai-std4 run-pipeline 全链路；无任务时按约定发送空闲心跳保活，不阻塞进程退出策略（由产品约定守护或前台运行）。",
+      "acceptance": [
+        "可通过子命令或配置启动 Query 模式，并持续轮询 Dash 直至收到停止信号或进程结束",
+        "拉取到的项目在本地目录结构完整可执行，且能触发 vendor 内 ai-std4 流水线入口（如 run-pipeline.cjs）",
+        "同一时刻对项目列表采用串行执行策略，避免并发跑多份流水线",
+        "空闲时仍按约定向 Dash 发送心跳或等价保活请求，间隔与超时符合 dash-std4 API 约定",
+        "Dash API Key 等凭据仅自本地配置读取，不得写入 stdout 日志或上报载荷明文"
+      ],
+      "api_hints": ["DashStd4 项目查询/心跳类 Open API（Authorization: Bearer）"]
+    },
+    {
+      "feature_id": "CLI-MODE-CREATE-001",
+      "name": "Create 模式：生成业务项目并可注册 Dash，完成后切入 Query",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "CLI 提供 Create 模式：支持交互式向导或命令行参数生成业务项目骨架（含 req 等约定产物），可按配置通过 DashStd4 Open API 将新项目登记到服务端；创建流程结束后自动切换或引导进入 Query 模式以衔接后续无人值守流水线。",
+      "acceptance": [
+        "交互模式下 CLI 提示完整且可在无额外文档情况下完成一次最小项目创建",
+        "非交互模式下可通过 CLI 参数在一次调用内完成创建（与 CLI-OBS-LOG-001 的 --non-interactive 对齐）",
+        "可选启用 Dash 注册：成功时可在 Dash 侧查询到对应项目或等价标识；失败时给出可诊断错误且不泄露密钥",
+        "创建完成后能按产品约定自动进入 Query 或输出明确下一步命令行指引",
+        "生成项目目录符合 ai-std4 与 std4-cli 文档约定的文件布局（如 docs/、inputs/ 等）"
+      ],
+      "api_hints": ["DashStd4 项目创建/注册类 Open API（Authorization: Bearer）"]
+    },
+    {
+      "feature_id": "CLI-VENDOR-STD4-001",
+      "name": "构建内置 vendor/ai-std4 与运行时 CURSOR_SKILLS_ROOT 编排",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "构建阶段从约定 Git 源拉取 ai-std4 子树至安装包内 vendor/ai-std4/ 并执行 npm install 等打包步骤；运行时将 CURSOR_SKILLS_ROOT 指向 CLI 安装根（或 vendor 根按实现约定），通过子进程调用 run-pipeline.cjs 等入口，禁止依赖本机 ~/.cursor/skills 或外部 skill 路径。可通过环境变量覆盖默认仓库、ref 与子路径（如 STD4_SKILL_REPO、STD4_SKILL_REF、STD4_SKILL_SUBDIR）。",
+      "acceptance": [
+        "发布后安装目录包含可用的 vendor/ai-std4/ 及其依赖产物，离线场景下可执行既定流水线入口",
+        "在未配置本机 ~/.cursor/skills 的前提下，一次 Query/Create 触发的流水线仍可跑通最小成功路径",
+        "子进程环境中 CURSOR_SKILLS_ROOT（或与 ai-std4 文档一致的等价变量）被正确设置，spawn 参数跨 macOS/Windows 一致",
+        "支持通过环境变量覆盖拉取源与 ref，且默认源与 prd-spec 约定一致",
+        "流水线子进程退出码向上汇聚或映射为 CLI 退出策略的一部分（与 CLI-OBS-LOG-001 一致）"
+      ],
+      "api_hints": ["GitHub rudyzhuang/skill-v3 子路径 ai-std4/（可配置）"]
+    },
+    {
+      "feature_id": "CLI-CONFIG-INJECT-001",
+      "name": "将 bundled/std4-config.env 同步注入业务项目",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "CLI 在 materialize 或项目准备阶段将内置 bundled/std4-config.env 同步到业务项目的 docs/config.env（必要时覆盖 inputs/config.env），以便各 stage 通过 loadProjectEnv 读取；源文件来自构建期由 inputs/config.env 生成的副本，须遵守不进 git 与权限约束，不在日志中打印明文密钥。",
+      "acceptance": [
+        "目标项目根下存在 docs/config.env（及约定时的 inputs/config.env），内容与 bundled 源一致或可预测的合并策略（若有）在文档中说明",
+        "注入后 ai-std4 各 stage 能以既有 loadProjectEnv 机制读取到 CURSOR_API_KEY 等所需键名（值不出现在日志）",
+        "对缺失或只读目标目录给出清晰错误，不部分写入导致静默失败",
+        "注入操作幂等或可安全重复执行，重复运行不会破坏用户额外本地覆盖策略（若支持则在 spec 中说明）"
+      ],
+      "api_hints": ["loadProjectEnv", "bundled/std4-config.env → docs/config.env"]
+    },
+    {
+      "feature_id": "CLI-DASH-PIPELINE-001",
+      "name": "监听流水线阶段并向 Dash 上报状态",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "CLI 监听业务项目内 .pipeline/stages.json 或等价日志输出，将各 stage 状态映射为 DashStd4 流水线 API 所期望的 payload 并上报；上报字段名、状态枚举与 dash-std4 服务端保持一致，失败时不泄露敏感配置。",
+      "acceptance": [
+        "当流水线产生阶段变更时，Dash 侧可在合理延迟内观察到对应 stage 状态更新",
+        "上报载荷与 dash-std4 流水线 API schema 对齐（字段名、状态值可与服务端文档对照）",
+        "监听机制在 macOS 与 Windows 上对同一项目结构行为一致",
+        "监听源不可用时（文件缺失、格式错误）有明确日志级别与恢复或降级策略",
+        "与 FEISHU-BIDIR-001 联用时，阶段信息可按约定同时或分路投递而不重复阻塞主路径"
+      ],
+      "api_hints": [".pipeline/stages.json", "DashStd4 流水线状态上报 Open API"]
+    },
+    {
+      "feature_id": "FEISHU-BIDIR-001",
+      "name": "集成 feishu-cursor-claw：安装、启动、上报与指令解析",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "CLI 集成 feishu-cursor-claw 为 sidecar：提供安装向导或脚本将模板复制为安装根下独立目录与环境文件，拉起 bun run server.ts 建立长连接；将流水线阶段与心跳上报到飞书会话，并解析飞书侧下发的基础遥控指令（如 status、stop、mode 切换等），映射为 CLI 内部控制流而不阻塞流水线主线程。",
+      "acceptance": [
+        "可在干净环境中完成 feishu-cursor-claw 侧car 部署并生成本地 .env（路径与权限符合 prd-spec，不入库）",
+        "CLI 能启动、检测并在异常退出时记录飞书 bridge 子进程状态",
+        "流水线阶段与约定心跳事件可在飞书侧观测（内容与频率可配置或按默认值）",
+        "解析 status/stop/mode 等指令并作用于当前 CLI 会话（具体行为与帮助文档一致）",
+        "App Secret 等凭据不出现在日志或上报 JSON 明文字段中"
+      ],
+      "api_hints": ["feishu-cursor-claw", "bun run server.ts", "installRoot/projects.json"]
+    },
+    {
+      "feature_id": "CLI-OBS-LOG-001",
+      "name": "本地可观测性：结构化日志、退出码与 CLI 基础信息",
+      "priority": "P1",
+      "phase": "mvp",
+      "description": "CLI 向 stdout 与滚动文件输出结构化或分级日志，约定各场景退出码；提供 --help 与版本信息；Create 支持 --non-interactive 以满足 CI/脚本场景。日志不得包含密钥明文。",
+      "acceptance": [
+        "--help 列出主要子命令、全局选项与典型示例；--version 输出可读版本与构建元信息（若有）",
+        "关键事件（轮询、拉取项目、阶段切换、子进程起停、Dash/飞书错误）有对应日志级别与可检索字段或前缀",
+        "默认启用或可通过配置启用滚动文件日志，并限制单文件大小或保留份数（具体策略在实现文档中说明）",
+        "成功、用户取消、配置错误、外部 API 失败、子进程崩溃等场景的退出码有文档化约定",
+        "create --non-interactive 在缺少必填参数时失败并打印明确错误，不进入交互"
+      ],
+      "api_hints": []
+    },
+    {
+      "feature_id": "CLI-RETRY-NFR-001",
+      "name": "Dash 指数退避与飞书异步发送队列",
+      "priority": "P1",
+      "phase": "standard",
+      "description": "对 Dash Open API 的瞬时网络/5xx/429 类错误实现指数退避重试与上限；飞书消息发送走异步队列，发送失败在后台重试且不阻塞流水线主路径执行，与可靠性目标一致。",
+      "acceptance": [
+        "Dash 请求在遇到可重试错误时按指数退避重试，达到上限后失败并记录可诊断日志（不含密钥）",
+        "飞书通知入队后主线程/主事件循环不因单条发送阻塞超过约定阈值",
+        "队列在进程正常退出时可持久化或优雅排空策略在文档中说明（至少不静默丢关键状态但不阻塞 SIGKILL 场景）",
+        "重试与队列参数可通过配置或环境变量调节（默认值合理）",
+        "与其他端协同时 feature_id 与本表及 prd-spec 保持一致"
+      ],
+      "api_hints": ["Dash Open API 429/5xx", "feishu 异步 outbound 队列"]
+    }
+  ],
+  "deploy": {
+    "domain": "",
+    "service_type": "github_releases_or_npm"
+  },
+  "auth": {
+    "type": "none",
+    "notes": "CLI 本体无会话态；DashStd4 使用 Bearer Token（用户本地配置，如 ~/.std4-cli/config.env），飞书与 Cursor 密钥经 sidecar 与注入后的 docs/config.env 提供，禁止写入日志或上报明文。"
+  },
+  "constraints": [
+    "TypeScript / Node.js 18+；子进程与跨平台路径/换行处理与 macOS、Windows 一致",
+    "ai-std4 必须随包 vendor，禁止运行期依赖本机 ~/.cursor/skills",
+    "feishu-cursor-claw 以 sidecar 子进程集成，避免自研 WebSocket",
+    "依赖本机 git、Bun（飞书桥）、Cursor Agent CLI（agent）；不要求用户预装 ai-std4 skill",
+    "inputs/config.env、bundled/std4-config.env、敏感 .env 不进 git；分发包对内置 config 限制为当前用户可读"
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "feature_id": "PROJECT-DASH-001",
+  "client_target": "backend",
+  "client_targets": ["admin", "backend"],
+  "title": "项目流水线看板",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/backend/src/types/pipeline-dashboard.ts",
+        "role": "看板 DTO：PipelineDashboardResponse、StageRow、FeatureRow、BlockingIssue、data_status 枚举"
+      },
+      {
+        "path": "src/backend/src/lib/pipeline-normalize.ts",
+        "role": "将 pipeline_snapshots.payload_json 或 stages.json 子集规范化为看板结构；容忍字段缺失与部分 stage"
+      },
+      {
+        "path": "src/backend/src/services/pipeline-dashboard.ts",
+        "role": "按 project_id 加载 projects、读取最新 pipeline_snapshots、normalize、组装 current_stage/blocking/log_tail；可选 dev 下 root_path 读 .pipeline/stages.json"
+      },
+      {
+        "path": "src/backend/src/routes/project-pipeline.ts",
+        "role": "GET /api/projects/:id/pipeline（require-session）"
+      },
+      {
+        "path": "src/backend/tests/project-pipeline.test.ts",
+        "role": "看板 API：200/401/404、空快照空态、log_tail 截断、无密钥与绝对路径泄露"
+      },
+      {
+        "path": "src/admin/src/api/pipeline.ts",
+        "role": "GET /api/projects/:projectId/pipeline 调用封装（credentials include）"
+      },
+      {
+        "path": "src/admin/src/pages/ProjectDashboardPage.tsx",
+        "role": "看板页容器：按 URL projectId 拉取数据、加载/错误/空态、区块布局"
+      },
+      {
+        "path": "src/admin/src/components/PipelineCurrentStageBanner.tsx",
+        "role": "突出展示 current_stage、last_completed_stage 与 synced_at"
+      },
+      {
+        "path": "src/admin/src/components/PipelineStageTable.tsx",
+        "role": "阶段表：stage 名称、状态、开始/完成时间等列"
+      },
+      {
+        "path": "src/admin/src/components/PipelineFeatureList.tsx",
+        "role": "feature 流水线进度区：feature_id、名称、phase、状态、当前 stage"
+      },
+      {
+        "path": "src/admin/src/components/PipelineBlockingSummary.tsx",
+        "role": "阻塞摘要列表；无阻塞时展示「无阻塞」空态"
+      },
+      {
+        "path": "src/admin/src/components/PipelineLogTail.tsx",
+        "role": "最近日志 tail 只读展示（等宽字体、保留换行）"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/backend/src/index.ts",
+        "role": "挂载 GET /api/projects/:id/pipeline 并套用 require-session"
+      },
+      {
+        "path": "src/backend/src/db/schema.ts",
+        "role": "补充 pipeline_snapshots 查询辅助与 projects.root_path 可选字段类型"
+      },
+      {
+        "path": "src/backend/src/services/projects-list.ts",
+        "role": "看板读取成功后可选回写 projects.pipeline_summary（当前 stage/阻塞一行摘要，供列表展示）"
+      },
+      {
+        "path": "src/admin/src/App.tsx",
+        "role": "受保护路由 /projects/:projectId/dashboard 指向 ProjectDashboardPage"
+      },
+      {
+        "path": "src/admin/src/api/projects.ts",
+        "role": "导出 projectId 类型别名或共用路径常量（与列表「查看看板」链接一致）"
+      }
+    ]
+  },
+  "api_outline": [
+    {
+      "method": "GET",
+      "path": "/api/projects/:id/pipeline",
+      "summary": "有效 Session 下返回指定项目的流水线看板聚合数据：project 摘要、current_stage、stages[]、features[]、blocking_issues[]、log_tail、data_status、synced_at；无快照或 stages 不完整时仍 200 且 data_status=empty|partial；项目不存在 404；无 Session 401"
+    }
+  ],
+  "data_outline": "读路径：projects(id) JOIN 最新 pipeline_snapshots(project_id, payload_json, updated_at) ORDER BY updated_at DESC LIMIT 1；无快照时 data_status=empty。响应体 { project:{id,name_zh,name_en,status,client_targets}, current_stage, last_completed_stage, stages:[{id,name,status,started_at,completed_at}], features:[{feature_id,name,phase,status,current_stage,dependencies}], blocking_issues:[{message,stage,severity}], log_tail, data_status: ok|empty|partial, synced_at }；payload_json 结构对齐 ai-std4 .pipeline/stages.json（含 pipeline.current_stage、stages 各节点 status/blocking_issues、prd.outputs.features 等可映射子集）；log_tail 默认最大 32KB 或 200 行（先达者优先），超出截断并在响应 meta 标注 truncated=true（可选字段）",
+  "acceptance": [
+    "GET /api/projects/:id/pipeline 在有效 Session 且项目存在时返回 200，body 含 project、current_stage、stages、features、blocking_issues、log_tail、data_status、synced_at；无 Session 或会话失效返回 401；未知 id 返回 404",
+    "当 pipeline_snapshots 无记录或 payload 为空/不可解析时返回 200 且 data_status 为 empty 或 partial，stages/features/blocking_issues 为空数组、log_tail 为空字符串，响应与日志不含服务器绝对路径、config.env 密钥或默认密码",
+    "存在有效快照或（仅本地 dev）projects.root_path 下可读 .pipeline/stages.json 时，stages 表至少展示 stage 标识与 status；features 区展示 feature_id、名称与进度相关字段；blocking_issues 与 stages 内阻塞合并去重展示",
+    "log_tail 超过约定上限时 backend 截断后仍返回 200，不返回 5xx；截断行为在单测中可验证",
+    "admin 在 /projects/:projectId/dashboard 展示阶段表、feature 流水线区、当前 stage 横幅、阻塞摘要（无阻塞显示「无阻塞」）与日志 tail；加载中与接口失败有明确反馈；各区块在数据缺失时展示友好空态而非未捕获异常堆栈",
+    "看板页可由项目列表「查看看板」以 target=_blank 打开，URL 中 projectId 与 GET /api/projects/:id/pipeline 的 :id 一致；未登录访问受保护看板路由重定向登录页"
+  ],
+  "constraints": [
+    "管理端看板 API 为 GET /api/projects/:id/pipeline，须复用 AUTH-LOGIN-001 的 require-session；本 feature 只读，不实现 Open API /api/v1/*",
+    "端代码仅落在 src/admin/ 与 src/backend/；数据主源为 D1 pipeline_snapshots（由 BACKEND-API-PIPELINE-001 写入）；禁止在响应、日志或前端硬编码 config.env 中的密钥与默认密码",
+    "须兼容 ai-std4 .pipeline/stages.json 字段子集；normalize 须容忍 stages/features/blocking 单字段缺失，不得因此 5xx",
+    "生产 Workers 环境不依赖业务机文件系统；root_path 直读 .pipeline/stages.json 仅作 wrangler 本地 dev 可选回退，云端无快照时仅返回空态",
+    "client_targets 与 prd 索引一致；看板路由与 PROJECT-LIST-001 列表「查看看板」链接 /projects/:projectId/dashboard 对齐"
+  ],
+  "dependencies": ["PROJECT-LIST-001"],
+  "risks": [
+    "BACKEND-API-PIPELINE-001 未上线或尚未 PUT 上报时，看板长期 data_status=empty，需在 UI 区分「未同步流水线」与「已同步无阻塞」",
+    "BACKEND-API-PIPELINE-001 规划 src/backend/lib/pipelineNormalize.ts 与本 feature src/backend/src/lib/pipeline-normalize.ts 可能重复，codegen 前须合并为单一 normalize 模块供上报与看板共用",
+    "pipeline_snapshots.payload_json 与真实 stages.json 结构漂移会导致 partial 态增多，须在 normalize 中单测覆盖 DashStd4 仓库样例 .pipeline/stages.json",
+    "回写 projects.pipeline_summary 与列表 status 枚举语义不一致时，列表「流水线摘要」与看板详情可能短暂不一致",
+    "超大 log_tail 或 stages 节点过多仍可能逼近 Workers 响应体上限，须严格执行截断与 stages 行数上限（如每表最多 50 行）"
+  ]
+}

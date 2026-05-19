@@ -11,3 +11,10 @@ skills-lock.json
 .agents/
 .cursor/
 */node_modules/
+
+*/.pipeline/
+*/logs/
+*/node_modules/
+*/.agent-sessions/
+# 业务项目独立 git（父仓内嵌套 init，勿提交子项目 .git）
+*/.git

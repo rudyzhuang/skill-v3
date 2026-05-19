@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "merge-push-triage-output.schema.json",
+  "title": ".pipeline/merge-push-triage.json",
+  "type": "object",
+  "required": ["decision", "category", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["fix_merge", "retry_merge", "blocked"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "conflict_resolution",
+        "ordering",
+        "worktree",
+        "config",
+        "unknown"
+      ]
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "files_touched": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "已修改的业务仓相对路径"
+    },
+    "user_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "feature_id": "CLI-RETRY-NFR-001",
+  "client_target": "cli",
+  "client_targets": ["cli", "dash", "feishu"],
+  "title": "Dash Open API 指数退避与飞书出站异步队列",
+  "phase": "standard",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/http/dash-retry-policy.ts",
+        "role": "定义可重试与不可重试的 Dash HTTP 分类：将网络错误、408、429、502、503、504 及带 Retry-After 的响应归入可重试；401/403/404/422 等鉴权与语义错误立即失败且不触发盲重试；支持指数退避基数、上限、最大尝试次数、全抖动（full jitter）及 `Retry-After`（秒或 HTTP-date）优先于本地退避时钟"
+      },
+      {
+        "path": "src/cli/http/dash-fetch.ts",
+        "role": "对 Dash Open API 的统一 fetch/HTTP 封装：注入 Bearer、超时、可取消（AbortSignal）；在可重试路径上串行重试并累计单次操作的 wall-time 上限；对响应体中统一错误 envelope（若 dash-std4 提供）解析 `code`/`retryable`，写结构化日志时脱敏且永不打印 Authorization"
+      },
+      {
+        "path": "src/cli/feishu/outbound-queue.ts",
+        "role": "飞书出站内存队列 + 单 worker：stage-reporter/heartbeat 等经 `enqueue` 非阻塞返回；worker 按优先级/去抖投递至 FEISHU-BIDIR-001 的 `claw-transport` 信道，失败走有限次指数退避；队列深度与丢弃策略（过载时可丢弃低优先级心跳但保留阶段终态）可配置，并在日志中记录丢弃计数"
+      },
+      {
+        "path": "src/dash/retry-contract.ts",
+        "role": "Dash 侧与 CLI 对齐的契约说明与常量：文档化只读接口在瞬时故障下优先 503/429 而非泛化 500；写接口幂等键/重复提交语义；错误 JSON 字段约定与 `Retry-After` 使用方式，供 TypeScript 侧类型与运行时解析共用（实现可在 dash-std4 服务端落地，本仓仅存消费方契约）"
+      },
+      {
+        "path": "src/feishu/outbound-types.ts",
+        "role": "出站队列条目类型：event_kind、priority、correlation_id、序列化后的 bridge payload 引用；与 `src/feishu/contracts/bridge-events.ts` 的事件形状兼容，便于编译期约束与验收时 grep 字段"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/cli/runtime/dash-open-api.ts",
+        "role": "若存在：将所有 Dash 调用改为经由 `dash-fetch`；集中配置 Base URL、默认重试参数环境变量（如 `STD4_DASH_RETRY_MAX`、`STD4_DASH_RETRY_BASE_MS`）；对非幂等写操作在调用前强制要求 Idempotency-Key 或文档化「仅安全场景可重试」分支"
+      },
+      {
+        "path": "src/cli/feishu/claw-transport.ts",
+        "role": "将同步发送改为由 `outbound-queue` 驱动或在其内部短超时发送；暴露 `enqueueBridgeEvent` 与背压指标，保证主线程单次入队耗时低于文档化阈值（如 1ms 级内存操作）"
+      },
+      {
+        "path": "src/cli/feishu/stage-reporter.ts",
+        "role": "阶段变更与摘要改为入队而非阻塞等待飞书 API/bridge 返回；与 CLI-DASH-PIPELINE-001 Dash 上报失败策略正交：Dash 重试独立于飞书队列"
+      },
+      {
+        "path": "src/cli/query/poll-loop.ts",
+        "role": "若存在：轮询 Dash 待开发队列时使用 `dash-fetch`，使空闲高频轮询在 429 时自动遵守 Retry-After，避免与 dash-std4 速率限制冲突"
+      }
+    ]
+  },
+  "api_outline": [
+    {
+      "method": "GET",
+      "path": "/open/projects/pending",
+      "summary": "Query 拉取待开发项目：在过载或瞬时故障时返回 429 或 503（优先于笼统 500）；可在响应头携带 Retry-After；响应体错误与 401/403 可区分以便 CLI 停止重试并刷新配置"
+    },
+    {
+      "method": "POST",
+      "path": "/open/projects",
+      "summary": "Create 注册项目：文档化重复提交/幂等键（Idempotency-Key 或业务幂等字段）行为，避免 CLI 退避重试导致重复实体；不可重试的校验错误返回 4xx 与结构化错误体"
+    },
+    {
+      "method": "PUT",
+      "path": "/open/projects/{project_id}/pipeline/stage",
+      "summary": "流水线阶段上报：多次 PUT 为幂等更新或可合并版本链；429/503 时返回可重试信号；与 CLI 侧重试组合时语义无损"
+    }
+  ],
+  "acceptance": [
+    "对模拟或真实 Dash 端返回 503/429 且带 Retry-After 的请求，CLI 日志可检索到退避间隔不小于 Retry-After 规定的等待后再尝试，且总尝试次数不超过配置上限；对 401/403 的连续请求次数为 1（不重试同一未刷新凭证）。",
+    "在非幂等写操作未配置幂等键时，实现须拒绝自动重试或仅重试经文档列明的安全子集，并在日志中输出可诊断原因；对幂等写操作在剪线重放场景下 Dash 侧不出现重复业务记录（与 dash OpenAPI 文档一致）。",
+    "在飞书 bridge 故意延迟（sleep/mock）时，向 `enqueueBridgeEvent` 压测 N 条消息的 wall-time 近似 O(N) 内存入队且主线程不因单条发送阻塞超过产品文档写明毫秒阈值；worker 后台完成退避重试。",
+    "进程收到 SIGTERM 时，出站队列执行文档化优雅排空（有限时间内尽力发送）或落盘/落日志说明未送达条目数量；SIGKILL 场景不验收不丢但不得静默失败到零日志。",
+    "关闭飞书或未安装 claw 时，CLI 启动与 run-pipeline 主路径仍可完成；仅飞书相关功能降级为结构化告警日志，不因队列背压崩溃。"
+  ],
+  "constraints": [
+    "所有日志、指标与异常 message 禁止包含 Dash Bearer、飞书 Secret、User Access Token、Cursor Key 明文",
+    "可重试集合须与 dash-std4 OpenAPI 文档一致；禁止对未文档为可重试的 5xx 无限重试",
+    "飞书异步队列不得反向阻塞 Dash 上报与 run-pipeline 子进程生命周期",
+    "路径与并发模型在 macOS、Windows 上一致；队列实现避免阻塞主线程",
+    "`dependencies[]` 仅包含本期已交付的 FEISHU-BIDIR-001；与 CLI-DASH-PIPELINE-001 共存时共享单一 Dash HTTP 栈以免重复退避逻辑"
+  ],
+  "dependencies": ["FEISHU-BIDIR-001"],
+  "risks": [
+    "dash-std4 若尚未统一 429/503/Retry-After 与错误 envelope，CLI 分类可能与实装不一致，需对齐版本或特性探测",
+    "非幂等 POST 在无幂等键时重试可能造成重复资源，产品与 OpenAPI 必须先行定义幂等策略",
+    "出站队列仅内存时在崩溃下可能丢失未送达飞书通知；需权衡落盘复杂度与 prd-spec 的「不阻塞主路径」",
+    "Query 高频轮询与 429 退避若未协调，可能拉长检出延迟；需可配置退避上限与日志可观测性",
+    "与 FEISHU-BIDIR-001 claw 上游协议变更时，队列与 transport 边界需同步调整"
+  ]
+}

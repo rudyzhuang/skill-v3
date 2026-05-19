@@ -1,0 +1,120 @@
+# merge_push 阶段
+
+[← 规范索引](../std4.md) · [门闸链](../std4.md#2-门闸链汇总) · [编排映射](../std4.md#3-run-pipelinecjs-编排映射) · [卡点速查](../std4.md#4-agent-卡点速查)
+
+> 将各 feature 的 codegen worktree 分支 **按序合并**入主干并 **push** 远端；合并失败或 push 失败使用专用退出码 **6** / **7**。
+
+## 脚本
+
+```bash
+node ai-std4/scripts/stages/merge-push.cjs --project=<业务项目根绝对路径>
+```
+
+实现：`ai-std4/scripts/stages/merge-push.cjs`（Git 编排 + **冲突** / **push 失败** 时 SDK 分诊）。
+
+## 上游门闸
+
+| 粒度 | 条件 |
+| --- | --- |
+| **stage 启动** | `stages.code_review.status=completed` 且 `stages.code_review.outputs.decision ∈ {passed, passed_with_warnings}` 且 `validation.passed=true` |
+| **单 feature 可合并** | `stages.codegen.features.<feature_id>.status=completed` 且 `commit` 非空；对应 worktree 存在 |
+
+> 与 [std4 门闸表](../std4.md#2-门闸链汇总) 一致：`decision ≠ failed`（`passed_with_warnings` 允许进入）。
+
+## 输入
+
+| 来源 | 要求 |
+| --- | --- |
+| `stages.codegen.features.<feature_id>` | `worktree_path`、`branch`（`features/v3-<feature_id>`）、`commit` |
+| `stages.prd.outputs.features[]` | 合并顺序参考（可按 `priority` / `feature_id` 排序，实现须稳定） |
+| `docs/config.dev.json` | `git.default_branch`、`git.remote`、`git.remote_url`（可选）；**push** 由 `git.allow_push=true` 门闸（与 `auto_commit` 分离） |
+| 业务仓 Git 工作区 | 干净或可自动 stash；当前分支将切到 `default_branch` |
+
+**代码落位**：合并后各端代码须在 `src/<client_target>/` 下（见 [`input-spec.md`](../../input-spec.md) §3.4），不得落在 V2 根目录 `backend/`、`website/` 等。
+
+## 处理逻辑
+
+1. **门闸、幂等跳过与锁**：
+   - 检查上游门闸；不满足 → 退出码 1。
+   - **计算 `merge_bundle_hash`**：按 `feature_id` 字典序排列各 codegen 完成 feature 的 `${feature_id}:${commit}` 列表，`JSON.stringify + SHA-256`（hash-of-hashes 方式）。
+   - 若 `stages.merge_push.status=completed` 且 `merge_bundle_hash == stages.merge_push.inputs.merge_bundle_hash` → **整段跳过**（写 `stage_skipped`，退出码 0）。
+   - 写入 `inputs.merge_bundle_hash = merge_bundle_hash`，写 `stages.merge_push.status=running`。
+   - 获取 PID 锁 `.pipeline/locks/merge_push.pid`（防并发 merge）；已有锁则退出码 1 + 原因说明。
+2. **准备主干**：`git fetch <remote>`；`git checkout <default_branch>`；`git merge --ff-only <remote>/<default_branch>`（快进对齐，若有本地未提交变更先自动 stash，无法 stash → 退出码 1）。
+3. **按 feature 合并**（顺序稳定：P0→P3 再 `feature_id` 字典序）：
+   - 对每个 `features/v3-<feature_id>`：先检查 `git merge-base --is-ancestor <commit> HEAD`；若为 ancestor（已在主干）→ 跳过 merge，写入 `already_merged_features[]`。
+   - 否则：`git merge --no-ff <branch> -m "feat(<feature_id>): merge codegen implementation"`；成功 → 追加 `outputs.merged_features[]`。
+   - **冲突**（保留 merge 进行中状态，**不立即 abort**）→ 写 `.pipeline/merge-push-last-error.json` → **分诊 Agent**（`merge-push-triage.md`）→ 在业务仓解决冲突 → `git add` + `git commit --no-edit` / `merge --continue` → 成功则继续下一 feature；失败则 abort 并记入 `conflict_features[]`。
+4. **推送**（仅当 `git.allow_push=true` 且存在 `git remote`）：`git push <remote> <default_branch>`；`allow_push=false` → `push_status=skipped_allow_push_false`；失败时 `git pull --rebase` 后重试一次；仍失败 → **push 分诊**（见 §3.2）→ 用尽后 **退出码 7**。
+
+### 3.1 合并冲突分诊（`merge-push-triage`）
+
+| `decision` | 动作 |
+| --- | --- |
+| `fix_merge` | 分诊 Agent 在**业务项目根**消除冲突标记并 stage；脚本 `git commit --no-edit` 完成 merge |
+| `retry_merge` | 假定冲突已解决，脚本仅 `continue` |
+| `blocked` | `git merge --abort`，**退出码 9**，写 `outputs.blocked_reason` |
+
+配置：`pipeline.stages.merge_push.triage_max_attempts`（默认 **2**）。`CURSOR_API_KEY` 未设置则跳过 Agent 分诊，行为同旧版（abort + exit **6**）。
+
+编排级 `pipeline-recovery` 仍可在 exit **6** 用尽后兜底（`recoverable_exit_codes` 含 6）。
+
+### 3.2 推送失败分诊（`merge-push-push-triage`）
+
+| `decision` | 动作 |
+| --- | --- |
+| `retry_push` | 脚本 `git pull --rebase` 后再次 `git push` |
+| `fix_rebase` | 分诊 Agent 在业务仓解决 rebase 冲突并 stage；脚本 `rebase --continue` 后 pull+push |
+| `blocked` | **退出码 9**，写 `outputs.blocked_reason` |
+
+配置：与冲突分诊共用 `pipeline.stages.merge_push.triage_max_attempts`（默认 **2**）。`CURSOR_API_KEY` 未设置则跳过 Agent，直接 exit **7**。
+
+5. **写 stages**：`status=completed`、`validation.passed=true`、`outputs.merged_features[]`、`outputs.already_merged_features[]`、`outputs.target_branch`、`outputs.final_commit`（合并后 HEAD）、`outputs.conflict_features=[]`；释放 PID 锁。
+
+**停止信号**：检测到 `stop.signal` 时，若 merge 已开始则完成当前 `git merge` 后中止，不写 `completed`，**退出码 5**；`status=stopped`。
+
+## 日志事件（merge_push）
+
+| 步骤 | event | LEVEL | 关键 meta |
+| --- | --- | --- | --- |
+| stage 启动 | `stage_start` | INFO | `run_id`, `stage`, `project`, `started_at` |
+| 步骤1：hash 跳过 | `stage_skipped` | INFO | `reason: "merge_bundle_hash matched"`, `exit_code: 0` |
+| 步骤1：写 running | `file_updated` | INFO | `status: "running"`, `merge_bundle_hash` |
+| 步骤2：准备主干 | `git_checkout` | INFO | `branch: default_branch`, `remote` |
+| 步骤3：单 feature 已在主干 | `feature_skipped` | INFO | `feature_id`, `commit`, `reason: "already_merged"` |
+| 步骤3：单 feature merge | `git_commit` | INFO | `branch`, `commit_hash`, `feature_id` |
+| 步骤3：merge 冲突 | `validation_fail` | ERROR | `conflict_features[]`, `exit_code: 6` |
+| 步骤4：push 成功 | `git_push` | INFO | `remote`, `branch`, `status` |
+| 步骤4：push 失败 | `git_push_failed` | ERROR | `remote`, `branch`, `error`, `exit_code: 7` |
+| 步骤5：写完成态 | `file_updated` | INFO | `status: "completed"`, `final_commit`, `merged_count`, `already_merged_count` |
+| stage 完成 | `stage_complete` | INFO | `stage`, `final_commit`, `merged_count`, `exit_code: 0` |
+| 任意步骤失败 | `stage_failed` | ERROR | `stage`, `step`, `exit_code`, `reason` |
+
+## 退出码（本 stage）
+
+| 码 | 场景 | stages.merge_push.status |
+| ---: | --- | --- |
+| 0 | 全部 feature 合并并 push 成功 | `completed` |
+| 0 | hash 命中整段跳过 | `completed`（不变） |
+| 1 | 门闸未满足、工作区不可写 stash 失败、PID 锁占用 | `failed` |
+| 5 | `stop.signal` | `stopped` |
+| 6 | `conflict_features[]` 非空（分诊用尽仍冲突） | `failed` |
+| 7 | push 失败（分诊用尽） | `failed` |
+| 9 | 冲突或 push 分诊 `decision=blocked` | `failed` |
+
+## 输出
+
+| 位置 | 说明 |
+| --- | --- |
+| git 主干 | 各 feature 分支已 `--no-ff` 合并并推送 |
+| `.pipeline/stages.json` | `stages.merge_push`：`inputs.merge_bundle_hash`、`outputs.*`、`validation.passed` |
+| `.pipeline/merge-push-last-error.json` | 冲突快照（feature、unmerged_files） |
+| `.pipeline/merge-push-triage.json` | 合并冲突分诊（`merge-push-triage-output.schema.json`） |
+| `.pipeline/merge-push-push-last-error.json` | push 失败快照 |
+| `.pipeline/merge-push-push-triage.json` | push 分诊（`merge-push-push-triage-output.schema.json`） |
+
+## 解锁
+
+`stages.merge_push.status=completed` 且 `outputs.final_commit` 非空 → 可运行 **build**。
+
+---

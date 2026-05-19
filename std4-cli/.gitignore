@@ -1,0 +1,6 @@
+inputs/config.env
+inputs/.env
+docs/config.env
+vendor/
+bundled/std4-config.env
+node_modules/

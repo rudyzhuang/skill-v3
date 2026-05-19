@@ -1,0 +1,85 @@
+{
+  "feature_id": "BACKEND-API-QUERY-001",
+  "client_target": "backend",
+  "client_targets": ["backend"],
+  "title": "项目查询 Open API",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/backend/package.json",
+        "role": "Workers 端依赖与 build/test 脚本入口"
+      },
+      {
+        "path": "src/backend/wrangler.toml",
+        "role": "Cloudflare Workers + D1 绑定与 dev 端口配置"
+      },
+      {
+        "path": "src/backend/src/index.ts",
+        "role": "Hono 应用入口：挂载 /health、/api/v1 路由与全局错误处理"
+      },
+      {
+        "path": "src/backend/src/middleware/api-key-auth.ts",
+        "role": "Open API 鉴权：校验 Authorization Bearer 或 X-API-Key，无效返回 401"
+      },
+      {
+        "path": "src/backend/src/routes/v1/projects.ts",
+        "role": "GET /api/v1/projects 列表与 GET /api/v1/projects/:id 详情路由"
+      },
+      {
+        "path": "src/backend/src/services/projects-query.ts",
+        "role": "projects 表只读查询：列表摘要、单条详情、分页与筛选"
+      },
+      {
+        "path": "src/backend/src/db/schema.sql",
+        "role": "D1 迁移：projects、api_keys 表及索引（与 PIPELINE 写入共用 projects schema）"
+      },
+      {
+        "path": "src/backend/src/db/seed-api-keys.ts",
+        "role": "部署/bootstrap：从环境变量哈希写入 api_keys，禁止落库明文密钥"
+      },
+      {
+        "path": "src/backend/src/types/project.ts",
+        "role": "项目 DTO 与 Open API 响应类型（列表摘要 vs 详情）"
+      },
+      {
+        "path": "src/backend/tests/v1-projects-query.test.ts",
+        "role": "列表/详情/401/404/空列表 集成或单元测试"
+      }
+    ],
+    "modify_files": []
+  },
+  "api_outline": [
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "summary": "在有效 API Key 下分页返回已登记项目列表摘要（id、中英文名称、status、client_targets、updated_at）"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id",
+      "summary": "返回单项目详情及 ai-std4 远程开发所需元数据（含简介、client_targets、is_new、root_path 或 repo 引用、流水线聚合状态）"
+    }
+  ],
+  "data_outline": "projects(id TEXT PK, name_zh TEXT NOT NULL, name_en TEXT NOT NULL, description TEXT, client_targets TEXT JSON NOT NULL, status TEXT NOT NULL, is_new INTEGER DEFAULT 0, root_path TEXT, created_at TEXT, updated_at TEXT); api_keys(id TEXT PK, key_hash TEXT UNIQUE NOT NULL, label TEXT, enabled INTEGER DEFAULT 1, created_at TEXT); 列表默认按 updated_at DESC；status 枚举与 PROJECT-LIST-001 一致（如 active|blocked|completed|unknown）",
+  "acceptance": [
+    "GET /api/v1/projects 携带有效 Authorization: Bearer <api_key> 或 X-API-Key 头时返回 200，body 为 { items: ProjectSummary[], total, page, page_size }，无项目时 items=[] 且 total=0",
+    "GET /api/v1/projects/:id 在有效 API Key 下对存在 id 返回 200 与 ProjectDetail（含 name_zh、name_en、description、client_targets、status、is_new、updated_at；可选 pipeline_status 摘要）；不存在返回 404 JSON 错误体",
+    "缺少 API Key、Bearer 格式错误或 key 未在 api_keys 表匹配（或 enabled=0）时两接口均返回 401，响应体不含 config.env 中的密钥明文或 key_hash",
+    "经 POST /api/v1/projects（BACKEND-API-PIPELINE-001）或管理端 POST /api/projects 登记的项目，在列表与详情查询中字段一致且均可被 :id 查到",
+    "支持 query 参数 page（默认 1）、page_size（默认 20，上限 100）、status、q（名称中英文模糊匹配至少其一生效）"
+  ],
+  "constraints": [
+    "Open API 路径前缀固定为 /api/v1/*，与管理端 Session 鉴权的 /api/* 路由分离，不得复用 session 中间件",
+    "API Key 仅从 Authorization: Bearer 或 X-API-Key 读取；校验时对入参做 SHA-256 后与 api_keys.key_hash 比对，禁止在日志或 JSON 响应中输出明文 Key",
+    "部署时由 config.env 中的 OPEN_API_KEY（或等价变量名，在 seed 脚本文档化）引导首条 api_keys 记录；禁止将真实密钥写入 PRD、design 或仓库",
+    "client_targets 响应值仅允许 prd-spec 声明的 admin、backend；非法历史数据过滤或原样返回并在详情中标注",
+    "projects 表 schema 与 PROJECT-CREATE-001、BACKEND-API-PIPELINE-001 共用，本 feature 仅只读，不新增写接口"
+  ],
+  "dependencies": [],
+  "risks": [
+    "BACKEND-API-PIPELINE-001 与 PROJECT-CREATE-001 若 projects 字段或 status 枚举不一致，会导致集成方查询与创建侧元数据分叉，codegen 前需对齐统一 migration",
+    "api_keys 仅环境引导、无管理端轮换 UI 时，密钥泄露后需人工更新 config.env 并重跑 seed，MVP 接受此运维成本",
+    "详情接口若返回 root_path 或 git remote，须校验调用方权限边界，避免通过 Open API 泄露服务器绝对路径以外的敏感部署信息"
+  ]
+}

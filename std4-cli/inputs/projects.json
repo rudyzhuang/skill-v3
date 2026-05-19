@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "skills": {
+      "path": "替换为cursor skills 路径, 如 /Users/rudy/.cursor/skills",
+      "description": "Cursor skills 仓库"
+    },
+    "claw": {
+      "path": "替换为飞书 Cursor 中继路径, 如 /Users/rudy/proj/feishu-claw/feishu-cursor-claw",
+      "description": "飞书 Cursor 中继"
+    }
+  },
+  "default_project": "skills",
+  "note": "飞书发消息可用「项目名: 指令」，例如 skills: 帮我检查 ai-std3"
+}
