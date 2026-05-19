@@ -66,6 +66,7 @@ describe('auth routes', () => {
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('Path=/');
     expect(setCookie).toContain(`${SESSION_COOKIE}=`);
+    expect(setCookie).toContain('SameSite=None');
 
     const body = (await res.json()) as { user: { email: string; role: string } };
     expect(body.user.email).toBe('admin@example.com');
@@ -173,6 +174,30 @@ describe('auth routes', () => {
     const app = createApp();
     const res = await app.request('/api/auth/logout', { method: 'POST' }, env);
     expect(res.status).toBe(200);
+  });
+
+  it('Set-Cookie includes Secure when COOKIE_SECURE is enabled', async () => {
+    const env = makeEnv({ COOKIE_SECURE: 'true' });
+    await seedUser(env, 'admin@example.com', 'correct-password');
+    const app = createApp();
+
+    const res = await app.request(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'correct-password',
+        }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get('Set-Cookie');
+    expect(setCookie).toContain('Secure');
+    expect(setCookie).toContain('HttpOnly');
   });
 
   it('bootstrap creates admin from env on first request', async () => {

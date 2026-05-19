@@ -31,7 +31,7 @@ export function createApp() {
   app.use(
     '/api/*',
     cors({
-      origin: (origin) => {
+      origin: (origin, c) => {
         if (!origin) {
           return '';
         }
