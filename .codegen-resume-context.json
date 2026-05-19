@@ -1,0 +1,31 @@
+{
+  "feature_id": "PROJECT-DASH-001",
+  "attempt_index": 2,
+  "previous_hang_kind": "fs_idle",
+  "snapshot_commit": null,
+  "base_commit": "7892f413081fca842ca328274473c8ca4660fde7",
+  "file_signatures": [],
+  "progress": {
+    "acceptance_done": [],
+    "acceptance_pending": [],
+    "files_touched": [],
+    "last_phase": null,
+    "last_command": null
+  },
+  "acceptance_full": [
+    "GET /api/projects/:id/pipeline 在有效 Session 且项目存在时返回 200，body 含 project、current_stage、stages、features、blocking_issues、log_tail、data_status、synced_at；无 Session 或会话失效返回 401；未知 id 返回 404",
+    "当 pipeline_snapshots 无记录或 payload 为空/不可解析时返回 200 且 data_status 为 empty 或 partial，stages/features/blocking_issues 为空数组、log_tail 为空字符串，响应与日志不含服务器绝对路径、config.env 密钥或默认密码",
+    "存在有效快照或（仅本地 dev）projects.root_path 下可读 .pipeline/stages.json 时，stages 表至少展示 stage 标识与 status；features 区展示 feature_id、名称与进度相关字段；blocking_issues 与 stages 内阻塞合并去重展示",
+    "log_tail 超过约定上限时 backend 截断后仍返回 200，不返回 5xx；截断行为在单测中可验证",
+    "admin 在 /projects/:projectId/dashboard 展示阶段表、feature 流水线区、当前 stage 横幅、阻塞摘要（无阻塞显示「无阻塞」）与日志 tail；加载中与接口失败有明确反馈；各区块在数据缺失时展示友好空态而非未捕获异常堆栈",
+    "看板页可由项目列表「查看看板」以 target=_blank 打开，URL 中 projectId 与 GET /api/projects/:id/pipeline 的 :id 一致；未登录访问受保护看板路由重定向登录页"
+  ],
+  "do_not_overwrite": [],
+  "constraints": [
+    "仅对 do_not_overwrite[] 列出的文件做增量 edit；禁止清空或重写",
+    "禁止删除/重命名 do_not_overwrite[] 中任何文件",
+    "禁止 git reset --hard / git checkout <path> / rm 等抹除操作",
+    "仅完成 progress.acceptance_pending[]；progress.acceptance_done[] 不重复实现",
+    "心跳间隔必须 <= heartbeat_interval_s 秒；外部命令前后各打一次心跳"
+  ]
+}

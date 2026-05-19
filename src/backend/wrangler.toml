@@ -1,0 +1,17 @@
+name = "dash-backend"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[vars]
+# Set via wrangler secret / dashboard — never commit real values
+# ADMIN_EMAIL = ""
+# ADMIN_PASSWORD = ""
+COOKIE_DOMAIN = ".dash.ai-ww.com"
+COOKIE_SECURE = "true"
+ADMIN_ORIGIN = "https://admin.dash.ai-ww.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dash-db"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"
