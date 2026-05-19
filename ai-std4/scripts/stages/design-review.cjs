@@ -35,6 +35,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
@@ -746,7 +747,7 @@ async function runReviewAgentForFeature({ featureId, featureMeta, stagesObj, mod
 }
 
 // ── 并发 Worker Pool ──────────────────────────────────────────────
-async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj, config }) {
+async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj, config, progress }) {
   const { effectiveParallel, model, timeoutS, maxRetries } = config;
   const timeoutMs  = timeoutS * 1000;
   const results    = [];
@@ -767,6 +768,27 @@ async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj,
       const result = await runReviewAgentForFeature({
         featureId: fid, featureMeta, stagesObj, model, timeoutMs, maxRetries,
       });
+      if (progress && !result.stopped) {
+        const completedAtStr = formatLocalTimeShort();
+        if (result.success) {
+          await progress.patchFeature('design_review', fid, {
+            status:            'completed',
+            completed_at:      completedAtStr,
+            review_file:       path.join(projectRoot, '.pipeline', `design-review-${fid}.json`),
+            review_hash:       result.reviewHash,
+            design_hash:       result.designHash,
+            decision:          result.decision,
+            can_enter_codegen: result.canEnterCodegen,
+            error:             null,
+          });
+        } else {
+          await progress.patchFeature('design_review', fid, {
+            status:       'failed',
+            error:        result.error || null,
+            completed_at: completedAtStr,
+          });
+        }
+      }
       results.push(result);
     }
   }
@@ -968,10 +990,14 @@ async function doTick(stagesObj, config, featureFilterId) {
   }
   writeStagesJson(stagesObj);
 
+  const featureProgress = createStagesJsonWriteQueue(projectRoot, {
+    touchUpdatedAt: formatLocalTimeShort,
+  });
+
   // 并发执行 Agent
   const batchT0 = Date.now();
   const { results, stoppedFound } = await runAgentsConcurrent({
-    readyFeatureIds, featureMetaMap, stagesObj, config,
+    readyFeatureIds, featureMetaMap, stagesObj, config, progress: featureProgress,
   });
   const batchDurationMs = Date.now() - batchT0;
 

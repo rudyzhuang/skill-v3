@@ -34,6 +34,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -655,7 +656,7 @@ async function runScenariosAgentForFeature({ featureId, featureMeta, stagesObj, 
 }
 
 // ── 并发 Worker Pool ──────────────────────────────────────────────
-async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj, config }) {
+async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj, config, progress }) {
   const { effectiveParallel, model, timeoutS, maxRetries } = config;
   const timeoutMs  = timeoutS * 1000;
   const results    = [];
@@ -676,6 +677,27 @@ async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj,
       const result = await runScenariosAgentForFeature({
         featureId: fid, featureMeta, stagesObj, model, timeoutMs, maxRetries,
       });
+      if (progress && !result.stopped) {
+        const completedAtStr = formatLocalTimeShort();
+        if (result.success) {
+          await progress.patchFeature('create_ui_scenarios', fid, {
+            status:           'completed',
+            completed_at:     completedAtStr,
+            scenario_file:    result.outputFile,
+            scenario_hash:    result.scenarioHash,
+            scenarios_count:  result.scenariosCount || 0,
+            design_hash:      result.designHash,
+            skip_reason:      null,
+            error:            null,
+          });
+        } else {
+          await progress.patchFeature('create_ui_scenarios', fid, {
+            status:       'failed',
+            error:        result.error || null,
+            completed_at: completedAtStr,
+          });
+        }
+      }
       results.push(result);
     }
   }
@@ -798,10 +820,14 @@ async function doTick(stagesObj, config, featureFilterId) {
   }
   writeStagesJson(stagesObj);
 
+  const featureProgress = createStagesJsonWriteQueue(projectRoot, {
+    touchUpdatedAt: formatLocalTimeShort,
+  });
+
   // 并发执行 Agent
   const batchT0 = Date.now();
   const { results, stoppedFound } = await runAgentsConcurrent({
-    readyFeatureIds, featureMetaMap, stagesObj, config,
+    readyFeatureIds, featureMetaMap, stagesObj, config, progress: featureProgress,
   });
   const batchDurationMs = Date.now() - batchT0;
 

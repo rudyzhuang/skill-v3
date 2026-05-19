@@ -34,6 +34,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
@@ -701,7 +702,7 @@ async function runDesignAgentForFeature({ featureId, featureMeta, model, timeout
 }
 
 // ── 并发 Worker Pool ──────────────────────────────────────────────
-async function runAgentsConcurrent({ readyFeatureIds, featuresMap, config }) {
+async function runAgentsConcurrent({ readyFeatureIds, featuresMap, config, progress }) {
   const { effectiveParallel, model, timeoutS, maxRetries } = config;
   const timeoutMs  = timeoutS * 1000;
   const results    = [];
@@ -725,6 +726,24 @@ async function runAgentsConcurrent({ readyFeatureIds, featuresMap, config }) {
       }
 
       const result = await runDesignAgentForFeature({ featureId: fid, featureMeta, model, timeoutMs, maxRetries });
+      if (progress && !result.stopped) {
+        const completedAtStr = formatLocalTimeShort();
+        if (result.success) {
+          const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+          await progress.patchFeature('design', fid, {
+            status:       'completed',
+            completed_at: completedAtStr,
+            design_file:  designFile,
+            design_hash:  result.designHash || fileSha256(designFile),
+            error:        null,
+          });
+        } else {
+          await progress.patchFeature('design', fid, {
+            status: 'failed',
+            error:  result.error || null,
+          });
+        }
+      }
       results.push(result);
     }
   }
@@ -876,10 +895,14 @@ async function doTick(stagesObj, config, featureFilterId) {
   }
   writeStagesJson(stagesObj);
 
+  const featureProgress = createStagesJsonWriteQueue(projectRoot, {
+    touchUpdatedAt: formatLocalTimeShort,
+  });
+
   // 并发执行 Agent
   const batchT0 = Date.now();
   const { results, stoppedFound } = await runAgentsConcurrent({
-    readyFeatureIds, featuresMap, config,
+    readyFeatureIds, featuresMap, config, progress: featureProgress,
   });
   const batchDurationMs = Date.now() - batchT0;
 

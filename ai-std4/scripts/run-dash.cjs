@@ -110,6 +110,57 @@ function getStageRecord(stages, stageName) {
   return stages[stageName] || stages[stageName.replace(/-/g, '_')] || {};
 }
 
+/** stages.json 中 stage 键名可能是 code_review 或 code-review */
+function normalizeStageKey(name) {
+  if (!name) return '';
+  return String(name).replace(/_/g, '-');
+}
+
+function sameStage(a, b) {
+  return normalizeStageKey(a) === normalizeStageKey(b);
+}
+
+/** 映射到 FEATURE_STAGES 中的规范名（连字符） */
+function canonicalFeatureStage(name) {
+  const norm = normalizeStageKey(name);
+  const hit = FEATURE_STAGES.find(s => normalizeStageKey(s) === norm);
+  return hit || norm;
+}
+
+/** ui_e2e 按 scenario 聚合为 feature 级状态（stages.ui_e2e 无 features 表） */
+function aggregateUiE2eFeatureStatuses(stagesData) {
+  const prdFeatures = getPrdFeatures(stagesData);
+  const scenarios   = getStageRecord(stagesData && stagesData.stages, 'ui_e2e').scenarios || {};
+  const out         = {};
+  for (const f of prdFeatures) {
+    out[f.feature_id] = { status: 'pending' };
+  }
+  const byFeature = {};
+  for (const sc of Object.values(scenarios)) {
+    const fid = sc && sc.feature_id;
+    if (!fid) continue;
+    if (!byFeature[fid]) byFeature[fid] = [];
+    byFeature[fid].push(sc.status || 'pending');
+  }
+  for (const [fid, statuses] of Object.entries(byFeature)) {
+    if (statuses.some(s => s === 'running' || s === 'started')) {
+      out[fid] = { status: 'running' };
+    } else if (statuses.some(s => s === 'failed' || s === 'timed_out')) {
+      out[fid] = { status: 'failed' };
+    } else if (statuses.length > 0 && statuses.every(s => s === 'completed' || s === 'skipped')) {
+      out[fid] = { status: 'completed' };
+    }
+  }
+  return out;
+}
+
+function getStageFeaturesForDash(stagesData, trackStage) {
+  if (normalizeStageKey(trackStage) === 'ui-e2e') {
+    return aggregateUiE2eFeatureStatuses(stagesData);
+  }
+  return getStageRecord(stagesData && stagesData.stages, trackStage).features || {};
+}
+
 /** 格式化毫秒为 MM:SS 或 HH:MM:SS */
 function formatElapsed(ms) {
   const totalS = Math.max(0, Math.floor(ms / 1000));
@@ -202,10 +253,21 @@ function getRunningFeatureStages(stagesData) {
 }
 
 function getParallelTrackGroup(stageName) {
+  const norm = normalizeStageKey(stageName);
   for (const group of PARALLEL_TRACKS) {
-    if (group.includes(stageName)) return group;
+    if (group.some(s => normalizeStageKey(s) === norm)) return group;
   }
-  return [stageName];
+  return [canonicalFeatureStage(stageName)];
+}
+
+/**
+ * stages.json 刷新后是否应自动切换 feature 跟踪阶段。
+ * 同一并行组内保留用户 [F] 手动选择的 track；跨组时跟随流水线当前阶段。
+ */
+function shouldAdvanceTrackStage(trackStage, autoTrack) {
+  if (sameStage(trackStage, autoTrack)) return false;
+  const group = getParallelTrackGroup(trackStage);
+  return !group.some(s => sameStage(s, autoTrack));
 }
 
 function pickDefaultTrackStage(stagesData) {
@@ -215,7 +277,10 @@ function pickDefaultTrackStage(stagesData) {
     if (running.includes(name)) return name;
   }
   const current = getCurrentStage(stagesData);
-  if (current && FEATURE_STAGES.includes(current)) return current;
+  if (current) {
+    const canon = canonicalFeatureStage(current);
+    if (FEATURE_STAGES.includes(canon)) return canon;
+  }
   const stages = (stagesData && stagesData.stages) || {};
   for (let i = FEATURE_STAGES.length - 1; i >= 0; i--) {
     const name = FEATURE_STAGES[i];
@@ -268,7 +333,7 @@ function computeHeaderFeatureStats(stagesData, trackStage) {
   const prdFeatures = getPrdFeatures(stagesData);
   const total = prdFeatures.length;
   if (total === 0) return { completed: 0, total: 0, inflight: 0 };
-  const stageFeatures = getStageRecord(stagesData.stages, trackStage).features || {};
+  const stageFeatures = getStageFeaturesForDash(stagesData, trackStage);
   let completed = 0;
   let inflight = 0;
   for (const f of prdFeatures) {
@@ -408,7 +473,7 @@ function runFallbackMode() {
 
     if (useFeatureDetailView(data)) {
       const prdFeatures = getPrdFeatures(data);
-      const stageFeatures = getStageRecord(stages, trackStage).features || {};
+      const stageFeatures = getStageFeaturesForDash(data, trackStage);
       const sorted = sortPrdFeatures(prdFeatures, stageFeatures).slice(0, 12);
       if (sorted.length > 0) {
         process.stdout.write(`\n  --- features [${trackStage}] ---\n`);
@@ -464,6 +529,9 @@ function runTUIMode() {
   let currentLogFile     = null;
   let stopping           = false;
   let dialogOpen         = false;
+  let stopDialogBox      = null;
+  let stopDialogConfirm  = null;
+  let stopDialogCancel   = null;
   let trackStage         = pickDefaultTrackStage(stagesData);
   let selectedFeatureId  = null;
   let featureHighlight   = 0;
@@ -647,7 +715,7 @@ function runTUIMode() {
       const s        = getStageRecord(stages, stageName);
       const status   = s.status || 'pending';
       const icon     = getStageIcon(status);
-      const isActive = (stageName === currentSt);
+      const isActive = sameStage(stageName, currentSt);
 
       let elapsed = '';
       if ((status === 'running' || status === 'started') && s.started_at) {
@@ -711,7 +779,7 @@ function runTUIMode() {
       return;
     }
 
-    const stageFeatures = getStageRecord(stagesData.stages, trackStage).features || {};
+    const stageFeatures = getStageFeaturesForDash(stagesData, trackStage);
     const sorted        = sortPrdFeatures(prdFeatures, stageFeatures);
     displayFeatureIds   = sorted.map(f => f.feature_id);
 
@@ -763,7 +831,7 @@ function runTUIMode() {
     }
 
     featuresBox.setContent(lines.join('\n'));
-    if (focusPanel === 'features') featuresBox.focus();
+    if (focusPanel === 'features' && !dialogOpen) featuresBox.focus();
   }
 
   function renderLog() {
@@ -840,13 +908,23 @@ function runTUIMode() {
     } catch (_) { /* ignore */ }
   }
 
+  function dismissStopDialog() {
+    dialogOpen = false;
+    stopDialogConfirm = null;
+    stopDialogCancel  = null;
+    if (stopDialogBox) {
+      stopDialogBox.destroy();
+      stopDialogBox = null;
+    }
+  }
+
   function showStopConfirmDialog() {
     if (dialogOpen || stopping) return;
     dialogOpen = true;
 
     const currentSt = getCurrentStage(stagesData) || '(未知)';
 
-    const dialog = blessed.box({
+    stopDialogBox = blessed.box({
       parent:  screen,
       top:     'center',
       left:    'center',
@@ -856,8 +934,6 @@ function runTUIMode() {
       label:   ' 确认停止流水线 ',
       style:   { fg: 'white', bg: 'black', border: { fg: 'yellow' }, label: { fg: 'yellow' } },
       tags:    true,
-      keys:    true,
-      mouse:   true,
       content: [
         '',
         '  {bold}确认停止流水线？{/bold}',
@@ -869,25 +945,19 @@ function runTUIMode() {
       ].join('\n'),
     });
 
-    function closeDialog() {
-      dialogOpen = false;
-      dialog.destroy();
+    stopDialogCancel = () => {
+      dismissStopDialog();
       render();
-    }
+    };
 
-    dialog.key(['y', 'Y'], () => {
-      closeDialog();
+    stopDialogConfirm = () => {
+      dismissStopDialog();
       stopping = true;
       renderFooter();
-      screen.render();
       triggerStop();
-    });
+      render();
+    };
 
-    dialog.key(['n', 'N', 'escape'], () => {
-      closeDialog();
-    });
-
-    dialog.focus();
     screen.render();
   }
 
@@ -901,6 +971,7 @@ function runTUIMode() {
   }
 
   function cycleFocus() {
+    if (dialogOpen) return;
     const order = ['stages', 'features', 'log'];
     const idx = order.indexOf(focusPanel);
     focusPanel = order[(idx + 1) % order.length];
@@ -945,6 +1016,16 @@ function runTUIMode() {
   screen.key(['s', 'S'], () => {
     if (dialogOpen) return;
     showStopConfirmDialog();
+  });
+
+  screen.key(['y', 'Y'], () => {
+    if (!dialogOpen || !stopDialogConfirm) return;
+    stopDialogConfirm();
+  });
+
+  screen.key(['n', 'N', 'escape'], () => {
+    if (!dialogOpen || !stopDialogCancel) return;
+    stopDialogCancel();
   });
 
   screen.key(['r', 'R'], () => {
@@ -1008,9 +1089,9 @@ function runTUIMode() {
         if (newData) {
           stagesData = newData;
           const autoTrack = pickDefaultTrackStage(stagesData);
-          const group = getParallelTrackGroup(trackStage);
-          if (!group.includes(autoTrack) && getParallelTrackGroup(autoTrack).length > 1) {
+          if (shouldAdvanceTrackStage(trackStage, autoTrack)) {
             trackStage = autoTrack;
+            if (!selectedFeatureId) resetLogBuffer();
           }
           refreshLogFile();
           render();

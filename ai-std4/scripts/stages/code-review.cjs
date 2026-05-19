@@ -26,9 +26,10 @@
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
-const { execSync, spawn } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -253,6 +254,161 @@ function validateJson(data, schemaName) {
   return { valid, errors: validate.errors || [] };
 }
 
+// ── code-review 范围收敛（diff / 预检）──────────────────────────────
+const DIFF_MAX_BYTES              = 4 * 1024 * 1024;
+const DIFF_PATHSPEC_BATCH         = 80;
+const FILES_CHANGED_RAW_WARN      = 200;
+const FILES_CHANGED_SCOPE_CAP     = 500;
+const FILE_PLAN_WARN_SAMPLE       = 12;
+const DETERMINISTIC_ISSUES_CAP    = 64;
+const REVIEW_NOISE_PATH_RE        = /^(\.pipeline\/|logs\/|node_modules\/|vendor\/|\.git\/|dist\/|build\/|\.codegen-)/;
+
+function normalizeChangedPath(entry) {
+  if (typeof entry === 'string') return entry.trim();
+  if (entry && typeof entry === 'object') {
+    return String(entry.path || entry.file || '').trim();
+  }
+  return '';
+}
+
+function isReviewNoisePath(p) {
+  return !p || REVIEW_NOISE_PATH_RE.test(p) || p === '.codegen-resume-context.json';
+}
+
+/** 从 design.json file_plan 提取路径（支持 { path, role } 对象） */
+function getFilePlanPathSet(designData) {
+  const allowed = new Set();
+  if (!designData || !designData.file_plan) return allowed;
+  const lists = [
+    ...(designData.file_plan.new_files || []),
+    ...(designData.file_plan.modify_files || []),
+  ];
+  for (const entry of lists) {
+    const p = normalizeChangedPath(entry);
+    if (p) allowed.add(p);
+  }
+  return allowed;
+}
+
+/**
+ * 收敛 codegen files_changed（去重、过滤噪声；超大列表优先 file_plan）
+ * @returns {{ paths: string[], totalRaw: number, truncated: boolean, strategy: string|null }}
+ */
+function scopeFilesChangedForReview(featureData, designData) {
+  const rawList = featureData.files_changed || [];
+  const unique  = [];
+  const seen    = new Set();
+  for (const entry of rawList) {
+    const p = normalizeChangedPath(entry);
+    if (!p || seen.has(p) || isReviewNoisePath(p)) continue;
+    seen.add(p);
+    unique.push(p);
+  }
+
+  const filePlan = getFilePlanPathSet(designData);
+  const totalRaw = rawList.length;
+
+  if (unique.length <= FILES_CHANGED_SCOPE_CAP) {
+    return { paths: unique, totalRaw, truncated: false, strategy: null };
+  }
+
+  if (filePlan.size > 0) {
+    const inPlan = unique.filter(p => filePlan.has(p));
+    const paths  = (inPlan.length > 0 ? inPlan : [...filePlan]).slice(0, FILES_CHANGED_SCOPE_CAP);
+    return {
+      paths,
+      totalRaw,
+      truncated: true,
+      strategy:  inPlan.length > 0 ? 'file_plan_intersection' : 'file_plan_fallback',
+    };
+  }
+
+  return {
+    paths:     unique.slice(0, FILES_CHANGED_SCOPE_CAP),
+    totalRaw,
+    truncated: true,
+    strategy:  'cap',
+  };
+}
+
+function capDeterministicIssues(issues, maxCount = DETERMINISTIC_ISSUES_CAP) {
+  if (!issues || issues.length <= maxCount) return issues || [];
+  const critical = issues.filter(i => i.severity === 'critical');
+  const warnings = issues.filter(i => i.severity !== 'critical');
+  const out      = [...critical];
+  const room     = Math.max(0, maxCount - out.length);
+  if (warnings.length <= room) {
+    out.push(...warnings);
+    return out;
+  }
+  out.push(...warnings.slice(0, Math.max(0, room - 1)));
+  out.push({
+    severity:      'warning',
+    category:      'other',
+    file:          null,
+    line:          null,
+    message:       `另有 ${warnings.length - Math.max(0, room - 1)} 条 warning 已省略（避免预检爆炸）`,
+    suggested_fix: null,
+    source:        'deterministic',
+  });
+  return out;
+}
+
+function resolveDiffBaseCommit(worktreePath) {
+  try {
+    return execSync('git rev-parse HEAD~1', {
+      cwd: worktreePath, encoding: 'utf8', maxBuffer: 1024 * 1024,
+    }).trim();
+  } catch (_) {
+    return execSync('git rev-list --max-parents=0 HEAD', {
+      cwd: worktreePath, encoding: 'utf8', maxBuffer: 1024 * 1024,
+    }).trim();
+  }
+}
+
+/** git diff 直接写入文件，避免 exec 缓冲区 ENOBUFS */
+function appendGitDiffRange(worktreePath, baseCommit, diffPath, pathspecs, { append } = {}) {
+  const flag = append ? 'a' : 'w';
+  const fd   = fs.openSync(diffPath, flag);
+  try {
+    const args = ['diff', '--no-ext-diff', `${baseCommit}..HEAD`];
+    if (pathspecs && pathspecs.length > 0) {
+      args.push('--', ...pathspecs);
+    }
+    const r = spawnSync('git', args, {
+      cwd:        worktreePath,
+      stdio:      ['ignore', fd, 'pipe'],
+      encoding:   'utf8',
+      maxBuffer:  512 * 1024,
+    });
+    if (r.status !== 0 && r.stderr) {
+      fs.writeSync(fd, `# git diff stderr: ${r.stderr.trim()}\n`);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function truncateDiffFileIfNeeded(diffPath, maxBytes = DIFF_MAX_BYTES) {
+  const stat = fs.statSync(diffPath);
+  if (stat.size <= maxBytes) return { truncated: false, size_bytes: stat.size };
+  const fd = fs.openSync(diffPath, 'r+');
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    fs.readSync(fd, buf, 0, maxBytes, 0);
+    const tail = Buffer.from(
+      `\n\n# --- diff truncated at ${maxBytes} bytes (total ${stat.size}) ---\n`,
+      'utf8'
+    );
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, buf);
+    fs.writeSync(fd, tail);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return { truncated: true, size_bytes: maxBytes, original_size: stat.size };
+}
+
 // ── 确定性预检 ────────────────────────────────────────────────────
 /**
  * 对单个 feature 做确定性预检，返回 { blocking: bool, issues: [...] }
@@ -262,29 +418,38 @@ function runDeterministicChecks({ featureId, featureData, worktreePath, designDa
   const issues   = [];
   let   blocking = false;
 
-  const commit       = getFeatureCommit(featureData);
-  const filesChanged = featureData.files_changed || [];
+  const commit = getFeatureCommit(featureData);
+  const scoped = scopeFilesChangedForReview(featureData, designData);
+  const paths  = scoped.paths;
 
-  // 检查 1：files_changed 为空 → blocking critical "empty commit"
-  if (!filesChanged || filesChanged.length === 0) {
+  if (paths.length === 0) {
     issues.push({
       severity: 'critical',
       category: 'other',
       file:     null,
       line:     null,
-      message:  `feature ${featureId}: codegen commit 变更文件集为空（empty commit）`,
+      message:  `feature ${featureId}: codegen 变更文件集为空或均为噪声路径（empty commit）`,
       suggested_fix: '请重新执行 codegen，确保有实际代码变更',
       source: 'deterministic',
     });
     blocking = true;
+  } else if (scoped.truncated && scoped.totalRaw > FILES_CHANGED_RAW_WARN) {
+    issues.push({
+      severity: 'warning',
+      category: 'other',
+      file:     null,
+      line:     null,
+      message:  `files_changed 原始 ${scoped.totalRaw} 条，预检收敛为 ${paths.length} 条（${scoped.strategy || 'cap'}）`,
+      suggested_fix: 'codegen 宜只记录本 feature 相关路径；当前按 file_plan 抽样预检',
+      source: 'deterministic',
+    });
   }
 
-  // 检查 2：worktree HEAD ≠ commit → blocking critical "worktree HEAD drifted"
   if (commit && fs.existsSync(worktreePath)) {
     try {
       const headCommit = execSync('git rev-parse HEAD', {
-        cwd: worktreePath, stdio: ['pipe', 'pipe', 'pipe'],
-      }).toString().trim();
+        cwd: worktreePath, encoding: 'utf8', maxBuffer: 1024 * 1024,
+      }).trim();
       if (headCommit !== commit) {
         issues.push({
           severity: 'critical',
@@ -297,51 +462,51 @@ function runDeterministicChecks({ featureId, featureData, worktreePath, designDa
         });
         blocking = true;
       }
-    } catch (_) { /* worktree 可能不存在，在步骤 2 再报错 */ }
+    } catch (_) { /* worktree 可能不存在 */ }
   }
 
   if (designData) {
-    const filePlan = designData.file_plan || {};
-    const allowedFiles = new Set([
-      ...(filePlan.new_files || []),
-      ...(filePlan.modify_files || []),
-    ]);
+    const allowedFiles = getFilePlanPathSet(designData);
 
-    // 检查 3：越界文件（文件在变更集但不在 file_plan）
-    if (allowedFiles.size > 0 && Array.isArray(filesChanged)) {
-      for (const f of filesChanged) {
-        const fname = typeof f === 'string' ? f : (f.path || f.file || '');
-        if (fname && !allowedFiles.has(fname)) {
-          issues.push({
-            severity: 'warning',
-            category: 'file_plan',
-            file:     fname,
-            line:     null,
-            message:  `文件 ${fname} 不在 design.json file_plan 范围内（越界变更）`,
-            suggested_fix: '确认该文件是否应在 file_plan 中声明',
-            source: 'deterministic',
-          });
-        }
+    if (allowedFiles.size > 0 && paths.length > 0) {
+      const outOfPlan = paths.filter(p => !allowedFiles.has(p));
+      for (const fname of outOfPlan.slice(0, FILE_PLAN_WARN_SAMPLE)) {
+        issues.push({
+          severity: 'warning',
+          category: 'file_plan',
+          file:     fname,
+          line:     null,
+          message:  `文件 ${fname} 不在 design.json file_plan 范围内（越界变更）`,
+          suggested_fix: '确认该文件是否应在 file_plan 中声明',
+          source: 'deterministic',
+        });
+      }
+      if (outOfPlan.length > FILE_PLAN_WARN_SAMPLE) {
+        issues.push({
+          severity: 'warning',
+          category: 'file_plan',
+          file:     null,
+          line:     null,
+          message:  `另有 ${outOfPlan.length - FILE_PLAN_WARN_SAMPLE} 个越界文件未逐条列出`,
+          suggested_fix: null,
+          source: 'deterministic',
+        });
       }
     }
 
-    // 检查 4：api_outline 路径未在 files_changed 中命中 → warning
     const apiOutline = designData.api_outline || [];
-    if (Array.isArray(apiOutline) && Array.isArray(filesChanged)) {
+    if (Array.isArray(apiOutline) && paths.length > 0) {
       for (const api of apiOutline) {
         const apiPath = api.path || api.endpoint || '';
         if (!apiPath) continue;
-        const hitInFiles = filesChanged.some(f => {
-          const fname = typeof f === 'string' ? f : (f.path || f.file || '');
-          return fname.includes(apiPath) || apiPath.includes(fname);
-        });
+        const hitInFiles = paths.some(fname => fname.includes(apiPath) || apiPath.includes(fname));
         if (!hitInFiles) {
           issues.push({
             severity: 'warning',
             category: 'api_outline',
             file:     null,
             line:     null,
-            message:  `api_outline 路径 "${apiPath}" 未在 files_changed 中找到匹配文件（需 Agent 进一步确认）`,
+            message:  `api_outline 路径 "${apiPath}" 未在收敛后的 files_changed 中命中（需 Agent 进一步确认）`,
             suggested_fix: null,
             source: 'deterministic',
           });
@@ -350,14 +515,13 @@ function runDeterministicChecks({ featureId, featureData, worktreePath, designDa
     }
   }
 
-  return { blocking, issues };
+  return { blocking, issues: capDeterministicIssues(issues) };
 }
 
 // ── 生成 diff 文件 ─────────────────────────────────────────────────
-function generateDiffFile(featureId, featureData, worktreePath) {
+function generateDiffFile(featureId, featureData, worktreePath, scopedPaths) {
   const diffPath = path.join(projectRoot, '.pipeline', `code-review-${featureId}.diff`);
 
-  // 若 worktree 不存在，写空 diff
   if (!fs.existsSync(worktreePath)) {
     fs.writeFileSync(diffPath, `# worktree not found: ${worktreePath}\n`, 'utf8');
     log.warn('file_created', `worktree 不存在，写空 diff: ${diffPath}`, {
@@ -366,30 +530,33 @@ function generateDiffFile(featureId, featureData, worktreePath) {
     return diffPath;
   }
 
+  const paths = Array.isArray(scopedPaths) ? scopedPaths.filter(Boolean) : [];
+
   try {
-    // 尝试获取 base commit（parent commit）
-    let baseCommit;
-    try {
-      baseCommit = execSync('git rev-parse HEAD~1', {
-        cwd: worktreePath, stdio: ['pipe', 'pipe', 'pipe'],
-      }).toString().trim();
-    } catch (_) {
-      // 首次提交时没有 parent，取初始提交
-      baseCommit = execSync('git rev-list --max-parents=0 HEAD', {
-        cwd: worktreePath, stdio: ['pipe', 'pipe', 'pipe'],
-      }).toString().trim();
+    const baseCommit = resolveDiffBaseCommit(worktreePath);
+    fs.writeFileSync(
+      diffPath,
+      `# code-review diff feature=${featureId} base=${baseCommit}\n`,
+      'utf8'
+    );
+
+    if (paths.length === 0) {
+      appendGitDiffRange(worktreePath, baseCommit, diffPath, [], { append: true });
+    } else {
+      for (let i = 0; i < paths.length; i += DIFF_PATHSPEC_BATCH) {
+        const batch = paths.slice(i, i + DIFF_PATHSPEC_BATCH);
+        appendGitDiffRange(worktreePath, baseCommit, diffPath, batch, { append: true });
+      }
     }
 
-    const diff = execSync(`git diff "${baseCommit}"..HEAD`, {
-      cwd: worktreePath, maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'],
-    }).toString();
-    fs.writeFileSync(diffPath, diff, 'utf8');
-
-    const sizeBytes = Buffer.byteLength(diff, 'utf8');
+    const trunc = truncateDiffFileIfNeeded(diffPath);
     log.info('file_created', `已生成 diff 文件：code-review-${featureId}.diff`, {
-      feature_id: featureId,
-      path:       diffPath,
-      size_bytes: sizeBytes,
+      feature_id:     featureId,
+      path:           diffPath,
+      size_bytes:     trunc.size_bytes,
+      pathspec_count: paths.length,
+      truncated:      trunc.truncated || false,
+      original_size:  trunc.original_size || trunc.size_bytes,
     });
   } catch (err) {
     fs.writeFileSync(diffPath, `# git diff failed: ${err.message}\n`, 'utf8');
@@ -772,10 +939,47 @@ async function runCodeReviewAgentForFeature({
   };
 }
 
+/** 将单 feature 评审结果写入 stages.code_review.features（供看板实时展示） */
+async function persistCodeReviewFeatureProgress(progress, featureId, result) {
+  const now = formatLocalTimeShort();
+  if (result.stopped) {
+    return progress.patchFeature('code_review', featureId, { status: 'stopped' });
+  }
+  if (result.skipped) {
+    return progress.patchFeature('code_review', featureId, {
+      status:         'completed',
+      decision:       result.decision || 'passed',
+      completed_at:   now,
+      attempts_used:  result.attemptsUsed || 1,
+    });
+  }
+  if (result.success) {
+    return progress.patchFeature('code_review', featureId, {
+      status:           'completed',
+      decision:         result.decision,
+      completed_at:     now,
+      attempts_used:    result.attemptsUsed || 1,
+      critical_issues:  result.criticalIssues || 0,
+      warnings:         result.warnings || 0,
+      total_issues:     (result.criticalIssues || 0) + (result.warnings || 0),
+      timed_out:        false,
+      error:            null,
+    });
+  }
+  return progress.patchFeature('code_review', featureId, {
+    status:        'failed',
+    decision:      'failed',
+    completed_at:  now,
+    attempts_used: result.attemptsUsed || 0,
+    timed_out:     !!result.timedOut,
+    error:         result.error || null,
+  });
+}
+
 // ── 并发 Worker 池 ────────────────────────────────────────────────
 async function runAgentsConcurrent({
   featureIds, featureMap, designMap,
-  model, timeoutMs, maxRetries, effectiveParallel, stagesObj,
+  model, timeoutMs, maxRetries, effectiveParallel, stagesObj, progress,
 }) {
   const results    = [];
   let   index      = 0;
@@ -804,13 +1008,13 @@ async function runAgentsConcurrent({
       const featureData        = featureMap[featureId];
       const worktreePath       = getWorktreePath(featureData, featureId);
       const designData         = designMap[featureId] || null;
-      const deterministicIssues = [];
+      const scoped = scopeFilesChangedForReview(featureData, designData);
 
-      // 确定性预检
+      // 确定性预检（基于收敛后的 paths，避免 file_plan 对象比较导致万级 warning）
       const { blocking, issues } = runDeterministicChecks({
         featureId, featureData, worktreePath, designData,
       });
-      deterministicIssues.push(...issues);
+      const deterministicIssues = [...issues];
 
       if (blocking) {
         log.error('agent_failed', `feature ${featureId} 确定性预检阻塞，跳过 Agent`, {
@@ -821,19 +1025,32 @@ async function runAgentsConcurrent({
           timed_out:  false,
           attempts_used: 0,
         });
-        results.push({
+        const blockResult = {
           success: false, skipped: false, timedOut: false,
           featureId, decision: 'failed', criticalIssues: issues.filter(i => i.severity === 'critical').length,
           warnings: issues.filter(i => i.severity === 'warning').length,
           attemptsUsed: 0, durationMs: 0,
           error: `deterministic blocking issues: ${issues.map(i => i.message).join('; ')}`,
           deterministicBlocking: true,
-        });
+        };
+        if (progress) {
+          await progress.patchFeature('code_review', featureId, {
+            status: 'running', started_at: formatLocalTimeShort(),
+          });
+          await persistCodeReviewFeatureProgress(progress, featureId, blockResult);
+        }
+        results.push(blockResult);
         continue;
       }
 
-      // 生成 diff 文件
-      const diffPath = generateDiffFile(featureId, featureData, worktreePath);
+      if (progress) {
+        await progress.patchFeature('code_review', featureId, {
+          status: 'running', started_at: formatLocalTimeShort(),
+        });
+      }
+
+      // 生成 diff 文件（按收敛路径写盘，避免全仓 diff ENOBUFS）
+      const diffPath = generateDiffFile(featureId, featureData, worktreePath, scoped.paths);
 
       const result = await runCodeReviewAgentForFeature({
         featureId, featureData, designData, worktreePath, diffPath,
@@ -841,6 +1058,7 @@ async function runAgentsConcurrent({
       });
 
       if (result.timedOut) timedOutExists = true;
+      if (progress) await persistCodeReviewFeatureProgress(progress, featureId, result);
       results.push(result);
     }
   }
@@ -1184,6 +1402,9 @@ async function main() {
   }
 
   // 6. 并发 Agent 池
+  const featureProgress = createStagesJsonWriteQueue(projectRoot, {
+    touchUpdatedAt: formatLocalTimeShort,
+  });
   const { results, timedOutExists } = await runAgentsConcurrent({
     featureIds,
     featureMap:         codegenFeatures,
@@ -1193,6 +1414,7 @@ async function main() {
     maxRetries,
     effectiveParallel,
     stagesObj:          readStagesJson(),
+    progress:           featureProgress,
   });
 
   // 检测是否有 stop.signal
