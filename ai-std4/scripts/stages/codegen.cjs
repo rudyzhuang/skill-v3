@@ -259,6 +259,105 @@ function isPidAlive(pid) {
   }
 }
 
+/** worktree 内最新文件 mtime（用于父进程 tick 检测无进展挂起） */
+function getWorktreeLatestMtime(dir) {
+  let latest = 0;
+  function walk(d) {
+    try {
+      for (const entry of fs.readdirSync(d)) {
+        if (entry === '.git' || entry === 'node_modules') continue;
+        const full = path.join(d, entry);
+        try {
+          const stat = fs.statSync(full);
+          if (stat.isDirectory()) walk(full);
+          else if (stat.mtimeMs > latest) latest = stat.mtimeMs;
+        } catch (_) { /* ignore */ }
+      }
+    } catch (_) { /* ignore */ }
+  }
+  if (dir && fs.existsSync(dir)) walk(dir);
+  return latest || Date.now();
+}
+
+function parseStateStartedAtMs(startedAt) {
+  if (!startedAt) return Date.now();
+  const ms = Date.parse(startedAt);
+  return Number.isFinite(ms) ? ms : Date.now();
+}
+
+function killWorkerPidGracefully(pid, gracefulKillS = 15) {
+  if (!pid || !isPidAlive(pid)) return;
+  try { process.kill(pid, 'SIGINT'); } catch (_) { /* ignore */ }
+  const deadline = Date.now() + Math.min(gracefulKillS, 15) * 1000;
+  while (Date.now() < deadline && isPidAlive(pid)) {
+    try { execSync('sleep 0.25', { stdio: 'ignore' }); } catch (_) { break; }
+  }
+  if (isPidAlive(pid)) {
+    try { process.kill(pid, 'SIGKILL'); } catch (_) { /* ignore */ }
+  }
+}
+
+/**
+ * 父进程 tick 侧探测在途 worker：SDK stream 可长期保持 stdout/activity 活跃，
+ * 导致 worker 内看门狗永不触发；此处用 worktree 文件 mtime + 墙钟判定无进展挂起。
+ */
+function probeInflightWorkerFromParent(state, config) {
+  const wtPath = state.worktree_path || worktreeDir(state.feature_id);
+  if (!wtPath || !fs.existsSync(wtPath)) return null;
+
+  const elapsed = (Date.now() - parseStateStartedAtMs(state.started_at)) / 1000;
+  const fsIdle  = (Date.now() - getWorktreeLatestMtime(wtPath)) / 1000;
+
+  if (elapsed > config.attemptMaxS) return 'wall_timeout';
+  if (fsIdle > config.fsIdleThresholdS) return 'fs_idle';
+  if (fsIdle > config.stdoutIdleThresholdS && elapsed > config.stdoutIdleThresholdS) {
+    return 'progress_stall';
+  }
+  return null;
+}
+
+function terminateInflightWorkerAsHang(featureId, state, hangKind, config) {
+  const wtPath = state.worktree_path || worktreeDir(featureId);
+  const fsIdle   = (Date.now() - getWorktreeLatestMtime(wtPath)) / 1000;
+  const elapsed  = (Date.now() - parseStateStartedAtMs(state.started_at)) / 1000;
+
+  killWorkerPidGracefully(state.pid, config.gracefulKillS);
+
+  const hangHistory = state.hang_history || [];
+  hangHistory.push({
+    attempt_index:     state.attempt_index || 1,
+    hang_kind:         hangKind,
+    detected_at:       formatLocalTimeShort(),
+    snapshot_commit:   null,
+    files_at_snapshot: 0,
+    progress: {
+      acceptance_done:    [],
+      acceptance_pending: [],
+      files_touched:      [],
+      last_phase:         null,
+      last_command:       null,
+    },
+    file_signatures: [],
+    detected_by: 'parent_tick',
+  });
+
+  state.hang_history  = hangHistory;
+  state.status        = 'crashed';
+  state.reason        = hangKind;
+  state.attempts_used = state.attempts_used || 1;
+  writeWorkerState(featureId, state);
+
+  log.warn('agent_hang_detected', `父进程 tick 终止挂起 worker: ${featureId}`, {
+    feature_id:          featureId,
+    agent_id:            state.agent_id || `codegen-worker-${featureId}`,
+    hang_kind:           hangKind,
+    fs_idle_s:           Math.round(fsIdle),
+    elapsed_attempt_s:   Math.round(elapsed),
+    detected_by:         'parent_tick',
+    pid:                 state.pid,
+  });
+}
+
 // ── 哈希计算 ──────────────────────────────────────────────────────
 /**
  * 计算 release_bundle_hash：
@@ -1014,6 +1113,7 @@ async function main() {
           let hk = null;
           if (elTotal > config.timeoutS) hk = 'total_timeout';
           else if (elAttempt > config.attemptMaxS) hk = 'wall_timeout';
+          else if ((now2 - lastFsMtimeAt) / 1000 > config.fsIdleThresholdS) hk = 'fs_idle';
           // no_heartbeat 仅在 agent 确实不活跃时才触发（actIdle 也超阈值）
           else if (hbAge > config.agentHangThresholdS && actIdle > config.agentHangThresholdS) hk = 'no_heartbeat';
           else if (soIdle > config.stdoutIdleThresholdS) hk = 'stdout_idle';
@@ -1070,6 +1170,8 @@ async function main() {
       hangKind = 'total_timeout';
     } else if (elapsedAttempt > config.attemptMaxS) {
       hangKind = 'wall_timeout';
+    } else if (fsIdle > config.fsIdleThresholdS) {
+      hangKind = 'fs_idle';
     } else if (heartbeatAge > config.agentHangThresholdS && activityIdle > config.agentHangThresholdS) {
       hangKind = 'no_heartbeat';
     } else if (stdoutIdle > config.stdoutIdleThresholdS) {
@@ -1287,7 +1389,13 @@ async function doTick(stagesObj, config, featureFilterId) {
           attempts_used: state.attempts_used || 0,
         });
       } else {
-        inflightCount++;
+        const hangKind = probeInflightWorkerFromParent(state, config);
+        if (hangKind) {
+          terminateInflightWorkerAsHang(fid, state, hangKind, config);
+          crashedIds.push(fid);
+        } else {
+          inflightCount++;
+        }
       }
       continue;
     }
