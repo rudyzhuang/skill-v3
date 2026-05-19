@@ -1,0 +1,21 @@
+{
+"pipeline": {
+    "current_stage": null,
+    "last_completed_stage": null,
+    "updated_at": null,
+    "updated_by": "ai-std4",
+    "project": {
+    "project_id": null,
+    "root_path": null,
+    "name": null,
+    "git": {
+        "remote": null,
+        "remote_url": null,
+        "default_branch": null,
+        "repo_initialized_at": null,
+        "remote_configured_at": null
+    }
+    }
+},
+"stages": {}
+}
