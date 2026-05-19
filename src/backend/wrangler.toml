@@ -1,0 +1,14 @@
+name = "dash-std4-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[dev]
+port = 8787
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dash-std4"
+database_id = "00000000-0000-0000-0000-000000000001"
+
+# OPEN_API_KEY: set in local/dev via wrangler secret or .dev.vars (never commit real keys).
+# Bootstrap hashes OPEN_API_KEY into api_keys on worker fetch via seedApiKeys().

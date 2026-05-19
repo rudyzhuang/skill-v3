@@ -1,0 +1,30 @@
+{
+  "feature_id": "BACKEND-API-PIPELINE-001",
+  "attempt_index": 2,
+  "previous_hang_kind": "fs_idle",
+  "snapshot_commit": null,
+  "base_commit": "7892f413081fca842ca328274473c8ca4660fde7",
+  "file_signatures": [],
+  "progress": {
+    "acceptance_done": [],
+    "acceptance_pending": [],
+    "files_touched": [],
+    "last_phase": null,
+    "last_command": null
+  },
+  "acceptance_full": [
+    "POST /api/v1/projects 在有效 API Key（Authorization: Bearer <key> 或 X-API-Key）下接受 name_zh、name_en、description、client_targets（仅 admin/backend）、is_new；校验失败返回 400 与可读 errors[]，成功返回 201 含 id 与 status，且无 Key/密码泄露",
+    "缺少或无效 API Key 调用 POST /api/v1/projects 或 PUT /api/v1/projects/:id/pipeline 均返回 401，响应体不含 config.env 中的密钥配置",
+    "PUT /api/v1/projects/:id/pipeline 对存在的 project_id 接受 stages/features/blocking_issues/log_tail 等载荷并写入 pipeline_snapshots；项目不存在返回 404；载荷超大或非法 JSON 返回 413/400",
+    "上报成功后，同一 project_id 经 GET /api/projects/:id/pipeline（管理端 Session，由 PROJECT-DASH-001 实现）可读到与最近一次上报一致的 stages、features、blocking_issues、log_tail 结构化字段",
+    "GET /api/v1/projects 与 GET /api/v1/projects/:id（BACKEND-API-QUERY-001）可查询到本接口 POST 创建的项目，且列表/详情字段与共用 projects 表一致"
+  ],
+  "do_not_overwrite": [],
+  "constraints": [
+    "仅对 do_not_overwrite[] 列出的文件做增量 edit；禁止清空或重写",
+    "禁止删除/重命名 do_not_overwrite[] 中任何文件",
+    "禁止 git reset --hard / git checkout <path> / rm 等抹除操作",
+    "仅完成 progress.acceptance_pending[]；progress.acceptance_done[] 不重复实现",
+    "心跳间隔必须 <= heartbeat_interval_s 秒；外部命令前后各打一次心跳"
+  ]
+}
