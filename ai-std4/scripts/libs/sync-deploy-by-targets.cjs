@@ -9,7 +9,10 @@
 const fs   = require('fs');
 const path = require('path');
 
+const { RESOURCE_TYPES } = require('./infer-deploy-services.cjs');
+
 const DEPLOYABLE_TARGETS = new Set(['website', 'admin', 'backend']);
+const RUNTIME_TYPES        = new Set(['pages', 'workers']);
 const WEB_UI_TARGETS     = new Set(['website', 'admin']);
 
 const TARGET_ALIASES = {
@@ -188,32 +191,56 @@ function syncDeployConfig(config, clientTargets, opts = {}) {
   if (!Array.isArray(config.deploy.services)) config.deploy.services = [];
 
   const beforeNames = config.deploy.services.map(s => s.name || s.client_target);
-  const kept        = [];
-  const byTarget    = new Map();
+  const runtimeByTarget = new Map();
+  const resourceServices = [];
+
+  function resourceKey(svc) {
+    return `${svc.name || svc.role || 'resource'}:${(svc.type || '').toLowerCase()}`;
+  }
 
   for (const svc of config.deploy.services) {
     const ct = normalizeClientTarget(svc.client_target);
-    if (deployable.includes(ct)) {
-      kept.push(Object.assign({}, svc, { client_target: ct }));
-      byTarget.set(ct, kept[kept.length - 1]);
-    } else {
+    const type = String(svc.type || '').toLowerCase();
+    if (!deployable.includes(ct)) {
       servicesRemoved.push(svc.name || svc.client_target || ct);
+      continue;
+    }
+    const copy = Object.assign({}, svc, { client_target: ct });
+    if (RUNTIME_TYPES.has(type)) {
+      runtimeByTarget.set(ct, copy);
+    } else if (RESOURCE_TYPES.has(type)) {
+      resourceServices.push(copy);
+    } else {
+      resourceServices.push(copy);
     }
   }
 
   for (const ct of deployable) {
-    if (!byTarget.has(ct)) {
+    if (!runtimeByTarget.has(ct) && DEFAULT_SERVICES[ct]) {
       const added = Object.assign({}, DEFAULT_SERVICES[ct]);
-      kept.push(added);
-      byTarget.set(ct, added);
+      runtimeByTarget.set(ct, added);
       servicesAdded.push(ct);
     }
   }
 
   const order = ['website', 'admin', 'backend'];
-  config.deploy.services = order
-    .filter(ct => byTarget.has(ct))
-    .map(ct => byTarget.get(ct));
+  const runtimeOrdered = order
+    .filter(ct => runtimeByTarget.has(ct))
+    .map(ct => runtimeByTarget.get(ct));
+
+  const resourceByKey = new Map();
+  for (const svc of resourceServices) {
+    const ct = normalizeClientTarget(svc.client_target);
+    if (!deployable.includes(ct)) continue;
+    resourceByKey.set(resourceKey(svc), svc);
+  }
+
+  const resourcesOrdered = order
+    .flatMap(ct =>
+      [...resourceByKey.values()].filter(s => normalizeClientTarget(s.client_target) === ct),
+    );
+
+  config.deploy.services = [...runtimeOrdered, ...resourcesOrdered];
 
   applyDeployHints(config, deployable, hints);
 

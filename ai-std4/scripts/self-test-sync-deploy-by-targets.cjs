@@ -78,5 +78,49 @@ assert(!config.ui_e2e.web.website, 'ui_e2e website removed');
 assert(config.ui_e2e.web.admin, 'ui_e2e admin kept');
 assert(config.deploy.domain === 'dash.ai-ww.com', 'deploy.domain from req');
 
+const configWithDb = {
+  deploy: {
+    enabled: false,
+    provider: 'cloudflare',
+    services: [
+      {
+        name: 'admin',
+        client_target: 'admin',
+        type: 'pages',
+        domain: 'admin.dash.ai-ww.com',
+        url: 'https://admin.dash.ai-ww.com',
+      },
+      {
+        name: 'backend',
+        role: 'api',
+        client_target: 'backend',
+        type: 'workers',
+        domain: 'api.dash.ai-ww.com',
+        url: 'https://api.dash.ai-ww.com',
+      },
+      {
+        name: 'db',
+        role: 'db',
+        client_target: 'backend',
+        type: 'd1',
+        requires_artifact: false,
+        resource_config: { database_name: 'dashstd4-d1' },
+      },
+    ],
+  },
+  smoke: { checks: [] },
+};
+
+syncDeployConfig(configWithDb, ['admin', 'backend'], { reqContent: reqSnippet });
+assert(configWithDb.deploy.services.length === 3, 'workers + d1 both kept for backend');
+assert(
+  configWithDb.deploy.services.some(s => s.type === 'workers' && s.name === 'backend'),
+  'backend workers kept',
+);
+assert(
+  configWithDb.deploy.services.some(s => s.type === 'd1' && s.name === 'db'),
+  'backend d1 kept',
+);
+
 if (failed > 0) process.exit(1);
 console.log('\nAll tests passed.');

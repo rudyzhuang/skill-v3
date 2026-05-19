@@ -130,7 +130,26 @@
   "deploy": {
     "platform": "cloudflare",
     "domain": "api.dash.ai-ww.com",
-    "service_type": "workers"
+    "service_type": "workers",
+    "notes": "dev/release 共用 api.dash.ai-ww.com；部署凭证与 API Token 仅存放于 inputs/config.env / docs/config.env",
+    "api": {
+      "runtime": "workers",
+      "domain": "api.dash.ai-ww.com"
+    },
+    "resources": [
+      {
+        "role": "api",
+        "kind": "workers",
+        "reason": "Hono REST：管理端 Session API（/api/*）与集成 Open API（/api/v1/*）；含 GET /health 冒烟探针",
+        "status": "active"
+      },
+      {
+        "role": "db",
+        "kind": "d1",
+        "reason": "users、sessions、projects、pipeline_snapshots、api_keys 表持久化（wrangler binding=DB）",
+        "status": "active"
+      }
+    ]
   },
   "auth": {
     "type": "session",

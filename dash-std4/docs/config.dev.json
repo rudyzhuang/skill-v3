@@ -75,13 +75,21 @@
     "install_before_build": true,
     "fail_fast": false,
     "client_targets": {
-      "admin": { "sub_platforms": [{ "id": "default" }] },
+      "admin": {
+        "sub_platforms": [
+          {
+            "id": "default"
+          }
+        ]
+      },
       "backend": {
         "sub_platforms": [
           {
             "id": "default",
             "build": "npm run build",
-            "artifact_globs": ["dist/**"]
+            "artifact_globs": [
+              "dist/**"
+            ]
           }
         ]
       }
@@ -100,46 +108,68 @@
     "domain": "dash.ai-ww.com",
     "services": [
       {
-        "name": "website",
-        "client_target": "website",
-        "type": "pages",
-        "domain": "",
-        "url": ""
-      },
-      {
         "name": "admin",
         "client_target": "admin",
         "type": "pages",
         "domain": "admin.dash.ai-ww.com",
-        "url": "https://admin.dash.ai-ww.com"
+        "url": "https://admin.dash.ai-ww.com",
+        "role": "admin",
+        "requires_artifact": true,
+        "resource_config": {
+          "account_id": "",
+          "project_name": "dashstd4-admin",
+          "production_branch": "main"
+        },
+        "status": "active"
       },
       {
         "name": "backend",
+        "role": "api",
         "client_target": "backend",
         "type": "workers",
+        "requires_artifact": true,
+        "status": "active",
         "domain": "api.dash.ai-ww.com",
-        "url": "https://api.dash.ai-ww.com"
+        "url": "https://api.dash.ai-ww.com",
+        "resource_config": {
+          "script_name": "dashstd4-api",
+          "route": ""
+        }
+      },
+      {
+        "name": "db",
+        "role": "db",
+        "client_target": "backend",
+        "type": "d1",
+        "requires_artifact": false,
+        "status": "active",
+        "resource_config": {
+          "account_id": "",
+          "database_id": "",
+          "database_name": "dashstd4-d1",
+          "binding_name": "DB"
+        }
       }
     ]
   },
   "smoke": {
     "checks": [
       {
-        "url": "{deploy.services.website.url}/",
-        "method": "GET",
-        "expected_status": 200,
-        "client_targets": [
-          "website"
-        ],
-        "scope": "deploy",
-        "safe": true
-      },
-      {
         "url": "{deploy.services.backend.url}/health",
         "method": "GET",
         "expected_status": 200,
         "client_targets": [
           "backend"
+        ],
+        "scope": "deploy",
+        "safe": true
+      },
+      {
+        "url": "{deploy.services.admin.url}/",
+        "method": "GET",
+        "expected_status": 200,
+        "client_targets": [
+          "admin"
         ],
         "scope": "deploy",
         "safe": true
@@ -160,9 +190,6 @@
     "require_deploy_smoke_passed": true,
     "strict_mobile": false,
     "web": {
-      "website": {
-        "base_url_from": "deploy.services.website.url"
-      },
       "admin": {
         "base_url_from": "deploy.services.admin.url"
       }
