@@ -1261,46 +1261,53 @@ async function main() {
     process.exit(2); // 特殊退出码：需要 resume
   }
 
+  function normalizeFilesChangedEntry(f) {
+    if (typeof f === 'string') return f.trim();
+    if (f && typeof f === 'object') return String(f.path || f.file || '').trim();
+    return '';
+  }
+
+  function collectDirtyPathsFromGit() {
+    const paths = new Set();
+    try {
+      execSync('git diff --name-only', { cwd: wtPath, encoding: 'utf8' })
+        .trim().split('\\n').filter(Boolean).forEach(p => paths.add(p));
+    } catch (_) {}
+    try {
+      execSync('git diff --cached --name-only', { cwd: wtPath, encoding: 'utf8' })
+        .trim().split('\\n').filter(Boolean).forEach(p => paths.add(p));
+    } catch (_) {}
+    try {
+      execSync('git ls-files --others --exclude-standard', { cwd: wtPath, encoding: 'utf8' })
+        .trim().split('\\n').filter(Boolean).forEach(p => paths.add(p));
+    } catch (_) {}
+    return Array.from(paths).filter(Boolean);
+  }
+
+  function listPathsSinceBase() {
+    if (!baseCommit) return [];
+    try {
+      return execSync(\`git diff --name-only \${baseCommit}..HEAD\`, { cwd: wtPath, encoding: 'utf8' })
+        .trim().split('\\n').filter(Boolean);
+    } catch (_) { return []; }
+  }
+
+  /** Agent JSON 优先；否则用 base..HEAD，再退回脏工作区路径（与 code-review 确定性预检对齐） */
+  function resolveFilesChanged(agentList) {
+    const fromAgent = (Array.isArray(agentList) ? agentList : [])
+      .map(normalizeFilesChangedEntry).filter(Boolean);
+    if (fromAgent.length) return fromAgent;
+    const since = listPathsSinceBase();
+    if (since.length) return since;
+    return collectDirtyPathsFromGit();
+  }
+
   async function handleAgentComplete() {
     const s = readState();
     attemptsUsed = (s.attempts_used || 0) + 1;
     s.attempts_used = attemptsUsed;
 
-    // 检查 final
-    if (finalData && finalData.status === 'completed') {
-      // 检查 git status
-      let hasChanges = false;
-      try {
-        const gitStatus = execSync('git status --porcelain', { cwd: wtPath, encoding: 'utf8' });
-        hasChanges = gitStatus.trim().length > 0;
-      } catch(_) { hasChanges = true; }
-
-      // smoke（简化：跳过，由调度器处理）
-      // git commit
-      if (hasChanges) {
-        try {
-          execSync('git add -A', { cwd: wtPath, stdio: 'ignore' });
-          execSync(\`git commit --no-verify -m "feat(\${featureId}): implement per design"\`, { cwd: wtPath, stdio: 'ignore' });
-        } catch(_) {}
-      }
-
-      let commit = null;
-      try {
-        commit = execSync('git rev-parse HEAD', { cwd: wtPath, encoding: 'utf8' }).trim();
-      } catch(_) {}
-
-      // 删除 resume context
-      try { fs.unlinkSync(path.join(wtPath, '.codegen-resume-context.json')); } catch(_) {}
-
-      s.status         = 'completed';
-      s.completed_at   = formatLocalTimeShort();
-      s.commit         = commit;
-      s.files_changed  = finalData.files_changed || [];
-      s.smoke_passed   = true;
-      s.smoke_checks   = [];
-      writeState(s);
-      process.exit(0);
-    } else if (finalData && (finalData.status === 'needs_human' || finalData.status === 'failed')) {
+    if (finalData && (finalData.status === 'needs_human' || finalData.status === 'failed')) {
       const attemptsNow = attemptsUsed;
       if (attemptsNow < config.maxResumeAttempts) {
         s.status = 'crashed'; // 触发 resume
@@ -1312,7 +1319,9 @@ async function main() {
       s.exit_code = 4;
       writeState(s);
       process.exit(4);
-    } else if (agentExitCode !== 0) {
+    }
+
+    if (agentExitCode !== 0) {
       if (attemptsUsed < config.maxResumeAttempts) {
         s.status = 'crashed';
         writeState(s);
@@ -1323,14 +1332,40 @@ async function main() {
       s.exit_code = 4;
       writeState(s);
       process.exit(4);
-    } else {
-      // 无 final 信号但退出码 0：视为完成
-      s.status       = 'completed';
-      s.completed_at = formatLocalTimeShort();
-      s.smoke_passed = true;
-      writeState(s);
-      process.exit(0);
     }
+
+    // 退出码 0：统一落盘 git（含「流结束但无 final JSON」、final.files_changed 漏填等）
+    let hasChanges = false;
+    try {
+      const gitStatus = execSync('git status --porcelain', { cwd: wtPath, encoding: 'utf8' });
+      hasChanges = gitStatus.trim().length > 0;
+    } catch (_) { hasChanges = true; }
+
+    if (hasChanges) {
+      try {
+        execSync('git add -A', { cwd: wtPath, stdio: 'ignore' });
+        execSync(\`git commit --no-verify -m "feat(\${featureId}): implement per design"\`, { cwd: wtPath, stdio: 'ignore' });
+      } catch (_) {}
+    }
+
+    let commit = null;
+    try {
+      commit = execSync('git rev-parse HEAD', { cwd: wtPath, encoding: 'utf8' }).trim();
+    } catch (_) {}
+
+    try { fs.unlinkSync(path.join(wtPath, '.codegen-resume-context.json')); } catch (_) {}
+
+    const agentFiles = (finalData && Array.isArray(finalData.files_changed)) ? finalData.files_changed : [];
+    const filesChanged = resolveFilesChanged(agentFiles);
+
+    s.status         = 'completed';
+    s.completed_at   = formatLocalTimeShort();
+    s.commit         = commit;
+    s.files_changed  = filesChanged;
+    s.smoke_passed   = true;
+    s.smoke_checks   = [];
+    writeState(s);
+    process.exit(0);
   }
 }
 
