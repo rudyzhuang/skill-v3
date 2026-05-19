@@ -1358,6 +1358,21 @@ async function main() {
     const agentFiles = (finalData && Array.isArray(finalData.files_changed)) ? finalData.files_changed : [];
     const filesChanged = resolveFilesChanged(agentFiles);
 
+    if (!filesChanged || filesChanged.length === 0) {
+      if (attemptsUsed < config.maxResumeAttempts) {
+        s.status = 'crashed';
+        s.reason = 'no_files_changed_after_agent';
+        s.error = 'Agent 结束但无法解析任何变更文件（files_changed 为空），将触发 resume';
+        writeState(s);
+        process.exit(2);
+      }
+      s.status = 'failed';
+      s.error = 'Agent 结束但无法解析任何变更文件（files_changed 为空）';
+      s.exit_code = 4;
+      writeState(s);
+      process.exit(4);
+    }
+
     s.status         = 'completed';
     s.completed_at   = formatLocalTimeShort();
     s.commit         = commit;
@@ -1709,6 +1724,17 @@ async function doValidate(stagesObj, targetFeatureIds) {
   const features     = cg.features || {};
   const completedAtStr = formatLocalTimeShort();
   const startedAt    = cg.started_at ? new Date(cg.started_at).getTime() : Date.now();
+
+  // 与 code-review 确定性预检对齐：禁止「completed 但 files_changed 为空」的伪完成态
+  for (const fid of targetFeatureIds) {
+    const feat = features[fid];
+    if (!feat || feat.status !== 'completed') continue;
+    const fc = feat.files_changed || [];
+    if (fc.length === 0) {
+      feat.status = 'failed';
+      feat.error  = feat.error || 'codegen validate：变更文件集为空（empty files_changed），无法进入 code-review';
+    }
+  }
 
   const completedFeatures = targetFeatureIds.filter(fid => features[fid] && features[fid].status === 'completed');
   const failedFeatures    = targetFeatureIds.filter(fid => features[fid] && (features[fid].status === 'failed' || features[fid].status === 'blocked'));
