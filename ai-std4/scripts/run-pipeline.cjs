@@ -119,6 +119,7 @@ const PIPELINE_STEPS = [
 // ── Logger（需先确保目录存在）────────────────────────────────────
 paths.ensureRuntimeDirs();
 paths.ensureOutputStagesDir();
+paths.ensureCodegenRuntimeDirs();
 const log = createLogger({ projectRoot, stage: 'pipeline', runId });
 
 // ── from / to stage 过滤工具 ─────────────────────────────────────

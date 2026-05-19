@@ -4,7 +4,8 @@
  * ai-std4 业务项目目录约定：
  *   output-stages/stages.json     — 流水线状态真源
  *   output-stages/<stage>/        — 各 stage 产出（merge_push 仍用 .pipeline/）
- *   .pipeline/                    — 锁、stop、worktrees、编排 recovery 等运行时
+ *   output-stages/codegen/        — codegen worktrees、worker 状态与内联脚本
+ *   .pipeline/                    — 锁、stop、编排 recovery 等运行时
  *   .pipeline/logs/               — 全局与分 stage/feature 日志
  */
 
@@ -69,17 +70,28 @@ function createPipelinePaths(projectRoot) {
   function ensureRuntimeDirs() {
     fs.mkdirSync(pipelineDir, { recursive: true });
     fs.mkdirSync(path.join(pipelineDir, 'locks'), { recursive: true });
-    fs.mkdirSync(path.join(pipelineDir, 'worktrees'), { recursive: true });
     fs.mkdirSync(logsRoot, { recursive: true });
     fs.mkdirSync(path.join(logsRoot, 'stages'), { recursive: true });
     fs.mkdirSync(path.join(logsRoot, 'features'), { recursive: true });
     fs.mkdirSync(path.join(logsRoot, 'snapshots'), { recursive: true });
   }
 
+  function ensureCodegenRuntimeDirs() {
+    ensureRuntimeDirs();
+    const codegenDir = stageOutputDir('codegen');
+    fs.mkdirSync(codegenDir, { recursive: true });
+    fs.mkdirSync(path.join(codegenDir, 'worktrees'), { recursive: true });
+  }
+
   function ensureOutputStagesDir(stage) {
     ensureRuntimeDirs();
     fs.mkdirSync(outputStagesDir, { recursive: true });
-    if (stage) fs.mkdirSync(stageOutputDir(stage), { recursive: true });
+    if (stage) {
+      fs.mkdirSync(stageOutputDir(stage), { recursive: true });
+      if (normalizeStageDir(stage) === 'codegen') {
+        fs.mkdirSync(path.join(stageOutputDir('codegen'), 'worktrees'), { recursive: true });
+      }
+    }
   }
 
   function readStagesJson() {
@@ -120,11 +132,11 @@ function createPipelinePaths(projectRoot) {
   }
 
   function codegenWorkersDir() {
-    return path.join(stageOutputDir('codegen'), 'workers', 'codegen');
+    return stageOutputDir('codegen');
   }
 
   function worktreeDir(featureId) {
-    return path.join(pipelineDir, 'worktrees', `v3-${featureId}`);
+    return path.join(stageOutputDir('codegen'), 'worktrees', `v3-${featureId}`);
   }
 
   function stageSummaryPath(stage, filename) {
@@ -140,7 +152,7 @@ function createPipelinePaths(projectRoot) {
     logsRoot,
     locksDir:             path.join(pipelineDir, 'locks'),
     stopSignalPath:       path.join(pipelineDir, 'stop.signal'),
-    worktreesDir:         path.join(pipelineDir, 'worktrees'),
+    worktreesDir:         path.join(stageOutputDir('codegen'), 'worktrees'),
     reportsDirLegacy:     path.join(pipelineDir, 'reports'),
     stageOutputDir,
     stageOutputFile,
@@ -148,6 +160,7 @@ function createPipelinePaths(projectRoot) {
     normalizeStageDir,
     isMergePushStage,
     ensureRuntimeDirs,
+    ensureCodegenRuntimeDirs,
     ensureOutputStagesDir,
     readStagesJson,
     writeStagesJson,

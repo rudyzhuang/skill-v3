@@ -63,7 +63,7 @@ function readRecoveryConfig(projectRoot) {
 /** 日志中常见确定性错误签名（用于错误包与 recovery_hints） */
 const ERROR_SIGNATURE_PATTERNS = [
   { id: 'sdk_module_not_found', re: /Cannot find module '@cursor\/sdk'/i,
-    hint: 'codegen 内联 worker 须用 createRequire(ai-std4/package.json) 加载 @cursor/sdk，勿依赖 worktree cwd；修复后须清理 .pipeline/workers/codegen/*.tmp.cjs' },
+    hint: 'codegen 内联 worker 须用 createRequire(ai-std4/package.json) 加载 @cursor/sdk，勿依赖 worktree cwd；修复后须清理 output-stages/codegen/*.tmp.cjs' },
   { id: 'ajv_schema_duplicate', re: /schema.*already exists|ui-scenarios\.yaml\.schema\.json/i,
     hint: 'create-ui-scenarios 须缓存 Ajv compile（勿对同一 $id 重复 compile）' },
   { id: 'stages_json_missing', re: /stages\.json 不存在/i,
@@ -145,7 +145,7 @@ function collectCodegenWorkerExcerpts(projectRoot, maxBytes) {
       if (excerpt.length > budget) excerpt = excerpt.slice(0, budget) + '\n…(truncated)';
       budget -= excerpt.length;
       excerpts.push({
-        path:    `.pipeline/workers/codegen/${f}`,
+        path:    `output-stages/codegen/${f}`,
         excerpt,
         hint:    SDK_RECOVERABLE_RE.test(excerpt)
           ? '归档 worker 含 @cursor/sdk 加载失败（旧内联模板或 stale tmp.cjs）'
@@ -174,7 +174,7 @@ function collectCodegenWorkerExcerpts(projectRoot, maxBytes) {
       if (excerpt.length > budget) excerpt = excerpt.slice(0, budget) + '\n…(truncated)';
       budget -= excerpt.length;
       excerpts.push({
-        path:    `.pipeline/workers/codegen/${f}`,
+        path:    `output-stages/codegen/${f}`,
         excerpt,
         hint:    /@cursor\/sdk/.test(excerpt) && !/createRequire/.test(excerpt)
           ? 'worker 可能为旧模板（裸 require @cursor/sdk）'

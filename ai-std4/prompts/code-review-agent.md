@@ -9,7 +9,7 @@
 
 ## 必读
 
-- `.pipeline/worktrees/v3-<feature_id>/`（只读）
+- `output-stages/codegen/worktrees/v3-<feature_id>/`（只读）
 - `.pipeline/code-review-<feature_id>.diff`（脚本生成的 patch）
 - `docs/designs/<feature_id>.design.json`
 

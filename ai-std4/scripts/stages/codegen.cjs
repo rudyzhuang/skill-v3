@@ -1869,6 +1869,8 @@ async function doValidate(stagesObj, targetFeatureIds) {
 
 // ── 主流程 ────────────────────────────────────────────────────────
 async function main() {
+  paths.ensureCodegenRuntimeDirs();
+
   const startedAt    = new Date();
   const startedAtStr = formatLocalTimeShort(startedAt);
 

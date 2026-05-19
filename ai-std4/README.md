@@ -63,7 +63,7 @@ flowchart TB
     SRC["src/<br/>各端源代码"]
     PIPE[".pipeline/<br/>进度与停止信号"]
     LOG["logs/<br/>运行日志"]
-    WT["worktrees/<br/>写代码时的独立副本"]
+    WT["output-stages/codegen/worktrees/<br/>写代码时的独立副本"]
   end
 
   subgraph Std4["ai-std4（本目录，工具箱）"]
@@ -272,7 +272,7 @@ stateDiagram-v2
 | 问题 | 简要回答 |
 | --- | --- |
 | 和 ai-prd3、ai-codegen2 等老技能的关系？ | ai-std4 **自包含**，不调用那些技能的脚本；思路相近但实现独立。 |
-| 代码写在哪？ | 多在 `worktrees/` 里写，**merge_push** 后再进你主分支的 `src/`。 |
+| 代码写在哪？ | 多在 `output-stages/codegen/worktrees/` 里写，**merge_push** 后再进你主分支的 `src/`。 |
 | 怎么知道卡在哪？ | 看 `run-dash`，或读 `output-stages/stages.json` 与 `.pipeline/logs/`。 |
 | 必须开界面自动化吗？ | 否；在配置里关闭 `ui_e2e` 后，相关阶段会标记为跳过。 |
 

@@ -1,6 +1,6 @@
 # Codegen 首次实现（codegen-impl）
 
-你在 **git worktree** 内实现**单个 feature** 的代码与内嵌测试。工作目录由 worker 设为 **`.pipeline/worktrees/v3-<feature_id>/`**（worktree 根 = **业务项目根**，不是外层 monorepo）。
+你在 **git worktree** 内实现**单个 feature** 的代码与内嵌测试。工作目录由 worker 设为 **`output-stages/codegen/worktrees/v3-<feature_id>/`**（worktree 根 = **业务项目根**，不是外层 monorepo）。
 
 ## 注入上下文
 

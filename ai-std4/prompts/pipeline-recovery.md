@@ -15,7 +15,7 @@
 | --- | --- |
 | `log_tail` | 各 stage 日志末 N 行 |
 | `error_signatures` | `signature_ids` + `matched_lines`（如 `@cursor/sdk`、`schema already exists`） |
-| `artifact_excerpts` | **codegen 内联 worker**（`.pipeline/workers/codegen/*.tmp.cjs`）摘录，对照是否旧模板 |
+| `artifact_excerpts` | **codegen 内联 worker**（`output-stages/codegen/*.tmp.cjs`）摘录，对照是否旧模板 |
 | `failed_features` | 失败/阻塞的 feature_id、error |
 | `recovery_hints` | 脚本根据签名生成的修复提示（**须逐条处理或写入 evidence**） |
 | `stage_snapshot` | 失败 stage 状态快照 |

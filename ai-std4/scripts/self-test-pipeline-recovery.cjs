@@ -103,8 +103,10 @@ const sig = scanLogTailForSignatures({
 assert(sig.signature_ids.includes('sdk_module_not_found'), 'scan sdk signature');
 
 // 4. worker excerpts + clear
-const workerDir = path.join(tmpProject, '.pipeline', 'workers', 'codegen');
-fs.mkdirSync(workerDir, { recursive: true });
+const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
+const recoveryPaths = createPipelinePaths(tmpProject);
+recoveryPaths.ensureCodegenRuntimeDirs();
+const workerDir = recoveryPaths.codegenWorkersDir();
 const workerPath = path.join(workerDir, 'worker-TEST-001-1.tmp.cjs');
 fs.writeFileSync(workerPath, "const x = require('@cursor/sdk');\n", 'utf8');
 const excerpts = collectCodegenWorkerExcerpts(tmpProject, 8000);

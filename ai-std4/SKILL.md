@@ -50,7 +50,8 @@ node ai-std4/scripts/run-dash.cjs --project=<路径>
 | --- | --- |
 | `output-stages/stages.json` | 流水线状态真源 |
 | `output-stages/<stage>/` | 各 stage 产出（评审 JSON、摘要 md、deploy 分诊等）；**merge_push** 仍写在 `.pipeline/` |
-| `.pipeline/` | 锁、`stop.signal`、`worktrees/`、编排 recovery 包等运行时 |
+| `output-stages/codegen/` | codegen worktrees、worker 状态与内联脚本 |
+| `.pipeline/` | 锁、`stop.signal`、编排 recovery 包等运行时 |
 | `.pipeline/logs/` | 全局与各 stage/feature 日志 |
 
 读取 `stages.json` 时兼容旧路径 `.pipeline/stages.json`（只读回退）。

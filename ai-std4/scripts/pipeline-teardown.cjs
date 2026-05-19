@@ -14,7 +14,7 @@
  *   3. 记录日志 pipeline_teardown_start / pipeline_teardown_complete
  *   4. 更新 stages.json pipeline.teardown_at
  *
- * 禁止：git reset --hard、删除 worktrees/ / logs/ / .pipeline/reports/
+ * 禁止：git reset --hard、删除 output-stages/codegen/worktrees/ / logs/ / .pipeline/reports/
  *
  * 退出码：总是 0（尽力而为，不因 kill 失败而报错）
  */

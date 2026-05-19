@@ -26,7 +26,9 @@ assert(paths.stagesJsonPath.endsWith('output-stages/stages.json'), 'stages.json 
 assert(paths.stageOutputDir('deploy').includes('output-stages/deploy'), 'deploy output dir');
 assert(paths.stageOutputDir('merge_push') === paths.pipelineDir, 'merge_push stays in .pipeline');
 assert(paths.logsRoot.endsWith('.pipeline/logs'), 'logs under .pipeline');
-assert(paths.codegenWorkersDir().includes('output-stages/codegen'), 'codegen workers under stage output');
+assert(paths.codegenWorkersDir().endsWith('output-stages/codegen'), 'codegen workers at stage output root');
+assert(paths.worktreesDir.endsWith('output-stages/codegen/worktrees'), 'codegen worktrees under stage output');
+assert(paths.worktreeDir('AUTH-001').endsWith('output-stages/codegen/worktrees/v3-AUTH-001'), 'worktree path');
 
 paths.writeStagesJson({ pipeline: {}, stages: {} });
 assert(fs.existsSync(paths.stagesJsonPath), 'writeStagesJson creates file');
