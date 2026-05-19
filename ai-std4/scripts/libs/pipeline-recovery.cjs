@@ -297,6 +297,36 @@ function resetCodegenSdkFailures(projectRoot, stages, log) {
   return { reset };
 }
 
+/** 子进程执行重置，避免 run-pipeline 进程内 require 缓存旧版 pipeline-recovery */
+function invokeCodegenSdkResetSubprocess(projectRoot, log) {
+  const script = path.join(__dirname, 'recovery-reset-codegen.cjs');
+  if (!fs.existsSync(script)) {
+    const st = readStagesJson();
+    if (st) {
+      resetCodegenSdkFailures(projectRoot, st, log);
+      writeStagesJson(st);
+    }
+    return;
+  }
+  const r = spawnSync(process.execPath, [script, `--project=${projectRoot}`], {
+    cwd:    projectRoot,
+    env:    process.env,
+    encoding: 'utf8',
+    stdio:  ['ignore', 'pipe', 'pipe'],
+  });
+  const out = ((r.stdout || '') + (r.stderr || '')).trim();
+  if (r.status !== 0) {
+    log.warn('recovery_codegen_reset', '子进程重置 codegen feature 失败', {
+      exit_code: r.status,
+      output:    out.slice(-500),
+    });
+    return;
+  }
+  log.info('recovery_codegen_reset', '子进程已重置 SDK 可恢复 codegen feature', {
+    output: out || null,
+  });
+}
+
 function runSkillRecoverySelfTests(skillsRoot) {
   const script = path.join(skillsRoot, 'ai-std4', 'scripts', 'self-test-pipeline-recovery.cjs');
   if (!fs.existsSync(script)) {
@@ -790,14 +820,17 @@ async function runOneRecoveryAttempt({
     recovery, projectRoot, skillsRoot, step, log, cfg,
   });
 
+  let clearedWorkers = { removed: [] };
   if (shouldClearCodegenWorkers({ recovery, step, cfg })) {
-    clearStaleCodegenWorkers(projectRoot, log);
+    clearedWorkers = clearStaleCodegenWorkers(projectRoot, log);
   }
 
-  const stForReset = readStagesJson() || stages || { pipeline: {}, stages: {} };
-  if (shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg })) {
-    resetCodegenSdkFailures(projectRoot, stForReset, log);
-    writeStagesJson(stForReset);
+  const sigIds = (bundle && bundle.error_signatures && bundle.error_signatures.signature_ids) || [];
+  const needCodegenReset = shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg }) ||
+    (clearedWorkers.removed.length > 0 && sigIds.includes('sdk_module_not_found'));
+
+  if (needCodegenReset) {
+    invokeCodegenSdkResetSubprocess(projectRoot, log);
   }
 
   const histEntry = {
@@ -812,7 +845,7 @@ async function runOneRecoveryAttempt({
     at:            require('./logger.cjs').formatLocalTimeShort(),
   };
 
-  const st = readStagesJson() || stForReset || stages || { pipeline: {}, stages: {} };
+  const st = readStagesJson() || stages || { pipeline: {}, stages: {} };
   appendRecoveryHistory(st, histEntry);
 
   if (recovery.decision === 'blocked') {

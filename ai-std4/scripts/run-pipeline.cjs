@@ -27,8 +27,17 @@ const crypto = require('crypto');
 const { spawnSync, spawn } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('./libs/logger.cjs');
-const { handleStepFailure } = require('./libs/pipeline-recovery.cjs');
 const { loadProjectEnv, getSkillsRoot } = require('./libs/pipeline-config.cjs');
+
+/** 每次 recovery 前加载最新 pipeline-recovery（Agent 可能在上一轮修改了该文件） */
+function loadPipelineRecovery() {
+  const recoveryPath = path.join(__dirname, 'libs', 'pipeline-recovery.cjs');
+  try {
+    const resolved = require.resolve(recoveryPath);
+    delete require.cache[resolved];
+  } catch (_) { /* first load */ }
+  return require(recoveryPath);
+}
 
 // ── 参数解析 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -552,7 +561,7 @@ async function main() {
 
     // §3.4 编排级自动修复（report 不触发；setup 退出码 2 等在 recovery 内过滤）
     if (exitCode !== 0 && step !== 'report') {
-      const recoveryResult = await handleStepFailure({
+      const recoveryResult = await loadPipelineRecovery().handleStepFailure({
         projectRoot,
         skillsRoot,
         runId,
