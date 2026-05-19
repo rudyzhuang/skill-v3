@@ -20,6 +20,7 @@
  *   --scenario=<scenario_id>   只跑单场景（调试）
  *   --skip-repair-chain        分诊后只记结论，不自动子链
  *   --force-rerun              跳过 hash 门控，强制重跑
+ *   --use-sdk-scenarios        场景执行回退 SDK Agent（默认使用 ui-e2e-runner MCP runner）
  *
  * 退出码：
  *   0  全部目标场景通过（或整段 skipped）
@@ -36,8 +37,14 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
-const { loadProjectEnv, getSkillsRoot, readConfigJson, resolvePipelineModel } = require('../libs/pipeline-config.cjs');
+const {
+  loadProjectEnv,
+  getSkillsRoot,
+  readConfigJson: readPipelineConfigJson,
+  resolvePipelineModel,
+} = require('../libs/pipeline-config.cjs');
 const { invokeSdkAgent } = require('../libs/invoke-sdk-agent.cjs');
+const { runScenarioWithRunner, preflightBrowser, preflightDart } = require('../libs/ui-e2e-runner.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -60,6 +67,10 @@ const featureFilter     = args.feature   || null;
 const scenarioFilter    = args.scenario  || null;
 const skipRepairChain   = args['skip-repair-chain'] === true || args['skip-repair-chain'] === 'true';
 const forceRerun        = args['force-rerun'] === true || args['force-rerun'] === 'true';
+const useSdkScenarios   =
+  args['use-sdk-scenarios'] === true ||
+  args['use-sdk-scenarios'] === 'true' ||
+  process.env.AI_STD3_UI_E2E_SDK_SCENARIOS === '1';
 const configName        = (args.config === 'release') ? 'release' : 'dev';
 
 // ── Logger ────────────────────────────────────────────────────────
@@ -293,16 +304,32 @@ function nowFileTs() {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 }
 
-// ── 单场景执行 ────────────────────────────────────────────────────
+// ── 单场景执行（默认 MCP runner；--use-sdk-scenarios 回退 SDK Agent）──
 async function runScenario({ sc, config, stages, datetime }) {
-  const startedAt  = Date.now();
-  const startedStr = formatLocalTimeShort(new Date(startedAt));
   const uiE2eCfg   = getUiE2eCfg(config);
   const commandsCfg = uiE2eCfg.commands || {};
   const scenarioTimeoutMs = ((config.timeouts && config.timeouts.stages && config.timeouts.stages.ui_e2e_scenario_s) || 600) * 1000;
   const maxFixAttempts = commandsCfg.scenario_max_fix_attempts != null ? commandsCfg.scenario_max_fix_attempts : 2;
 
-  // 日志与截图路径
+  if (!useSdkScenarios) {
+    return runScenarioWithRunner({
+      projectRoot,
+      sc,
+      config,
+      log,
+      datetime,
+      scenarioTimeoutMs,
+      maxFixAttempts,
+    });
+  }
+
+  return runScenarioViaSdkAgent({ sc, config, datetime, scenarioTimeoutMs, maxFixAttempts });
+}
+
+async function runScenarioViaSdkAgent({ sc, config, datetime, scenarioTimeoutMs, maxFixAttempts }) {
+  const startedAt  = Date.now();
+  const startedStr = formatLocalTimeShort(new Date(startedAt));
+
   const scLogDir   = path.join(projectRoot, 'logs', 'stages', 'ui_e2e');
   const featLogDir = path.join(projectRoot, 'logs', 'features', sc.feature_id);
   const snapDir    = path.join(projectRoot, '.pipeline', 'logs', 'snapshots', sc.scenario_id);
@@ -311,9 +338,9 @@ async function runScenario({ sc, config, stages, datetime }) {
   fs.mkdirSync(snapDir,    { recursive: true });
 
   const scLogPath = path.join(scLogDir, `${datetime}-${sc.scenario_id}.log`);
-  fs.writeFileSync(scLogPath, `[ui_e2e] scenario=${sc.scenario_id} started at ${startedStr}\n`, 'utf8');
+  fs.writeFileSync(scLogPath, `[ui_e2e] scenario=${sc.scenario_id} started at ${startedStr} (sdk)\n`, 'utf8');
 
-  log.info('ui_scenario_start', `[ui_e2e] scenario=${sc.scenario_id} feature=${sc.feature_id} 开始执行`, {
+  log.info('ui_scenario_start', `[ui_e2e] scenario=${sc.scenario_id} feature=${sc.feature_id} 开始执行（SDK）`, {
     scenario_id: sc.scenario_id,
     feature_id:  sc.feature_id,
     platform:    sc.platform,
@@ -321,7 +348,6 @@ async function runScenario({ sc, config, stages, datetime }) {
     base_url:    sc.base_url || null,
   });
 
-  // desktop → skipped
   if (sc.platform === 'desktop' || sc.mcp === 'none') {
     log.info('ui_scenario_skipped', `[ui_e2e] scenario=${sc.scenario_id} platform=desktop 跳过（未实现）`, {
       scenario_id: sc.scenario_id,
@@ -362,7 +388,7 @@ async function runScenario({ sc, config, stages, datetime }) {
     }, null, 2) + '\n', 'utf8');
 
     const scenarioResultPath = path.join(projectRoot, '.pipeline', `ui-e2e-scenario-result-${sc.scenario_id}.json`);
-    const cfg   = readConfigJson(projectRoot);
+    const cfg   = readPipelineConfigJson(projectRoot, configName);
     const model = resolvePipelineModel(cfg);
 
     const agentResult = await invokeSdkAgent({
@@ -586,7 +612,7 @@ async function runTriageAgent({ featureId, failedScenarioResults, stages, sessio
     return triage;
   };
 
-  const cfg   = readConfigJson(projectRoot);
+  const cfg   = readPipelineConfigJson(projectRoot, configName);
   const model = resolvePipelineModel(cfg);
 
   const agentResult = await invokeSdkAgent({
@@ -922,12 +948,13 @@ async function main() {
   const failFast            = stagesUiE2eCfg.fail_fast === true;
   const stageTimeoutMs      = ((config.timeouts && config.timeouts.stages && config.timeouts.stages.ui_e2e_s) || 1800) * 1000;
 
-  log.info('stage_start', `ui_e2e stage 场景执行开始，共 ${scenarioQueue.length} 个场景`, {
+  log.info('stage_start', `ui_e2e stage 场景执行开始，共 ${scenarioQueue.length} 个场景（executor=${useSdkScenarios ? 'sdk' : 'runner'}）`, {
     run_id:             runId,
     stage:              'ui_e2e',
     project:            projectRoot,
     scenario_total:     scenarioQueue.length,
     effective_parallel: effectiveParallel,
+    executor:           useSdkScenarios ? 'sdk' : 'runner',
   });
 
   // ── 10. 写 running 状态骨架 ───────────────────────────────────────
@@ -992,9 +1019,24 @@ async function main() {
   stages.pipeline.current_stage = 'ui_e2e';
   writeStagesJson(stages);
 
-  // ── 11. MCP 预检（日志记录） ──────────────────────────────────────
-  log.info('mcp_preflight', '[ui_e2e] Browser MCP 预检', { mcp: 'browser', ok: true, reason: 'assumed_available' });
-  log.info('mcp_preflight', '[ui_e2e] Dart MCP 预检',    { mcp: 'dart',    ok: true, reason: 'assumed_available' });
+  // ── 11. MCP / 驱动预检 ────────────────────────────────────────────
+  const sampleWeb = scenarioQueue.find((s) => s.mcp === 'browser');
+  const browserPf = await preflightBrowser(config, sampleWeb || null);
+  const dartPf    = preflightDart(config);
+  log.info('mcp_preflight', `[ui_e2e] Browser 预检 driver=${browserPf.driver || 'n/a'}`, browserPf);
+  log.info('mcp_preflight', '[ui_e2e] Dart MCP 预检', dartPf);
+  if (!browserPf.ok && !useSdkScenarios) {
+    log.error('stage_failed', `Browser 驱动不可用：${browserPf.reason}`, {
+      stage: 'ui_e2e',
+      exit_code: 1,
+      reason: browserPf.reason,
+    });
+    stages.stages.ui_e2e.status = 'failed';
+    stages.pipeline.updated_at = formatLocalTimeShort();
+    writeStagesJson(stages);
+    releasePidLock();
+    process.exit(1);
+  }
 
   // ── 12. 场景并行执行 ──────────────────────────────────────────────
   let stopFast = false;

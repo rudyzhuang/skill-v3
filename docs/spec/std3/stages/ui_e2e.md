@@ -4,7 +4,9 @@
 
 > 在 **`create-ui-scenarios`** 与 **`deploy`** 均就绪后，按 **`docs/ui-scenarios/<feature_id>.scenarios.yaml`** 中的场景定义，用 **MCP** 驱动各端 UI 验收。
 >
-> **执行器**：`website` / `admin`（`platform=web`）→ **Browser MCP**（`cursor-ide-browser`）；`mobile`（`platform=android|ios`）→ **Dart MCP**（`user-dart`）。**`desktop` 本期不实现**，相关场景记 `skipped`（`desktop_not_implemented`）。
+> **执行器**：`website` / `admin`（`platform=web`）→ **`ui-e2e-runner.cjs`** 确定性驱动（默认 **Playwright** 实现 Browser MCP 同构步骤；无 Playwright 时 **HTTP** 仅支持 `navigate`+`expect`；可选 `AI_STD3_BROWSER_MCP_CMD` 外置 stdio MCP）。`mobile` → Dart MCP（runner 未完整实现时 `skipped`）。**`desktop` 本期不实现**。
+>
+> **过渡**：`--use-sdk-scenarios` 或 `AI_STD3_UI_E2E_SDK_SCENARIOS=1` 回退 SDK Agent + `ui-e2e-run-scenario.md`。**分诊**始终用 SDK + `ui-e2e-triage.md`。
 >
 > **无独立 smoke stage**：HTTP 冒烟已内联于 [codegen](codegen.md) / [deploy](deploy.md)；本 stage 仅做 **UI 交互**验收。
 >
@@ -26,7 +28,21 @@
 
 ```bash
 node ai-std3/scripts/stages/ui-e2e.cjs --project=<业务项目根绝对路径> [--feature=<id>] [--scenario=<id>]
+# 回退 SDK 跑场景（分诊不受影响）
+node ai-std3/scripts/stages/ui-e2e.cjs --project=<路径> --use-sdk-scenarios
 ```
+
+### Runner 驱动（web）
+
+| 驱动 | 条件 | 能力 |
+| --- | --- | --- |
+| `playwright` | 已安装 `playwright` 包（`npm i playwright`） | 全步骤 + 截图 |
+| `http` | 默认（无 playwright） | 仅 `navigate` / `wait` + 脚本 `expect[]` |
+| `mcp` | `AI_STD3_BROWSER_MCP_CMD='{"command":"...","args":[]}'` | stdio 桥接（步骤映射扩展中） |
+
+环境变量：`UI_E2E_BROWSER_DRIVER`（强制驱动）、`UI_E2E_TEST_USER` / `UI_E2E_TEST_PASSWORD`（占位符）。
+
+自测：`node ai-std3/scripts/self-test-ui-e2e-runner.cjs`
 
 ## 上游门闸
 

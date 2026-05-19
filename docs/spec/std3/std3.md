@@ -141,7 +141,9 @@ setup
 | **调用封装** | `libs/invoke-sdk-agent.cjs`：`Agent.create` + `send` + 可选 `artifactPath`（Ajv 校验 JSON 产出） |
 | **模型** | `PIPELINE_MODEL`（env）优先 → `docs/config.*.json` → `pipeline.model`；默认 **`composer-2`** |
 | **Skill 路径** | `CURSOR_SKILLS_ROOT`（env，可选）→ 默认 `~/.cursor/skills` |
-| **已废弃** | ~~`AI_STD3_AGENT_BIN`~~（CLI 子进程派发）；deploy / ui_e2e 分诊、pipeline-recovery、场景执行均已改 SDK |
+| **已废弃** | ~~`AI_STD3_AGENT_BIN`~~（CLI 子进程派发） |
+| **ui_e2e 场景执行** | 默认 **`libs/ui-e2e-runner.cjs`**（确定性步骤 + `expect[]`）；驱动链：`playwright` → `http`（仅 navigate）→ 可选 `AI_STD3_BROWSER_MCP_CMD` stdio；`--use-sdk-scenarios` 回退 SDK |
+| **ui_e2e 分诊** | 仍用 `invoke-sdk-agent.cjs` + `ui-e2e-triage.md` |
 
 `inputs/config.env` 必填项（`verify-inputs.cjs`）：`CURSOR_API_KEY`、`CLOUD_PROVIDER` 及对应云密钥；`CURSOR_SKILLS_ROOT` / `PIPELINE_MODEL` 可空（有默认/警告）。
 
@@ -667,7 +669,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | [code-review-agent.md](prompts/code-review-agent.md) | code-review | 只读评审 → `code-review-<feature_id>.json` |
 | [deploy-triage.md](prompts/deploy-triage.md) | deploy（失败分诊） | → `deploy-triage.json` |
 | [ui-e2e-triage.md](prompts/ui-e2e-triage.md) | ui_e2e（失败分诊） | → `ui-e2e-triage-<feature_id>.json` |
-| [ui-e2e-run-scenario.md](prompts/ui-e2e-run-scenario.md) | ui_e2e（可选） | YAML 步骤 → MCP 建议 |
+| [ui-e2e-run-scenario.md](prompts/ui-e2e-run-scenario.md) | ui_e2e（`--use-sdk-scenarios` 时） | Agent 辅助逐步 MCP；默认由 runner 直驱 |
 | [report-author.md](prompts/report-author.md) | report（有失败时） | 人话「失败与原因」「建议的下一步」 |
 | [pipeline-recovery.md](prompts/pipeline-recovery.md) | run-pipeline（stage 失败） | 分析日志 → 修 skill/项目 → 自评 → commit+push → `.pipeline/pipeline-recovery-<stage>.json` |
 
