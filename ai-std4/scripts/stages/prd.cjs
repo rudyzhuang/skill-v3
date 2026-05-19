@@ -27,7 +27,6 @@ const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort, datetimeFromRunId } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
-const { syncDeployConfigFiles } = require('../libs/sync-deploy-by-targets.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -1166,30 +1165,6 @@ async function main() {
   }
 
   const fHash = featuresHash(features);
-
-  try {
-    const deploySync = syncDeployConfigFiles({
-      projectRoot,
-      clientTargets,
-      reqPath: reqMdPath,
-      log,
-    });
-    if (deploySync.changed) {
-      log.info('file_updated', 'prd 完成前已按 client_targets 同步 deploy 配置', {
-        client_target: 'backend',
-        path:          deploySync.configDevPath,
-        fields_written: ['deploy.services', 'smoke.checks', 'ui_e2e.web', 'deploy.domain'],
-        deployable:        deploySync.deployable,
-        services_removed:  deploySync.servicesRemoved,
-        services_added:    deploySync.servicesAdded,
-      });
-    }
-  } catch (err) {
-    log.warn('validation_fail', `deploy 配置同步失败（不阻断 prd）: ${err.message}`, {
-      reason: err.message,
-    });
-  }
-
   const checks = ['docs/prd-spec.md', ...clientTargets.map(ct => `docs/${resolveClientTarget(ct).file}`), 'docs/config.dev.json'];
 
   log.info('validation_pass', '产出校验全部通过', {
