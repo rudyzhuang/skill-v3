@@ -143,6 +143,7 @@ assert(
   'clear workers on skill codegen fix'
 );
 assert(touchesCodegenSkillPath(['ai-std4/scripts/stages/codegen.cjs']), 'touchesCodegenSkillPath');
+assert(touchesCodegenSkillPath(['ai-std4/scripts/run-pipeline.cjs']), 'touches run-pipeline orchestration');
 
 // 6b. reset codegen SDK failures
 const stagesSdk = {

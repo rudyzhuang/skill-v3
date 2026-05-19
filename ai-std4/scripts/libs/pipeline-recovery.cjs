@@ -179,6 +179,7 @@ function touchesCodegenSkillPath(filesChanged) {
   return filesChanged.some(f => {
     const n = String(f).replace(/\\/g, '/');
     return /ai-std4\/scripts\/stages\/(codegen|create-ui-scenarios)\.cjs/.test(n) ||
+      /ai-std4\/scripts\/run-pipeline\.cjs/.test(n) ||
       /ai-std4\/scripts\/libs\/pipeline-recovery/.test(n);
   });
 }

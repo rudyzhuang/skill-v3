@@ -249,6 +249,42 @@ function runAsync(scriptFile, argv = []) {
   });
 }
 
+/**
+ * recovery 后在子进程重跑复合 step，避免父进程 require 缓存旧版 run-pipeline.cjs
+ *（例如 build_phase 轮询间隔修复后须重新加载编排逻辑）。
+ */
+function spawnCompositeStepSubprocess(step) {
+  const scriptPath = path.join(SCRIPTS_DIR, 'run-pipeline.cjs');
+  const argv = [
+    `--project=${projectRoot}`,
+    `--run-id=${runId}`,
+    `--from-stage=${step}`,
+    `--to-stage=${step}`,
+    '--no-dash',
+    '--no-teardown',
+  ];
+  if (forceRerun && forceRerun === step) argv.push(`--force-rerun=${forceRerun}`);
+
+  log.info('recovery_step_subprocess', `复合 step ${step} 在子进程重跑以加载最新编排脚本`, {
+    stage:  step,
+    script: scriptPath,
+    argv:   argv.join(' '),
+  });
+
+  const result = spawnSync(process.execPath, [scriptPath, ...argv], {
+    stdio: 'inherit',
+    env:   process.env,
+    cwd:   projectRoot,
+  });
+  if (result.error) {
+    log.error('stage_failed', `无法启动 recovery 子进程 ${step}: ${result.error.message}`, {
+      stage: step, error: result.error.message, exit_code: 1,
+    });
+    return 1;
+  }
+  return result.status !== null && result.status !== undefined ? result.status : 1;
+}
+
 // ── design_phase 复合编排（§3.1）─────────────────────────────────
 /**
  * design + design-review 复合阶段：
@@ -581,7 +617,11 @@ async function main() {
         log,
         readStagesJson,
         writeStagesJson,
-        rerunStep: () => executeStep(step),
+        rerunStep: () => (
+          step === 'build_phase' || step === 'design_phase'
+            ? spawnCompositeStepSubprocess(step)
+            : executeStep(step)
+        ),
       });
       lastExitCode = recoveryResult.exitCode;
       if (recoveryResult.stopPipeline) {
