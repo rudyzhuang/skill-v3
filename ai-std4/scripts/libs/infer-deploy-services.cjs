@@ -12,11 +12,106 @@ const path = require('path');
 const DEPLOYABLE_TYPES = new Set(['pages', 'workers']);
 const RESOURCE_TYPES   = new Set(['d1', 'r2', 'kv', 'queues', 'durable_objects', 'dns']);
 
-const R2_SIGNALS = /\b(r2|对象存储|文件上传|图片|视频|upload|object storage|bucket)\b/i;
-const KV_SIGNALS = /\b(kv|缓存|cache|session store|限流|rate limit)\b/i;
-const D1_SIGNALS = /\b(d1|sqlite|持久化|database|关系型)\b/i;
-const QUEUE_SIGNALS = /\b(queue|队列|异步任务|consumer|job)\b/i;
-const DO_SIGNALS    = /\b(durable object|websocket|实时|协同|房间)\b/i;
+const R2_SIGNALS = /\b(r2|upload|object storage|bucket)\b|对象存储|文件上传|图片|视频/i;
+const KV_SIGNALS = /\b(kv|cache|session store|rate limit)\b|缓存|限流/i;
+const D1_SIGNALS = /\b(d1|sqlite|database)\b|持久化|关系型/i;
+const QUEUE_SIGNALS = /\b(queue|queues|consumer|job)\b|队列|异步任务/i;
+const DO_SIGNALS    = /\b(durable object|websocket)\b|实时|协同|房间/i;
+
+const KNOWN_KINDS = new Set([
+  ...DEPLOYABLE_TYPES,
+  ...RESOURCE_TYPES,
+  'worker',
+]);
+
+function normalizeResourceType(type) {
+  const t = String(type || '').toLowerCase().replace(/^cloudflare\s+/, '').trim();
+  if (t === 'worker') return 'workers';
+  return t;
+}
+
+function hasBackendTarget(clientTargets) {
+  return (clientTargets || []).some(ct => {
+    const n = String(ct).toLowerCase();
+    return n === 'backend' || n === 'api' || n === 'server';
+  });
+}
+
+/**
+ * 对比 Agent 写的 deploy.resources[] 与启发式期望；仅 warn，补全由 merge 完成。
+ * @returns {{ warnings: string[], gaps: object[] }}
+ */
+function auditDeployResources({ prdBackend, clientTargets, allPrdDocs }) {
+  const warnings = [];
+  const gaps = [];
+
+  if (!hasBackendTarget(clientTargets)) {
+    return { warnings, gaps };
+  }
+
+  const dep = prdBackend && prdBackend.deploy;
+  const list = dep && (dep.resources || dep.cloud_resources);
+
+  if (!dep) {
+    const msg = 'prd-backend.json 缺少 deploy 节；infer-deploy-services 将按 features/tech_stack 自动补全（不阻断 prd）';
+    warnings.push(msg);
+    gaps.push({ kind: '(deploy)', reason: 'missing deploy section' });
+    return { warnings, gaps };
+  }
+
+  if (!Array.isArray(list) || list.length === 0) {
+    warnings.push(
+      'deploy.resources[] 为空或未填写；将根据 db_tables、acceptance、tech_stack 启发式自动补全（不阻断 prd）'
+    );
+  } else {
+    for (const r of list) {
+      if (!r || !r.kind) {
+        warnings.push('deploy.resources[] 存在缺少 kind 的条目，已忽略该条');
+        continue;
+      }
+      const k = normalizeResourceType(r.kind);
+      if (!KNOWN_KINDS.has(k)) {
+        warnings.push(
+          `deploy.resources[] 含未知 kind="${r.kind}"（归一化后 ${k}），infer 将跳过；请使用 catalog 类型：d1|r2|kv|queues|durable_objects|workers|pages`
+        );
+      }
+    }
+  }
+
+  const hasApiRuntime = dep.api && typeof dep.api === 'object' && !!dep.api.runtime;
+  const hasServiceType = !!dep.service_type;
+  if (!hasApiRuntime && !hasServiceType) {
+    warnings.push(
+      'deploy.api.runtime 与 deploy.service_type 均未填写；infer 将默认 workers（不阻断 prd）'
+    );
+  }
+
+  const text = collectTextSignals(prdBackend, allPrdDocs || []);
+  const explicit = explicitResources(prdBackend);
+  const explicitTypes = new Set(explicit.map(e => normalizeResourceType(e.type)));
+  const heuristic = heuristicResources(text, prdBackend);
+
+  for (const h of heuristic) {
+    const t = normalizeResourceType(h.type);
+    if (explicitTypes.has(t)) continue;
+    const msg =
+      `deploy.resources[] 未声明 kind=${t}（role=${h.role}，依据：${h.reason}）；已/将自动补全至 config.dev.json（不阻断 prd）`;
+    warnings.push(msg);
+    gaps.push({ kind: t, role: h.role, reason: h.reason, status: h.status });
+  }
+
+  if (!explicitTypes.has('workers')) {
+    const heurHasWorkers = heuristic.some(h => normalizeResourceType(h.type) === 'workers');
+    if (!heurHasWorkers) {
+      const msg =
+        'deploy.resources[] 未声明 workers，且 deploy.api 未覆盖 runtime；将按 client_targets 自动补全 api/workers（不阻断 prd）';
+      warnings.push(msg);
+      gaps.push({ kind: 'workers', role: 'api', reason: 'client_targets includes backend' });
+    }
+  }
+
+  return { warnings, gaps };
+}
 
 function slugify(name) {
   return String(name || 'project')
@@ -81,7 +176,7 @@ function explicitResources(prdBackend) {
     if (!r || !r.kind) continue;
     out.push({
       role:   r.role || r.kind,
-      type:   String(r.kind).toLowerCase(),
+      type:   normalizeResourceType(r.kind),
       reason: r.reason || 'prd.deploy.resources',
       status: r.status === 'optional' ? 'optional' : 'active',
     });
@@ -90,7 +185,7 @@ function explicitResources(prdBackend) {
   if (dep.api && typeof dep.api === 'object') {
     out.push({
       role:   'api',
-      type:   (dep.api.runtime || dep.service_type || 'workers').toLowerCase().replace(/^cloudflare\s+/, ''),
+      type:   normalizeResourceType(dep.api.runtime || dep.service_type || 'workers'),
       reason: 'prd.deploy.api',
       status: 'active',
     });
@@ -325,6 +420,12 @@ function applyDeployInference({ projectRoot, skillsRoot, clientTargets, log }) {
     '';
 
   const text = collectTextSignals(prdBackend, allPrdDocs);
+
+  const audit = auditDeployResources({ prdBackend, clientTargets, allPrdDocs });
+  for (const w of audit.warnings) {
+    if (!warnings.includes(w)) warnings.push(w);
+  }
+
   const resourceSpecs = [
     ...explicitResources(prdBackend),
     ...heuristicResources(text, prdBackend),
@@ -425,7 +526,17 @@ function applyDeployInference({ projectRoot, skillsRoot, clientTargets, log }) {
     });
   }
 
-  return { configPath, added, updated, warnings, services };
+  return {
+    configPath,
+    added,
+    updated,
+    warnings,
+    services,
+    resource_audit: {
+      gap_count: audit.gaps.length,
+      gaps: audit.gaps,
+    },
+  };
 }
 
 function isResourceService(service) {
@@ -468,9 +579,12 @@ function persistServiceResourceConfig(projectRoot, configName, serviceName, patc
 
 module.exports = {
   applyDeployInference,
+  auditDeployResources,
+  normalizeResourceType,
   slugify,
   DEPLOYABLE_TYPES,
   RESOURCE_TYPES,
+  KNOWN_KINDS,
   isResourceService,
   shouldProvisionResource,
   persistServiceResourceConfig,

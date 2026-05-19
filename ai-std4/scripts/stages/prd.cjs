@@ -1131,6 +1131,12 @@ async function main() {
     inferResult.warnings.forEach(w => {
       log.warn('deploy_infer', w, { warning: w });
     });
+    if (inferResult.resource_audit && inferResult.resource_audit.gap_count > 0) {
+      log.warn('deploy_resources_audit', 'prd deploy.resources[] 与启发式不一致，已 warn 并自动补全', {
+        gap_count: inferResult.resource_audit.gap_count,
+        gaps:      inferResult.resource_audit.gaps,
+      });
+    }
   } catch (err) {
     const dms = Date.now() - startedAt.getTime();
     stagesObj = readStagesJson();

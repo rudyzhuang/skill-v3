@@ -166,8 +166,9 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 
 - 读取 `prd-spec`、各 `prd-*.json`（权重 backend）、`docs/templates/deploy-services.catalog.json`。
 - 规则 + `deploy.resources[]` 显式声明 → merge `docs/config.dev.json` → `deploy.services[]`（含 `requires_artifact`、`status: draft`、 `resource_config`）。
+- **`auditDeployResources`**：对比 Agent 写的 `deploy.resources[]` 与启发式期望；缺项 → **`deploy_infer` warn**（`resource_audit.gaps`），并由同脚本 **自动补全** config（**不阻断 prd**）。
 - 云资源写入 config 为 **draft**；**prd-review 通过**后激活；**deploy** 先 provision `d1`/`r2`/`kv`/`queues`/`durable_objects` 再部署 `workers`/`pages`（见 [deploy](deploy.md)）。
-- 失败 → prd 退出码 **1**。
+- 推断脚本异常 → prd 退出码 **1**（仅解析/写入失败；resources 审计 warn 不算失败）。
 
 **3c. prd-review 通过后激活 deploy 服务**
 

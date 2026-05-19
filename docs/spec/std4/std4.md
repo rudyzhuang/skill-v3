@@ -367,7 +367,7 @@ setup
 | 层级 | 文件 | 说明 |
 | --- | --- | --- |
 | PRD 语义 | `docs/prd-backend.json` → `deploy.api` / `deploy.resources[]` | Agent-B 声明 Workers/D1/R2 等需求（无密钥） |
-| 推断脚本 | `libs/infer-deploy-services.cjs` | prd 步骤 **3b**：规则 + catalog → merge `docs/config.dev.json` |
+| 推断脚本 | `libs/infer-deploy-services.cjs` | prd 步骤 **3b**：规则 + catalog → merge `docs/config.dev.json`；`auditDeployResources` 对 Agent 漏写的 `deploy.resources[]` **warn + 自动补全**（不阻断） |
 | 运行真源 | `deploy.services[]` | 每条含 `type`、`role`、`requires_artifact`、`status`、`resource_config` |
 | Catalog | `docs/templates/deploy-services.catalog.json` | provider 下可用 `id`（`pages`/`workers`/`d1`/`r2`…） |
 
