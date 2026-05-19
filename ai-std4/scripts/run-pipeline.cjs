@@ -325,6 +325,13 @@ async function runDesignPhase() {
   return 3;
 }
 
+/** build_phase tick 轮询间隔（codegen --tick 仅收割 worker；在途 Agent 需等待） */
+function resolveBuildPhasePollMs() {
+  const n = Number(process.env.PIPELINE_BUILD_PHASE_POLL_MS);
+  if (Number.isFinite(n) && n >= 500) return Math.floor(n);
+  return 5000;
+}
+
 // ── build_phase 复合编排（§3.2）──────────────────────────────────
 /**
  * codegen + create-ui-scenarios 并行双 track：
@@ -402,6 +409,10 @@ async function runBuildPhase() {
       if (cgStatus === 'failed'  || uisStatus === 'failed')  return 4;
       return 0;
     }
+
+    // 避免无间隔空转：单轮 tick ~数 ms，500 次仅十余秒即 exit 3，无法等待在途 codegen worker
+    const pollMs = resolveBuildPhasePollMs();
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 
   log.error('stage_failed', `build_phase tick 循环超出最大迭代次数（${MAX_ITER}）`, {
