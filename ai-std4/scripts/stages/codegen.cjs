@@ -84,7 +84,7 @@ function buildWorkerEnv(extra = {}) {
   }, extra);
 }
 
-/** 依赖 feature 已 failed 时，将下游标为 blocked，避免 build_phase 无限 tick */
+/** 依赖 feature 已 failed/blocked 时，将下游标为 blocked，避免 build_phase 无限 tick */
 function propagateBlockedByFailedDeps(features, targetIds, root) {
   let changed = true;
   while (changed) {
@@ -101,13 +101,13 @@ function propagateBlockedByFailedDeps(features, targetIds, root) {
         deps = dd.dependencies || [];
       } catch (_) { continue; }
 
-      const failedDep = deps.find(depId => {
+      const blockingDep = deps.find(depId => {
         const dep = features[depId];
-        return dep && dep.status === 'failed';
+        return dep && (dep.status === 'failed' || dep.status === 'blocked');
       });
-      if (failedDep) {
+      if (blockingDep) {
         feat.status = 'blocked';
-        feat.error  = feat.error || `dependency_failed:${failedDep}`;
+        feat.error  = feat.error || `dependency_failed:${blockingDep}`;
         changed = true;
       }
     }
@@ -947,9 +947,9 @@ async function main() {
   ].filter(Boolean).join('\\n');
   const finalPrompt = promptContent + '\\n\\n' + ctx;
 
-  // @cursor/sdk（CURSOR_API_KEY，见 inputs/config.env）
+  // @cursor/sdk（CURSOR_API_KEY，见 inputs/config.env；绝对路径避免 worktree cwd 下解析失败）
   try {
-    const { Agent } = require('@cursor/sdk');
+    const { Agent } = require(path.join(skillsRoot, 'ai-std4', 'node_modules', '@cursor', 'sdk'));
     const { getCursorApiKey, resolvePipelineModel, loadProjectEnv } = require(path.join(skillsRoot, 'ai-std4', 'scripts', 'libs', 'pipeline-config.cjs'));
     loadProjectEnv(projectRoot);
     const apiKey = getCursorApiKey();
