@@ -225,8 +225,8 @@ function parseClientTargetsFromSpec(specContent) {
     }
     if (inSection && /^##\s+/.test(trimmed)) break;
     if (!inSection) continue;
-    // 匹配 "- target" 或 "- target — description" 格式（要求后面是空格、em dash 或行尾）
-    const m = trimmed.match(/^-\s+([a-zA-Z][a-zA-Z0-9_-]*)(?:\s|$)/);
+    // 匹配 "- target" / "- `target`" / "- target — …"（Agent 常用行内代码包裹端名）
+    const m = trimmed.match(/^-\s+`?([a-zA-Z][a-zA-Z0-9_-]*)`?(?:\s|$|[—\-–,.;:])/);
     if (m) targets.push(m[1].toLowerCase());
   }
   return [...new Set(targets)];
