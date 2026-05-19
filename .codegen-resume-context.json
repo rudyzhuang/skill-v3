@@ -1,0 +1,31 @@
+{
+  "feature_id": "AUTH-USER-001",
+  "attempt_index": 2,
+  "previous_hang_kind": "fs_idle",
+  "snapshot_commit": null,
+  "base_commit": "7892f413081fca842ca328274473c8ca4660fde7",
+  "file_signatures": [],
+  "progress": {
+    "acceptance_done": [],
+    "acceptance_pending": [],
+    "files_touched": [],
+    "last_phase": null,
+    "last_command": null
+  },
+  "acceptance_full": [
+    "GET /api/users 在有效管理员 Session 下返回 200，items 含 id、email、role、status、created_at，无 password_hash；operator 或未登录访问分别返回 403/401",
+    "POST /api/users 凭据合法且邮箱未占用时返回 201 与用户摘要；重复邮箱返回 409；响应体与日志不含明文 password；新用户可使用 POST /api/auth/login 登录",
+    "PATCH /api/users/:id 可更新非 bootstrap 用户的 status 或 role；对 is_bootstrap=1 的用户禁止 status=disabled 或 role=operator，违规返回 400/403；任意响应不含明文密码",
+    "admin 登录且 role 为 admin 或 super_admin 时可访问 /users，列表展示邮箱、角色、状态、创建时间；创建用户成功后列表刷新可见新用户",
+    "role 为 operator 的用户访问 /users 时前端 AdminRoute 拦截且 GET /api/users 返回 403；界面与 API 均不展示 config.env 中默认管理员的明文密码",
+    "不提供用户删除 API；环境引导的默认管理员（is_bootstrap）不可通过管理端界面删除或禁用"
+  ],
+  "do_not_overwrite": [],
+  "constraints": [
+    "仅对 do_not_overwrite[] 列出的文件做增量 edit；禁止清空或重写",
+    "禁止删除/重命名 do_not_overwrite[] 中任何文件",
+    "禁止 git reset --hard / git checkout <path> / rm 等抹除操作",
+    "仅完成 progress.acceptance_pending[]；progress.acceptance_done[] 不重复实现",
+    "心跳间隔必须 <= heartbeat_interval_s 秒；外部命令前后各打一次心跳"
+  ]
+}
