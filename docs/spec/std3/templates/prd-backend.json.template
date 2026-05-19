@@ -14,7 +14,15 @@
     "db_tables": []
     }
 ],
-"deploy": { "platform": "", "domain": "", "service_type": "" },
+"deploy": {
+  "platform": "",
+  "domain": "",
+  "service_type": "workers",
+  "api": { "runtime": "workers", "domain": "" },
+  "resources": [
+    { "role": "db", "kind": "d1", "reason": "", "status": "active" }
+  ]
+},
 "auth": { "type": "none", "notes": "" },
 "constraints": []
 }

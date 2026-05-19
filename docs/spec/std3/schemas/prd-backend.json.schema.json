@@ -37,7 +37,28 @@
       "properties": {
         "platform":     { "type": "string" },
         "domain":       { "type": "string" },
-        "service_type": { "type": "string" }
+        "service_type": { "type": "string" },
+        "notes":        { "type": "string" },
+        "api": {
+          "type": "object",
+          "properties": {
+            "runtime": { "type": "string" },
+            "domain":  { "type": "string" }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "kind"],
+            "properties": {
+              "role":   { "type": "string" },
+              "kind":   { "type": "string" },
+              "reason": { "type": "string" },
+              "status": { "type": "string", "enum": ["active", "optional"] }
+            }
+          }
+        }
       }
     }
   }

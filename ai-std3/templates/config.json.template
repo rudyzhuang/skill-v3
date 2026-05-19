@@ -83,20 +83,63 @@
 "deploy": {
     "enabled": false,
     "provider": "cloudflare",
+    "provision_draft_resources": true,
     "services": [
     {
         "name": "website",
         "client_target": "website",
         "type": "pages",
+        "requires_artifact": true,
+        "status": "draft",
         "domain": "",
         "url": ""
     },
     {
-        "name": "backend",
+        "name": "api",
+        "role": "api",
         "client_target": "backend",
         "type": "workers",
+        "requires_artifact": true,
+        "status": "draft",
         "domain": "",
-        "url": ""
+        "url": "",
+        "resource_config": { "script_name": "" }
+    },
+    {
+        "name": "db",
+        "role": "db",
+        "client_target": "backend",
+        "type": "d1",
+        "requires_artifact": false,
+        "status": "draft",
+        "resource_config": { "database_name": "", "binding_name": "DB" }
+    },
+    {
+        "name": "storage",
+        "role": "storage",
+        "client_target": "backend",
+        "type": "r2",
+        "requires_artifact": false,
+        "status": "draft",
+        "resource_config": { "bucket_name": "", "binding_name": "R2_BUCKET" }
+    },
+    {
+        "name": "queue",
+        "role": "queue",
+        "client_target": "backend",
+        "type": "queues",
+        "requires_artifact": false,
+        "status": "draft",
+        "resource_config": { "queue_name": "", "binding_name": "QUEUE", "consumer_enabled": false }
+    },
+    {
+        "name": "realtime",
+        "role": "realtime",
+        "client_target": "backend",
+        "type": "durable_objects",
+        "requires_artifact": false,
+        "status": "draft",
+        "resource_config": { "class_name": "", "binding_name": "DO", "migrations_tag": "v1" }
     }
     ]
 },

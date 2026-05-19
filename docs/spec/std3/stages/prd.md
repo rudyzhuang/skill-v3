@@ -158,9 +158,22 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
     }
 ```
 - 同时产出 **`<业务项目根绝对路径>/docs/feature_list-<client_target>.md`**（Markdown 表，每行一个 feature_id，含名称、优先级、阶段）。
-- 若该端为后端（backend/api），同时解析域名/部署要求，以 **merge（深合并，不删除已有字段）** 方式更新 `<业务项目根绝对路径>/docs/config.dev.json` 的 `domain`、`deploy.services[]`、`smoke.checks[]` 初稿；**禁止**修改 `CLOUD_PROVIDER` 及凭证相关字段（由 setup 写入）。
+- 若该端为 **backend/api**：在 `prd-backend.json` 的 `deploy.api` / `deploy.resources[]` 中声明云资源需求（Workers/D1/R2 等，**不含密钥**）；**不**直接维护完整 `config.dev.json`（由步骤 3b 推断）。
 - 各端 Agent-B 超时同受 `config.dev.json` 的 `timeouts.stages.prd_s` 约束；单端超时不影响其他端，该端记 `agent_failed`，退出码 **4**（全部端完成后汇总失败）。
-- 所有 Agent-B 全部完成后，脚本继续执行步骤 4。
+- 所有 Agent-B 全部完成后，执行 **步骤 3b**。
+
+**3b. `infer-deploy-services`（`libs/infer-deploy-services.cjs`）**
+
+- 读取 `prd-spec`、各 `prd-*.json`（权重 backend）、`docs/templates/deploy-services.catalog.json`。
+- 规则 + `deploy.resources[]` 显式声明 → merge `docs/config.dev.json` → `deploy.services[]`（含 `requires_artifact`、`status: draft`、 `resource_config`）。
+- 云资源写入 config 为 **draft**；**prd-review 通过**后激活；**deploy** 先 provision `d1`/`r2`/`kv`/`queues`/`durable_objects` 再部署 `workers`/`pages`（见 [deploy](deploy.md)）。
+- 失败 → prd 退出码 **1**。
+
+**3c. prd-review 通过后激活 deploy 服务**
+
+- `prd-review.cjs` 在 `decision=passed` 时调用 `activate-deploy-services.cjs`：`deploy.services[].status` 由 `draft` → `active`。
+
+4. **`prd-validate`（validate + write）**（原步骤 4，编号顺延）：
 
 > **稳定性保障（防止每次 Agent 输出漂移）**：
 >
@@ -171,7 +184,9 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 > | **Schema 强校验 + 重试** | Agent-B | 每个端的 prd.json 产出后立即用 Ajv 校验 schema（必填字段、类型、`features[]` 非空）；校验失败则带错误提示**重试该端 Agent，最多 2 次**；仍失败退出码 **4** |
 > | **Prompt 输出格式锁定** | Agent-A / Agent-B | 提示词模板末尾附 `## 输出约束` 节，逐字要求输出格式（文件路径、必填节名称、JSON 字段名），Agent 不得自行增删顶层结构 |
 
-4. **`prd-validate.cjs`（validate + write）**：
+（下列为 validate 步骤明细，编排上紧接 3b。）
+
+**`prd-validate.cjs`（validate + write）**：
 - 校验 `docs/prd-spec.md` 存在、含 `## 客户端目标` H2、每个 `client_target` 对应的 `docs/prd-<client_target>.json` 与 `docs/feature_list-<client_target>.md` 存在。
 - 校验 `docs/config.dev.json` 存在且合法 JSON，无明文密钥（forbidden key 扫描）。
 - **聚合 features → 索引真源**：遍历所有 `docs/prd-<client_target>.json` 的 `features[]`，按 `feature_id` **去重合并**写入 **`stages.prd.outputs.features[]`**。每条记录字段与合并规则：

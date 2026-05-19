@@ -1071,6 +1071,77 @@
           }
         },
         {
+          "id": "kv",
+          "display_name": "Cloudflare KV",
+          "categories": [
+            "database"
+          ],
+          "resource_type": "kv_namespace",
+          "api_reference_url": "https://developers.cloudflare.com/kv/",
+          "recommended_for": [
+            "cache",
+            "session",
+            "rate_limit"
+          ],
+          "config_defaults": {
+            "runtime": "kv",
+            "healthcheck_path": "/",
+            "create_if_missing": true,
+            "resource_config": {
+              "namespace_title": "",
+              "binding_name": "KV"
+            }
+          }
+        },
+        {
+          "id": "queues",
+          "display_name": "Cloudflare Queues",
+          "categories": [
+            "queue"
+          ],
+          "resource_type": "queue",
+          "api_reference_url": "https://developers.cloudflare.com/queues/",
+          "recommended_for": [
+            "async_jobs",
+            "background_tasks"
+          ],
+          "config_defaults": {
+            "runtime": "queue",
+            "healthcheck_path": "/",
+            "create_if_missing": true,
+            "resource_config": {
+              "queue_name": "",
+              "binding_name": "QUEUE",
+              "consumer_enabled": false
+            }
+          }
+        },
+        {
+          "id": "durable_objects",
+          "display_name": "Cloudflare Durable Objects",
+          "categories": [
+            "realtime"
+          ],
+          "resource_type": "durable_object",
+          "api_reference_url": "https://developers.cloudflare.com/durable-objects/",
+          "recommended_for": [
+            "websocket",
+            "realtime",
+            "coordination"
+          ],
+          "config_defaults": {
+            "runtime": "durable_object",
+            "healthcheck_path": "/",
+            "create_if_missing": false,
+            "resource_config": {
+              "class_name": "",
+              "binding_name": "",
+              "migrations_tag": "v1",
+              "script_name": ""
+            }
+          }
+        },
+        {
           "id": "dns",
           "display_name": "Cloudflare DNS",
           "categories": [

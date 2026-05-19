@@ -362,6 +362,17 @@ setup
 
 `run-pipeline.cjs` 支持 `--from-stage=<stage> --to-stage=<stage>` 续跑，`--force-rerun=<stage>` 强制重跑单个 stage。
 
+#### 部署服务推断（prd → config，替代 v2 `deployment_plan.json`）
+
+| 层级 | 文件 | 说明 |
+| --- | --- | --- |
+| PRD 语义 | `docs/prd-backend.json` → `deploy.api` / `deploy.resources[]` | Agent-B 声明 Workers/D1/R2 等需求（无密钥） |
+| 推断脚本 | `libs/infer-deploy-services.cjs` | prd 步骤 **3b**：规则 + catalog → merge `docs/config.dev.json` |
+| 运行真源 | `deploy.services[]` | 每条含 `type`、`role`、`requires_artifact`、`status`、`resource_config` |
+| Catalog | `docs/templates/deploy-services.catalog.json` | provider 下可用 `id`（`pages`/`workers`/`d1`/`r2`…） |
+
+**两类 service**：`requires_artifact=true`（`pages`/`workers`，由 **deploy** 部署）；`requires_artifact=false`（`d1`/`r2`/`kv`/`queues`/`durable_objects`，deploy 先 provision 再写 **wrangler.toml** bindings）。**queues** 走 CF Queues API；**durable_objects** 以 wrangler **migrations + DO binding** 为主（随 Worker 部署生效）。**prd-review 通过**后 `draft→active`；dev 默认 `provision_draft_resources=true`。
+
 **自动启动看板**：`run-pipeline.cjs` 在启动流水线的同时，自动以 `spawn`（detached）方式在独立终端拉起 `run-dash.cjs`，默认传入当前 `--project` 路径：
 
 ```

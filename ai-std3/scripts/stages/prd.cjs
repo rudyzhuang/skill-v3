@@ -12,6 +12,7 @@
  *   5. Agent-A（prd-spec-author.md）→ 生成 docs/prd-spec.md
  *   6. 解析 client_targets，检测 stop.signal → exit 5
  *   7. Agent-B 并发（prd-client-author.md × N 端）→ prd-<client_target>.json + feature_list-*.md
+ *   7b. infer-deploy-services → merge docs/config.dev.json deploy.services[]
  *   8. prd-validate：校验产出、聚合 features[] 索引真源、写完成态
  *   → exit 0 成功 / exit 1 门闸 / exit 3 超时 / exit 4 质量门失败 / exit 5 stop.signal
  *
@@ -27,6 +28,7 @@ const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort, datetimeFromRunId } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
+const { applyDeployInference } = require('../libs/infer-deploy-services.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -1115,6 +1117,30 @@ async function main() {
       duration_ms: dms,
     });
     process.exit(exitCode);
+  }
+
+  // 7b. 部署服务推断 → config.dev.json
+  try {
+    const inferResult = applyDeployInference({
+      projectRoot,
+      skillsRoot,
+      clientTargets,
+      log,
+    });
+    inferResult.warnings.forEach(w => {
+      log.warn('deploy_infer', w, { warning: w });
+    });
+  } catch (err) {
+    const dms = Date.now() - startedAt.getTime();
+    stagesObj = readStagesJson();
+    stagesObj.stages.prd.status = 'failed';
+    stagesObj.pipeline.updated_at = formatLocalTimeShort();
+    writeStagesJson(stagesObj);
+    log.error('stage_failed', `deploy 服务推断失败: ${err.message}`, {
+      stage: 'prd', step: 'infer-deploy-services', exit_code: 1,
+      reason: err.message, duration_ms: dms,
+    });
+    process.exit(1);
   }
 
   // 8. prd-validate：校验产出 + 聚合 features

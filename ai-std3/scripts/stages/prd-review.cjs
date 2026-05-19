@@ -26,6 +26,7 @@ const crypto = require('crypto');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
+const { activateDeployServicesOnPrdReviewPass } = require('../libs/activate-deploy-services.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -1282,6 +1283,14 @@ async function main() {
   });
 
   if (overallDecision === 'passed') {
+    try {
+      activateDeployServicesOnPrdReviewPass(projectRoot, { log });
+    } catch (err) {
+      log.warn('deploy_activate_failed', `激活 deploy.services 失败: ${err.message}`, {
+        warning: err.message,
+      });
+    }
+
     log.info('stage_complete', `prd-review stage 完成，耗时 ${durationMs}ms`, {
       stage:                   'prd-review',
       duration_ms:             durationMs,

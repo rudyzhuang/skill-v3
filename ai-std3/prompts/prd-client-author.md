@@ -21,7 +21,7 @@
 
 1. 更新 **`docs/prd-<映射文件>.json`**（见 [prd § 文件映射](../stages/prd.md#client_target--文件与模板映射)）。
 2. 更新或创建 **`docs/feature_list-<client_target>.md`**：Markdown 表，列含 feature_id、名称、优先级、阶段。
-3. 若当前端为 **backend**：可更新 `docs/config.dev.json` 的 `domain`、`deploy.services[]`、`smoke.checks[]` 初稿（**仅非敏感**字段）。
+3. 若当前端为 **backend**：在 `deploy` 中填写 **`api`**（runtime/domain）与 **`resources[]`**（`role`+`kind`：如 `workers`/`d1`/`r2`/`kv`），**不要**写账号/密钥；`config.dev.json` 由脚本 `infer-deploy-services` 在 Agent-B 后自动 merge，**勿**手改完整 `deploy.services[]`。
 
 ## 输出约束
 

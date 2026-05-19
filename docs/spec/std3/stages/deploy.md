@@ -90,7 +90,10 @@ node ai-std3/scripts/stages/deploy.cjs --project=<业务项目根绝对路径> [
 | `name` | 逻辑名（如 `website`） |
 | `client_target` | `website` / `admin` / `backend` / … |
 | `sub_platform` | 空或未声明视为 `default` |
-| `type` | Cloudflare：`pages` \| `workers` |
+| `type` | `pages` \| `workers`（部署）；`d1` \| `r2` \| `kv` \| `queues` \| `durable_objects`（**provision**，见 `libs/cloudflare-provision.cjs`） |
+| `requires_artifact` | `true`：须 build 产物；`false`：云资源绑定 |
+| `status` | `draft` \| `active`；prd-review 通过激活；deploy 对 `active` 或（dev 且 `provision_draft_resources≠false`）的 draft 执行 provision |
+| `provision_draft_resources` | deploy 段可选；dev 默认 `true` |
 | `domain` | 自定义域名或路径前缀（传给 provider） |
 | `url` | 部署成功后写回；manual 可预填 |
 | `artifact_ref` | 可选；`"<client_target>:<sub_platform>"` 或产物路径 |
@@ -116,7 +119,7 @@ node ai-std3/scripts/stages/deploy.cjs --project=<业务项目根绝对路径> [
 
 ### 2. 按 service 顺序部署（Cloudflare）
 
-对每个 `deploy.services[]` 条目（建议顺序：**backend → admin → website**，避免 Workers 路由依赖未就绪）：
+对每个 `deploy.services[]` 条目（脚本顺序：**d1 → r2 → kv → queues → durable_objects → workers → pages**；workers 部署前合并 wrangler bindings）：
 
 0. 若 `outputs.services[<name>].status=completed`（bootstrap 续跑保留）→ 打 `deploy_service_skipped`（INFO，`reason: "already_deployed"`）并跳过，不重新调用 API。
 1. 打 `deploy_service_start`（INFO）：`service_name`、`client_target`、`type`、`artifact_path`、`domain`。

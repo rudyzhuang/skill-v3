@@ -32,7 +32,24 @@ const https  = require('https');
 const { spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
-const { loadProjectEnv, getSkillsRoot, readConfigJson, resolvePipelineModel } = require('../libs/pipeline-config.cjs');
+const {
+  loadProjectEnv,
+  getSkillsRoot,
+  resolvePipelineModel,
+  readConfigJson: readProjectConfigJson,
+} = require('../libs/pipeline-config.cjs');
+const {
+  RESOURCE_TYPES,
+  isResourceService,
+  shouldProvisionResource,
+  persistServiceResourceConfig,
+} = require('../libs/infer-deploy-services.cjs');
+const { provisionCloudflareResource } = require('../libs/cloudflare-provision.cjs');
+const {
+  findWranglerTomlPath,
+  applyWranglerBindings,
+  sortDeployServices,
+} = require('../libs/wrangler-bindings.cjs');
 const { invokeSdkAgent } = require('../libs/invoke-sdk-agent.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
@@ -75,7 +92,7 @@ function writeStagesJson(obj) {
 }
 
 // ── config 读取 ───────────────────────────────────────────────────
-function readConfigJson() {
+function readDeployConfigJson() {
   const p = path.join(projectRoot, 'docs', `config.${configName}.json`);
   if (!fs.existsSync(p)) return {};
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return {}; }
@@ -512,7 +529,7 @@ async function runTriageAgent({ attempt }) {
     attempt,
   });
 
-  const cfg   = readConfigJson(projectRoot, configName);
+  const cfg   = readProjectConfigJson(projectRoot, configName);
   const model = resolvePipelineModel(cfg);
 
   const result = await invokeSdkAgent({
@@ -647,7 +664,7 @@ async function main() {
   }
 
   // ── 4. 读取配置 ───────────────────────────────────────────────────
-  const config      = readConfigJson();
+  const config      = readDeployConfigJson();
   const envVars     = readConfigEnv();
   const deployCfg   = config.deploy || {};
   const pipelineCfg = config.pipeline || {};
@@ -782,7 +799,9 @@ async function main() {
   process.on('SIGTERM', () => { releasePidLock(); process.exit(1); });
 
   // ── 11. 初始化骨架 ────────────────────────────────────────────────
-  const services        = deployCfg.services || [];
+  const allServices    = deployCfg.services || [];
+  const sortedServices = sortDeployServices(allServices);
+  const provisionedBindings = { d1: [], r2: [], kv: [], queues: [], durable_objects: [] };
   const credVars        = provider === 'cloudflare' ? checkCloudflareCredentials(envVars) : {};
   const cfToken         = credVars.token;
   const cfAccountId     = credVars.accountId;
@@ -797,7 +816,7 @@ async function main() {
     }
   }
 
-  const serviceSlots = services.map(s => ({
+  const serviceSlots = allServices.map(s => ({
     name:          s.name || s.client_target,
     client_target: s.client_target,
     sub_platform:  s.sub_platform || 'default',
@@ -862,15 +881,7 @@ async function main() {
   stages.pipeline.current_stage = 'deploy';
   writeStagesJson(stages);
 
-  // ── 12. 按 service 顺序部署 ───────────────────────────────────────
-  // 顺序：backend → admin → website
-  const deployOrder = ['backend', 'admin', 'website'];
-  const sortedServices = [...services].sort((a, b) => {
-    const ai = deployOrder.indexOf(a.client_target);
-    const bi = deployOrder.indexOf(b.client_target);
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-  });
-
+  // ── 12. 按 service 顺序：云资源 provision → workers/pages 部署 ─────
   const deployedUrls        = {};
   const inlineSmokeFailures = [];
   let   overallFailed       = false;
@@ -898,36 +909,167 @@ async function main() {
       continue;
     }
 
+    const svcType      = (svc.type || 'pages').toLowerCase();
     const artifactPath = resolveArtifactPath(svc, stages);
     const serviceLogPath = path.join(logDir, `${datetime}-${svcName}.log`);
     fs.writeFileSync(serviceLogPath, `[deploy] service=${svcName} started at ${formatLocalTimeShort()}\n`, 'utf8');
 
+    const svcStart = Date.now();
+    let   deployUrl = null;
+
+    // ── 云资源 provision（d1 / r2 / kv）────────────────────────────
+    if (isResourceService(svc)) {
+      if (!shouldProvisionResource(svc, configName, deployCfg)) {
+        log.info('deploy_provision_skipped', `[deploy] 跳过 provision: ${svcName} status=${svc.status || 'draft'}`, {
+          service_name: svcName,
+          type:         svcType,
+          status:       svc.status,
+        });
+        if (svcSlotIdx >= 0) {
+          stages.stages.deploy.outputs.services[svcSlotIdx].status = 'skipped';
+        }
+        writeStagesJson(stages);
+        continue;
+      }
+
+      log.info('deploy_service_start', `[deploy] provision service=${svcName}`, {
+        service_name: svcName,
+        type:         svcType,
+      });
+
+      let timedOutSvc = false;
+      try {
+        const prov = await Promise.race([
+          provisionCloudflareResource({
+            service: svc,
+            token:   cfToken,
+            accountId: cfAccountId,
+            projectRoot,
+            log,
+            stageLogPath: serviceLogPath,
+          }),
+          new Promise((_, reject) => {
+            setTimeout(() => {
+              timedOutSvc = true;
+              reject(new Error(`provision timeout after ${deployTimeoutMs}ms`));
+            }, deployTimeoutMs);
+          }),
+        ]);
+
+        persistServiceResourceConfig(projectRoot, configName, svcName, {
+          resource_config: prov.resource_config,
+          status:          'active',
+        });
+
+        if (svcType === 'd1' && prov.database_id) {
+          provisionedBindings.d1.push({
+            binding:       prov.binding,
+            database_name: prov.database_name,
+            database_id:   prov.database_id,
+          });
+        } else if (svcType === 'r2' && prov.bucket_name) {
+          provisionedBindings.r2.push({
+            binding:     prov.binding,
+            bucket_name: prov.bucket_name,
+          });
+        } else if (svcType === 'kv' && prov.namespace_id) {
+          provisionedBindings.kv.push({
+            binding:      prov.binding,
+            namespace_id: prov.namespace_id,
+          });
+        } else if (svcType === 'queues' && prov.queue_name) {
+          provisionedBindings.queues.push({
+            binding:          prov.binding,
+            queue_name:       prov.queue_name,
+            consumer_enabled: prov.consumer_enabled,
+          });
+        } else if (svcType === 'durable_objects' && prov.class_name) {
+          provisionedBindings.durable_objects.push({
+            binding:        prov.binding,
+            class_name:     prov.class_name,
+            migrations_tag: prov.migrations_tag,
+          });
+        }
+
+        if (svcSlotIdx >= 0) {
+          stages.stages.deploy.outputs.services[svcSlotIdx] = Object.assign(
+            stages.stages.deploy.outputs.services[svcSlotIdx],
+            {
+              status:      'completed',
+              url:         null,
+              duration_ms: Date.now() - svcStart,
+              provision:   prov,
+            }
+          );
+        }
+        writeStagesJson(stages);
+        log.info('deploy_service_complete', `[deploy] provision 完成 service=${svcName}`, {
+          service_name: svcName,
+          type:         svcType,
+          duration_ms:  Date.now() - svcStart,
+        });
+      } catch (err) {
+        overallFailed = true;
+        lastFailedService = svc;
+        lastError = err;
+        if (svcSlotIdx >= 0) {
+          stages.stages.deploy.outputs.services[svcSlotIdx].status = 'failed';
+        }
+        writeStagesJson(stages);
+        if (failFast) break;
+        continue;
+      }
+      continue;
+    }
+
+    if (!['pages', 'workers'].includes(svcType)) {
+      log.warn('deploy_service_unknown_type', `[deploy] 跳过未知类型: ${svcType}`, {
+        service_name: svcName,
+      });
+      continue;
+    }
+
     log.info('deploy_service_start', `[deploy] 开始部署 service=${svcName}`, {
       service_name:  svcName,
       client_target: svc.client_target,
-      type:          svc.type || 'pages',
+      type:          svcType,
       artifact_path: artifactPath || '(none)',
     });
 
-    const svcStart = Date.now();
-    let   deployUrl = null;
+    // Workers：注入 wrangler bindings 后再 deploy
+    if (svcType === 'workers' && provider === 'cloudflare') {
+      const wrPath = findWranglerTomlPath(projectRoot, artifactPath);
+      const hasBindings = provisionedBindings.d1.length ||
+        provisionedBindings.r2.length ||
+        provisionedBindings.kv.length ||
+        provisionedBindings.queues.length ||
+        provisionedBindings.durable_objects.length;
+      if (wrPath && hasBindings) {
+        const bindRes = applyWranglerBindings(wrPath, provisionedBindings);
+        log.info('wrangler_bindings_applied', `[deploy] 已更新 wrangler.toml bindings`, {
+          path:  bindRes.path,
+          added: bindRes.added || [],
+        });
+      } else if (hasBindings && !wrPath) {
+        log.warn('wrangler_bindings_missing', '[deploy] 有 provision 结果但未找到 wrangler.toml', {
+          artifact_path: artifactPath,
+        });
+      }
+    }
 
     // 超时包装
     let timedOutSvc = false;
     const deployPromise = (async () => {
       if (provider === 'cloudflare') {
-        const svcType = (svc.type || 'pages').toLowerCase();
         if (svcType === 'pages') {
           return deployPages({ service: svc, artifactPath, token: cfToken, accountId: cfAccountId, stageLogPath: serviceLogPath });
-        } else if (svcType === 'workers') {
-          return deployWorkers({ service: svc, artifactPath, token: cfToken, accountId: cfAccountId, stageLogPath: serviceLogPath });
-        } else {
-          throw new Error(`未知 Cloudflare 类型：${svcType}`);
         }
-      } else {
-        // manual provider
-        return { url: svc.url || null };
+        if (svcType === 'workers') {
+          return deployWorkers({ service: svc, artifactPath, token: cfToken, accountId: cfAccountId, stageLogPath: serviceLogPath });
+        }
+        throw new Error(`未知 Cloudflare 类型：${svcType}`);
       }
+      return { url: svc.url || null };
     })();
 
     const timeoutPromise = new Promise((_, reject) =>
