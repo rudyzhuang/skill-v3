@@ -6,15 +6,17 @@
  * 调用形态：
  *   node ai-std4/scripts/stop-pipeline.cjs \
  *     --project=<业务项目根绝对路径> \
- *     [--reason="<原因>"]
+ *     [--reason="<原因>"] \
+ *     [--teardown]                # 写信号后立即 pipeline-teardown（结束后台子进程）
  *
  * 退出码：
  *   0  成功写入（或信号已存在）
  *   1  项目未初始化（stages.json 不存在）
  */
 
-const fs   = require('fs');
-const path = require('path');
+const fs         = require('fs');
+const path       = require('path');
+const { spawnSync } = require('child_process');
 const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
 
 // ── 参数解析 ──────────────────────────────────────────────────────
@@ -33,7 +35,8 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 
-const reason = args.reason ? String(args.reason) : 'user_request';
+const reason   = args.reason ? String(args.reason) : 'user_request';
+const teardown = args.teardown === true || args.teardown === 'true';
 
 // ── 路径常量 ──────────────────────────────────────────────────────
 const paths          = createPipelinePaths(projectRoot);
@@ -49,9 +52,46 @@ if (!fs.existsSync(stagesJsonPath)) {
   process.exit(1);
 }
 
+function runTeardown() {
+  let sessionId = null;
+  try {
+    const stages = paths.readStagesJson();
+    if (stages && stages.pipeline && stages.pipeline.run_id) {
+      sessionId = String(stages.pipeline.run_id);
+    }
+  } catch (_) { /* ignore */ }
+
+  const teardownScript = path.join(__dirname, 'pipeline-teardown.cjs');
+  if (!fs.existsSync(teardownScript)) {
+    process.stderr.write('[stop-pipeline] 未找到 pipeline-teardown.cjs，跳过后台收尾\n');
+    return;
+  }
+
+  const tdArgs = [teardownScript, `--project=${projectRoot}`];
+  if (sessionId) tdArgs.push(`--session-id=${sessionId}`);
+
+  process.stdout.write(
+    sessionId
+      ? `→ 正在收尾后台进程（session-id=${sessionId}）...\n`
+      : '→ 正在收尾后台进程（无 run_id，使用 locks/run-dash.pid fallback）...\n'
+  );
+
+  const td = spawnSync(process.execPath, tdArgs, {
+    stdio: 'inherit',
+    env: process.env,
+    cwd: projectRoot,
+  });
+  if (td.status !== 0 && td.status !== null) {
+    process.stderr.write(`[stop-pipeline] pipeline-teardown 退出码: ${td.status}\n`);
+  } else {
+    process.stdout.write('✓ 后台进程收尾完成（pipeline-teardown）。\n');
+  }
+}
+
 // ── 检查是否已存在 stop.signal ────────────────────────────────────
 if (fs.existsSync(stopSignalPath)) {
   process.stdout.write('[stop-pipeline] 流水线已在停止中（stop.signal 已存在）\n');
+  if (teardown) runTeardown();
   process.exit(0);
 }
 
@@ -88,4 +128,7 @@ process.stdout.write(
   `✓ 停止信号已写入。流水线将在当前步骤完成后停止。\n` +
   `  续跑命令：node ai-std4/scripts/run-pipeline.cjs --project=${projectRoot} --from-stage=<stopped_stage>\n`
 );
+
+if (teardown) runTeardown();
+
 process.exit(0);

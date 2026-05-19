@@ -34,6 +34,9 @@ node ai-std4/scripts/run-pipeline.cjs --project=/path/to/your-project
 # 只看进度看板
 node ai-std4/scripts/run-dash.cjs --project=/path/to/your-project
 
+# 停止流水线并结束后台子进程（看板、worker 等）
+node ai-std4/scripts/stop-pipeline.cjs --project=/path/to/your-project --teardown
+
 # 从某一阶段接着跑（例如只重做部署）
 node ai-std4/scripts/run-pipeline.cjs --project=/path/to/your-project --from-stage=deploy
 ```
@@ -258,7 +261,8 @@ stateDiagram-v2
 | `SKILL.md` | 给 Cursor 看的技能说明与触发词 |
 | `scripts/run-pipeline.cjs` | 总开关：按顺序跑各阶段 |
 | `scripts/run-dash.cjs` | 终端看板：当前进度一览 |
-| `scripts/stop-pipeline.cjs` | 请求安全停止 |
+| `scripts/stop-pipeline.cjs` | 请求安全停止；加 `--teardown` 同时结束后台进程 |
+| `scripts/pipeline-teardown.cjs` | 收尾：SIGTERM/SIGKILL 本 session 子进程与看板 |
 | `scripts/stages/` | 每个阶段的具体执行脚本 |
 | `scripts/libs/` | 公共能力（调 AI、校验、构建、测试等） |
 | `prompts/` | 交给智能助手的任务说明原文 |
