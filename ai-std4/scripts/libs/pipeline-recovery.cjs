@@ -212,6 +212,91 @@ function clearStaleCodegenWorkers(projectRoot, log) {
   return { removed };
 }
 
+const SDK_RECOVERABLE_RE = /Cannot find module '@cursor\/sdk'/i;
+
+function isSdkRecoverableCodegenError(err) {
+  return SDK_RECOVERABLE_RE.test(String(err || ''));
+}
+
+function shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg }) {
+  if (!cfg || cfg.clearStaleCodegenWorkers === false) return false;
+  if (recovery.decision !== 'fix' && recovery.decision !== 'retry_only') return false;
+  if (step !== 'build_phase' && step !== 'codegen') return false;
+  const sigIds = (bundle && bundle.error_signatures && bundle.error_signatures.signature_ids) || [];
+  if (sigIds.includes('sdk_module_not_found')) return true;
+  const failed = (bundle && bundle.failed_features) || [];
+  if (failed.some(f => f.stage === 'codegen' && isSdkRecoverableCodegenError(f.error))) return true;
+  const excerpts = (bundle && bundle.artifact_excerpts) || [];
+  if (excerpts.some(a => a.hint && /旧模板/.test(a.hint))) return true;
+  if (recovery.category === 'script_bug' && (recovery.evidence || []).some(e => SDK_RECOVERABLE_RE.test(e))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * skill 修复 SDK 加载后，将触顶的 failed/blocked codegen feature 重置为 pending 以便重跑。
+ */
+function resetCodegenSdkFailures(projectRoot, stages, log) {
+  const cg = stages && stages.stages && stages.stages.codegen;
+  if (!cg || !cg.features) return { reset: [] };
+
+  const features = cg.features;
+  const resetIds = new Set();
+
+  for (const [fid, feat] of Object.entries(features)) {
+    if (feat && feat.status === 'failed' && isSdkRecoverableCodegenError(feat.error)) {
+      resetIds.add(fid);
+    }
+  }
+
+  if (resetIds.size === 0) return { reset: [] };
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [fid, feat] of Object.entries(features)) {
+      if (!feat || feat.status !== 'blocked' || !feat.error) continue;
+      const m = String(feat.error).match(/^dependency_failed:(.+)$/);
+      if (m && resetIds.has(m[1]) && !resetIds.has(fid)) {
+        resetIds.add(fid);
+        changed = true;
+      }
+    }
+  }
+
+  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  for (const fid of resetIds) {
+    const feat = features[fid];
+    if (!feat) continue;
+    feat.status = 'pending';
+    feat.error = null;
+    feat.attempts_used = 0;
+    feat.agent_id = null;
+    feat.started_at = null;
+    feat.completed_at = null;
+    const statePath = path.join(workerDir, `${fid}.state.json`);
+    try {
+      if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+    } catch (_) { /* */ }
+  }
+
+  cg.status = 'running';
+  cg.completed_at = null;
+  if (cg.outputs) {
+    cg.outputs.failed_features = (cg.outputs.failed_features || []).filter(fid => !resetIds.has(fid));
+    if (cg.outputs.decision === 'needs_fix') cg.outputs.decision = null;
+  }
+
+  const reset = [...resetIds];
+  if (reset.length > 0 && log) {
+    log.info('recovery_codegen_reset', '已重置 SDK 可恢复 codegen feature 为 pending', {
+      feature_ids: reset,
+    });
+  }
+  return { reset };
+}
+
 function runSkillRecoverySelfTests(skillsRoot) {
   const script = path.join(skillsRoot, 'ai-std4', 'scripts', 'self-test-pipeline-recovery.cjs');
   if (!fs.existsSync(script)) {
@@ -709,6 +794,12 @@ async function runOneRecoveryAttempt({
     clearStaleCodegenWorkers(projectRoot, log);
   }
 
+  const stForReset = readStagesJson() || stages || { pipeline: {}, stages: {} };
+  if (shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg })) {
+    resetCodegenSdkFailures(projectRoot, stForReset, log);
+    writeStagesJson(stForReset);
+  }
+
   const histEntry = {
     stage:         step,
     run_id:        runId,
@@ -721,7 +812,7 @@ async function runOneRecoveryAttempt({
     at:            require('./logger.cjs').formatLocalTimeShort(),
   };
 
-  const st = readStagesJson() || stages || { pipeline: {}, stages: {} };
+  const st = readStagesJson() || stForReset || stages || { pipeline: {}, stages: {} };
   appendRecoveryHistory(st, histEntry);
 
   if (recovery.decision === 'blocked') {
@@ -849,6 +940,9 @@ module.exports = {
   collectFailedFeatures,
   buildRecoveryHints,
   clearStaleCodegenWorkers,
+  resetCodegenSdkFailures,
+  shouldResetCodegenSdkFailures,
+  isSdkRecoverableCodegenError,
   runSkillRecoverySelfTests,
   shouldClearCodegenWorkers,
   touchesCodegenSkillPath,

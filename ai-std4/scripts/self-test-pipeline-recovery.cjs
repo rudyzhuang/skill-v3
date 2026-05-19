@@ -25,6 +25,8 @@ const {
   clearStaleCodegenWorkers,
   shouldClearCodegenWorkers,
   touchesCodegenSkillPath,
+  resetCodegenSdkFailures,
+  shouldResetCodegenSdkFailures,
 } = require('./libs/pipeline-recovery.cjs');
 
 let failed = 0;
@@ -141,6 +143,33 @@ assert(
   'clear workers on skill codegen fix'
 );
 assert(touchesCodegenSkillPath(['ai-std4/scripts/stages/codegen.cjs']), 'touchesCodegenSkillPath');
+
+// 6b. reset codegen SDK failures
+const stagesSdk = {
+  stages: {
+    codegen: {
+      status: 'failed',
+      features: {
+        'AUTH-001': { status: 'failed', error: "Cannot find module '@cursor/sdk'", attempts_used: 2 },
+        'AUTH-002': { status: 'blocked', error: 'dependency_failed:AUTH-001', attempts_used: 0 },
+      },
+      outputs: { failed_features: ['AUTH-001'], decision: 'needs_fix' },
+    },
+  },
+};
+const resetResult = resetCodegenSdkFailures(tmpProject, stagesSdk, null);
+assert(resetResult.reset.includes('AUTH-001') && resetResult.reset.includes('AUTH-002'), 'reset sdk failed + blocked deps');
+assert(stagesSdk.stages.codegen.features['AUTH-001'].status === 'pending', 'failed → pending');
+assert(stagesSdk.stages.codegen.status === 'running', 'codegen stage running after reset');
+assert(
+  shouldResetCodegenSdkFailures({
+    recovery: { decision: 'fix', category: 'script_bug', evidence: ["Cannot find module '@cursor/sdk'"] },
+    step: 'build_phase',
+    bundle: { error_signatures: { signature_ids: ['sdk_module_not_found'] }, failed_features: [] },
+    cfg: { clearStaleCodegenWorkers: true },
+  }),
+  'shouldResetCodegenSdkFailures'
+);
 
 // 7. Ajv
 const sample = {
