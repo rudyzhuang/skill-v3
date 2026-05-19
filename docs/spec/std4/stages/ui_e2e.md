@@ -302,7 +302,7 @@ ui_e2e_repair_chain(feature_id):
 | `.pipeline/ui-e2e-triage-<feature_id>.json` | 分诊结论 |
 | `.pipeline/ui-e2e-last-error-<feature_id>.json` | 分诊输入快照 |
 | `.pipeline/logs/snapshots/<scenario_id>/*.jpg` | MCP 截图 |
-| `.pipeline/stages.json` | `stages.ui_e2e` |
+| `output-stages/stages.json` | `stages.ui_e2e` |
 
 **`stages.ui_e2e.outputs` 主要字段**：`scenarios[]`、`scenario_total`、`passed_count`、`failed_count`、`skipped_count`、`report_path`、`repaired_features[]`、`blocked_features[]`、`repair_state`、`triage_attempts`。
 

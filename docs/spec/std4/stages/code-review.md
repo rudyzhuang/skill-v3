@@ -249,7 +249,7 @@ effective_parallel = min(
 | --- | --- |
 | `.pipeline/code-review-<feature_id>.json` | 各 feature Agent 评审产出（含 deterministic + Agent 合并后的 `issues[]`） |
 | `.pipeline/code-review-<feature_id>.diff` | 脚本预生成的 git patch（评审输入；评审结束后保留供 report / 复查） |
-| `.pipeline/stages.json` | `stages.code_review`：`features.<id>`（含 `commit_reviewed` / `review_hash` / `decision` / `critical_issues` / `warnings`）、`outputs.feature_reviews[]`、`outputs.decision`、`outputs.critical_issues_total` / `warnings_total`、`outputs.failed_features[]`、`validation.passed` |
+| `output-stages/stages.json` | `stages.code_review`：`features.<id>`（含 `commit_reviewed` / `review_hash` / `decision` / `critical_issues` / `warnings`）、`outputs.feature_reviews[]`、`outputs.decision`、`outputs.critical_issues_total` / `warnings_total`、`outputs.failed_features[]`、`validation.passed` |
 | `.pipeline/reports/code-review-summary.md` | 人话摘要（每 feature 一行 + stage 级总计 + 失败 feature 列表与关键 issue 摘要） |
 
 ## 解锁

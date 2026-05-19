@@ -6,7 +6,7 @@
 
 - `<项目根>/.pipeline/pipeline-recovery-<stage>.json`（**错误包**，字段见下）
 - `<项目根>/logs/stages/<stage>/` 最近日志（`log_tail` 已摘录，勿要求全文）
-- `<项目根>/.pipeline/stages.json` 中相关 stage 与 `pipeline.recovery_history`
+- `<项目根>/output-stages/stages.json` 中相关 stage 与 `pipeline.recovery_history`（只读兼容 `.pipeline/stages.json`）
 - 若存在：`.pipeline/*-last-error.json`、`.pipeline/*-triage*.json`（**优先尊重** stage 内 `blocked`）
 
 ### 错误包关键字段（脚本已组装）

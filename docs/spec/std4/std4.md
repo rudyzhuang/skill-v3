@@ -128,9 +128,22 @@ setup
 
 **通用约定**：
 
-- 状态真源：业务项目 **`<业务项目根绝对路径>/.pipeline/stages.json`**
+- 状态真源：业务项目 **`output-stages/stages.json`**（只读兼容旧路径 `.pipeline/stages.json`）
 - 所有脚本调用形态：`node ai-std4/scripts/stages/<stage>.cjs --project=<业务项目根绝对路径> [选项]`
 - 脚本不复制进业务仓
+
+**业务项目目录约定**（路径解析见 `ai-std4/scripts/libs/artifact-paths.cjs` + `pipeline-paths.cjs`）：
+
+| 路径 | 内容 |
+| --- | --- |
+| `output-stages/stages.json` | 流水线状态真源 |
+| `docs/` | 仅 `config.dev.json`、`config.release.json`、`config.env` |
+| `output-stages/prd/` | `prd-spec.md`、`prd-*.json`、`feature_list-*.md` |
+| `output-stages/design/` | `<feature_id>.design.json` |
+| `output-stages/create-ui-scenarios/` | `<feature_id>.scenarios.yaml` |
+| `output-stages/codegen/` | worktrees、worker 状态与内联脚本 |
+| `output-stages/<stage>/` | 其它 stage 评审/摘要产出；**merge_push** 运行时 JSON 仍在 `.pipeline/` |
+| `.pipeline/` | 锁、`stop.signal`、recovery、日志等 |
 
 **Agent 与环境（统一 `CURSOR_API_KEY` + `@cursor/sdk`）**：
 
@@ -726,7 +739,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | [req-template.md](templates/req-template.md) | inputs/req.md 模板；`verify-inputs.cjs` 检查带 `*` 的 H2 节非空 |
 | [config.env.template](templates/config.env.template) | inputs/config.env 模板；不进 git |
 | [config.json.template](templates/config.json.template) | docs/config.dev.json / config.release.json 模板 |
-| [stages.json.template](templates/stages.json.template) | `.pipeline/stages.json` 初始骨架 |
+| [stages.json.template](templates/stages.json.template) | `output-stages/stages.json` 初始骨架 |
 | [prd-spec.md.template](templates/prd-spec.md.template) | output-stages/prd/prd-spec.md 模板 |
 | [prd-web.json.template](templates/prd-web.json.template) | output-stages/prd/prd-web.json 模板（前端/Web） |
 | [prd-backend.json.template](templates/prd-backend.json.template) | output-stages/prd/prd-backend.json 模板（服务端） |
@@ -760,7 +773,7 @@ node ai-std4/scripts/run-dash.cjs --project=<绝对路径> --auto-launched
 | 2 | 环境变量 `AI_STD4_PROJECT` | `export AI_STD4_PROJECT=/path/to/project` |
 | 3 | **当前工作目录（`process.cwd()`）** | 在哪个项目目录下运行 skill，就默认用哪个 |
 
-取到路径后校验：若 `<路径>/.pipeline/stages.json` 不存在，则提示"未找到已初始化的 std4 项目，请先运行 setup"，退出码 `1`。
+取到路径后校验：若 `<路径>/output-stages/stages.json` 不存在（且只读回退的 `.pipeline/stages.json` 也不存在），则提示"未找到已初始化的 std4 项目，请先运行 setup"，退出码 `1`。
 
 ### 功能定位
 
@@ -902,7 +915,7 @@ node ai-std4/scripts/stop-pipeline.cjs --project=<业务项目根绝对路径> [
 
 ### 处理逻辑
 
-1. 检查 `<项目根>/.pipeline/stages.json` 存在，否则退出码 `1`（项目未初始化）。
+1. 检查 `<项目根>/output-stages/stages.json` 存在（或只读兼容 `.pipeline/stages.json`），否则退出码 `1`（项目未初始化）。
 2. 检查是否已存在 `stop.signal`，若存在则打印"流水线已在停止中"，退出码 `0`。
 3. 写入 `<项目根>/.pipeline/stop.signal`：
 ```json
@@ -934,7 +947,7 @@ node ai-std4/scripts/stop-pipeline.cjs --project=<业务项目根绝对路径> [
 | Schema | 校验目标 |
 | --- | --- |
 | [stop.signal.schema.json](schemas/stop.signal.schema.json) | `.pipeline/stop.signal` |
-| [stages.json.schema.json](schemas/stages.json.schema.json) | `.pipeline/stages.json` |
+| [stages.json.schema.json](schemas/stages.json.schema.json) | `output-stages/stages.json` |
 | [config.json.schema.json](schemas/config.json.schema.json) | `docs/config.dev.json` / `config.release.json` |
 | [prd-client.base.schema.json](schemas/prd-client.base.schema.json) | 所有 `output-stages/prd/prd-*.json` 公共字段（`allOf` 引用） |
 | [prd-web.json.schema.json](schemas/prd-web.json.schema.json) | `output-stages/prd/prd-web.json` |

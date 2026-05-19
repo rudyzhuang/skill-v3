@@ -281,7 +281,7 @@ node ai-std4/scripts/stages/deploy.cjs --project=<业务项目根绝对路径> [
 | `.pipeline/reports/deploy-summary.md` | 部署报告 |
 | `.pipeline/deploy-last-error.json` | 最近一次失败快照（供分诊） |
 | `.pipeline/deploy-triage.json` | Agent 分诊结论 |
-| `.pipeline/stages.json` | `stages.deploy` |
+| `output-stages/stages.json` | `stages.deploy` |
 
 **`stages.deploy.outputs` 主要字段**：`services[]`（含 `smoke_passed` / `smoke_checks[]`）、`inline_smoke_passed`、`inline_smoke_failures[]`、`report_path`、`provider`、`environment`、`deploy_retries`、`agent_fix_attempts`、`blocked_reason`、`user_actions[]`、`duration_ms`、`timed_out`。
 

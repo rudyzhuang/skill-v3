@@ -23,4 +23,4 @@
 
 ## 输出
 
-单行 JSON 或脚本约定格式；由 runner 解析后调用 MCP。不写入 `.pipeline/stages.json`。
+单行 JSON 或脚本约定格式；由 runner 解析后调用 MCP。不写入 `output-stages/stages.json`。

@@ -219,7 +219,7 @@ effective_parallel = min(
 | 路径 | 说明 |
 | --- | --- |
 | `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` | 可执行 UI 场景（每 feature 一文件），`ui_e2e` 阶段直接消费 |
-| `.pipeline/stages.json` | `stages.create_ui_scenarios`：`features.<id>`（含 `group_id` / `scenarios_hash`）、`outputs.scenario_files[]`、`outputs.skipped_features[]`、`outputs.coverage`、`validation.passed` |
+| `output-stages/stages.json` | `stages.create_ui_scenarios`：`features.<id>`（含 `group_id` / `scenarios_hash`）、`outputs.scenario_files[]`、`outputs.skipped_features[]`、`outputs.coverage`、`validation.passed` |
 | `.pipeline/reports/create-ui-scenarios-summary.md` | 每 feature 一行人话摘要（场景数、覆盖率、跳过原因） |
 
 ## 解锁

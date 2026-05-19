@@ -5,7 +5,7 @@
 | Schema | 校验目标 |
 | --- | --- |
 | [stop.signal.schema.json](stop.signal.schema.json) | `.pipeline/stop.signal` |
-| [stages.json.schema.json](stages.json.schema.json) | `.pipeline/stages.json` |
+| [stages.json.schema.json](stages.json.schema.json) | `output-stages/stages.json` |
 | [config.json.schema.json](config.json.schema.json) | `docs/config.dev.json` / `config.release.json` |
 | [prd-web.json.schema.json](prd-web.json.schema.json) | `output-stages/prd/prd-web.json` |
 | [prd-backend.json.schema.json](prd-backend.json.schema.json) | `output-stages/prd/prd-backend.json` |

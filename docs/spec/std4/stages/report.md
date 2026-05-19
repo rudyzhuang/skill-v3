@@ -44,7 +44,7 @@ node ai-std4/scripts/stages/report.cjs --project=<业务项目根绝对路径> [
 
 | 来源 | 用途 |
 | --- | --- |
-| `.pipeline/stages.json` | 各 stage `status` / `validation` / `outputs` / `features.*` |
+| `output-stages/stages.json` | 各 stage `status` / `validation` / `outputs` / `features.*` |
 | `pipeline.stop_info` | 用户停止：停在何 stage、原因 |
 | `docs/config.dev.json` | 项目名、`ui_e2e.enabled`、`client_targets` |
 | `stages.prd.outputs.features[]` | **索引真源**：feature 一览与依赖 |
@@ -269,7 +269,7 @@ codegen, code_review, merge_push, build, deploy, ui_e2e
 | `.pipeline/reports/.report-error-excerpt-<datetime>.txt` | 错误日志摘录（内部 + Agent 输入） |
 | `.pipeline/reports/.report-collect-<datetime>.json` | 聚合摘要（Agent 输入，可保留排障） |
 | `.pipeline/reports/.report-agent-<datetime>.md` | Agent 撰写的失败/建议章节（并入主报告） |
-| `.pipeline/stages.json` | `stages.report.outputs.*` |
+| `output-stages/stages.json` | `stages.report.outputs.*` |
 | stdout | `overall`、`report_path`、`pipeline_complete=true` |
 
 ## 退出码

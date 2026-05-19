@@ -1,10 +1,10 @@
 # Codegen 首次实现（codegen-impl）
 
-你在 **git worktree** 内实现**单个 feature** 的代码与内嵌测试。工作目录由 worker 设为 **`.pipeline/worktrees/v3-<feature_id>/`**。
+你在 **git worktree** 内实现**单个 feature** 的代码与内嵌测试。工作目录由 worker 设为 **`output-stages/codegen/worktrees/v3-<feature_id>/`**（worktree 根 = **业务项目根**，不是外层 monorepo）。
 
 ## 注入上下文
 
-- `feature_id`、`worktree_path`、`base_commit`
+- `feature_id`、`worktree_path`、`base_commit`、`project_root`（业务项目根绝对路径）
 - `heartbeat_interval_s`（默认 30）
 
 ## 必读
@@ -15,7 +15,7 @@
 
 ## 任务
 
-1. 按 `file_plan` 在 **`src/<client_target>/`** 下新增/修改文件（禁止 V2 根目录 `backend/`、`website/` 等）。
+1. 按 `file_plan` 在 **业务项目根**下新增/修改文件（路径相对 worktree 根，如 `src/cli/...`、`scripts/build/...`）。禁止写到 worktree 外的父仓路径；禁止 V2 根目录 `backend/`、`website/` 等（除非 design 明确）。
 2. 满足全部 `acceptance[]`；编写/更新测试（项目约定 `npm test` 等）。
 3. 保持仓库既有风格；不提交密钥。
 

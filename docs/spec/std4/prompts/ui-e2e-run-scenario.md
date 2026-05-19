@@ -1,6 +1,6 @@
 # UI 场景单步执行（ui-e2e-run-scenario，可选）
 
-当 `ui-e2e.cjs --use-sdk-scenarios` 时使用。**默认**由 `ui-e2e-runner.cjs` 直驱，不经过本提示词。你根据 YAML `steps[]` 与当前 MCP 快照，决定**下一步**调用哪个 MCP 工具。
+当 `ui-e2e.cjs --use-sdk-scenarios`（或 `AI_STD4_UI_E2E_SDK_SCENARIOS=1`）时使用。**默认**由 `ui-e2e-runner.cjs` 直驱，不经过本提示词。你根据 YAML `steps[]` 与当前 MCP 快照，决定**下一步**调用哪个 MCP 工具。
 
 ## 注入上下文
 
@@ -23,4 +23,4 @@
 
 ## 输出
 
-单行 JSON 或脚本约定格式；由 runner 解析后调用 MCP。不写入 `.pipeline/stages.json`。
+单行 JSON 或脚本约定格式；由 runner 解析后调用 MCP。不写入 `output-stages/stages.json`。

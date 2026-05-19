@@ -2,7 +2,7 @@
 
 [← 规范索引](std4.md)
 
-`docs/config.dev.json` 的 **`git`** 段为流水线 Git 行为的**真源**；`setup` 会将其同步到 `.pipeline/stages.json` → `pipeline.project.git`，供 `merge_push` 等读取。
+`docs/config.dev.json` 的 **`git`** 段为流水线 Git 行为的**真源**；`setup` 会将其同步到 `output-stages/stages.json` → `pipeline.project.git`，供 `merge_push` 等读取。
 
 | 字段 | 类型 | 默认（模板） | 行为 |
 | --- | --- | --- | --- |

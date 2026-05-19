@@ -54,13 +54,13 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 | `<业务项目根绝对路径>/inputs/req.md` | 必填项已齐全 |
 | `<业务项目根绝对路径>/docs/config.env` | 云平台鉴权 |
 | `<业务项目根绝对路径>/docs/config.<dev|release>.json` | 云平台部署配置 |
-| `<业务项目根绝对路径>/.pipeline/stages.json` | setup stage 的输出 |
+| `output-stages/stages.json` | setup stage 的输出 |
 
 ## 处理逻辑
 
 1. **`prd-bootstrap.cjs`（bootstrap）**：
-- 判断 `<业务项目根绝对路径>/.pipeline/stages.json` 文件的 `stages.prd` 的骨架是否存在，
-若不存在，则在既有 `.pipeline/stages.json` 上**增量**写入 `stages.prd` 骨架（**不**覆盖 `stages.setup`）；`outputs.config_*` 从 `stages.setup.outputs` 复制；**同时立即计算** `inputs/req.md` SHA-256 并写入 `inputs.req_hash`（不等到步骤 4）。模板字段参考 [`stages.json.template`](../templates/stages.json.template) 与 [`stages.json.schema.json`](../schemas/stages.json.schema.json) 的 `prdStage`：
+- 判断 `output-stages/stages.json` 文件的 `stages.prd` 的骨架是否存在，
+若不存在，则在既有 `output-stages/stages.json` 上**增量**写入 `stages.prd` 骨架（**不**覆盖 `stages.setup`）；`outputs.config_*` 从 `stages.setup.outputs` 复制；**同时立即计算** `inputs/req.md` SHA-256 并写入 `inputs.req_hash`（不等到步骤 4）。模板字段参考 [`stages.json.template`](../templates/stages.json.template) 与 [`stages.json.schema.json`](../schemas/stages.json.schema.json) 的 `prdStage`：
 ```json
 {
     "status": "started",
@@ -290,7 +290,7 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 | `output-stages/prd/prd-<client_target>.json` | 各端结构化 PRD（AI 直接消费） |
 | `output-stages/prd/feature_list-<client_target>.md` | 特性表（feature_id、名称、优先级、阶段、涉及端） |
 | `docs/config.dev.json` | 部署/smoke 配置初稿 |
-| `.pipeline/stages.json` | `stages.prd` 完成态：`outputs.features[]`（**索引真源**，含 `feature_id` / `name` / `priority` / `phase` / `description` / `client_targets[]` / `dependencies[]` / `sources`）、`outputs.features_hash`、`outputs.features_total`、`outputs.client_targets[]` |
+| `output-stages/stages.json` | `stages.prd` 完成态：`outputs.features[]`（**索引真源**，含 `feature_id` / `name` / `priority` / `phase` / `description` / `client_targets[]` / `dependencies[]` / `sources`）、`outputs.features_hash`、`outputs.features_total`、`outputs.client_targets[]` |
 
 ## 解锁
 

@@ -367,7 +367,7 @@ effective_parallel = min(
 | --- | --- |
 | `.pipeline/worktrees/v3-<feature_id>/` | 每 feature 的 git worktree（代码 + 测试 + wip 快照 commit 历史） |
 | `.pipeline/workers/codegen/<feature_id>.state.json` | worker 运行态快照（每次心跳与转态写入；feature 终态后归档至 `archive/<feature_id>.<attempt_index>.state.json`） |
-| `.pipeline/stages.json` | `stages.codegen`：`features.<id>`（含 `smoke_passed` / `smoke_checks[]` 等）、`outputs.feature_artifacts[]`、`outputs.smoke_summary`（`passed_count` / `failed_count`）、`validation.passed` |
+| `output-stages/stages.json` | `stages.codegen`：`features.<id>`（含 `smoke_passed` / `smoke_checks[]` 等）、`outputs.feature_artifacts[]`、`outputs.smoke_summary`（`passed_count` / `failed_count`）、`validation.passed` |
 | `.pipeline/reports/codegen-summary.md` | 每 feature 一行人话摘要（分支、commit、attempts、卡死次数、耗时、失败原因） |
 
 ## 解锁

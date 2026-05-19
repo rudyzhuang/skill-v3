@@ -195,7 +195,7 @@ pipeline.autorun.feature_max_parallel
 | 路径 | 说明 |
 | --- | --- |
 | `.pipeline/design-review-<feature_id>.json` | 各 feature Agent 评审产出 |
-| `.pipeline/stages.json` | `stages.design_review`：`outputs.released_groups[]`、`outputs.can_enter_codegen`、`features.<id>.can_enter_codegen`、`outputs.gaps[]` |
+| `output-stages/stages.json` | `stages.design_review`：`outputs.released_groups[]`、`outputs.can_enter_codegen`、`features.<id>.can_enter_codegen`、`outputs.gaps[]` |
 | `.pipeline/reports/design-review-summary.md` | 可选人话摘要（含 group 放行表） |
 
 ## 解锁

@@ -10,7 +10,7 @@
     "feature_id": {
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9]*(-[A-Z][A-Z0-9]*)*-[0-9]{3}$",
-      "description": "与 docs/designs/<feature_id>.design.json 的 feature_id 一致，并与文件名前缀一致"
+      "description": "与 output-stages/design/<feature_id>.design.json 的 feature_id 一致，并与文件名前缀一致"
     },
     "client_target": {
       "type": "string",

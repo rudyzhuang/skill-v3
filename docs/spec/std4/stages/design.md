@@ -236,7 +236,7 @@ pipeline.autorun.feature_max_parallel
 | 路径 | 说明 |
 | --- | --- |
 | `output-stages/design/<feature_id>.design.json` | 每 feature 设计规格（下游真源） |
-| `.pipeline/stages.json` | `stages.design`：`inputs.dependency_groups[]`、`features.<id>`（含 `group_id`）、`outputs.design_specs[]`、`validation.passed` |
+| `output-stages/stages.json` | `stages.design`：`inputs.dependency_groups[]`、`features.<id>`（含 `group_id`）、`outputs.design_specs[]`、`validation.passed` |
 
 ## 解锁
 

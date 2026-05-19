@@ -6,7 +6,7 @@
 
 - `<项目根>/.pipeline/pipeline-recovery-<stage>.json`（**错误包**，字段见下）
 - `<项目根>/logs/stages/<stage>/` 最近日志（`log_tail` 已摘录，勿要求全文）
-- `<项目根>/.pipeline/stages.json` 中相关 stage 与 `pipeline.recovery_history`
+- `<项目根>/output-stages/stages.json` 中相关 stage 与 `pipeline.recovery_history`（只读兼容 `.pipeline/stages.json`）
 - 若存在：`.pipeline/*-last-error.json`、`.pipeline/*-triage*.json`（**优先尊重** stage 内 `blocked`）
 
 ### 错误包关键字段（脚本已组装）
@@ -15,7 +15,7 @@
 | --- | --- |
 | `log_tail` | 各 stage 日志末 N 行 |
 | `error_signatures` | `signature_ids` + `matched_lines`（如 `@cursor/sdk`、`schema already exists`） |
-| `artifact_excerpts` | **codegen 内联 worker**（`.pipeline/workers/codegen/*.tmp.cjs`）摘录，对照是否旧模板 |
+| `artifact_excerpts` | **codegen 内联 worker**（`output-stages/codegen/*.tmp.cjs`）摘录，对照是否旧模板 |
 | `failed_features` | 失败/阻塞的 feature_id、error |
 | `recovery_hints` | 脚本根据签名生成的修复提示（**须逐条处理或写入 evidence**） |
 | `stage_snapshot` | 失败 stage 状态快照 |

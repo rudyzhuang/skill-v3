@@ -2,7 +2,7 @@
 
 [← 规范索引](../std4.md) · [门闸链](../std4.md#2-门闸链汇总) · [编排映射](../std4.md#3-run-pipelinecjs-编排映射) · [卡点速查](../std4.md#4-agent-卡点速查)
 
-> 初始化 `inputs/`、校验需求与云平台凭证、同步 `docs/config.*`、注册本机 runtime，并创建/更新 `.pipeline/stages.json`。
+> 初始化 `inputs/`、校验需求与云平台凭证、同步 `docs/config.*`、注册本机 runtime，并创建/更新 `output-stages/stages.json`。
 
 ## 脚本
 
@@ -37,7 +37,7 @@ node ai-std4/scripts/stages/setup.cjs --project=<业务项目根绝对路径>
 | [`templates/req-template.md`](../templates/req-template.md) | 模板；`inputs/req.md` 不存在时拷贝 |
 | [`templates/config.env.template`](../templates/config.env.template) | 模板；`inputs/config.env` 不存在时拷贝 |
 | [`templates/config.json.template`](../templates/config.json.template) | 模板；`docs/config.dev.json` / `config.release.json` 不存在时由 `sync-config-env.cjs` 拷贝后再填入 |
-| [`templates/stages.json.template`](../templates/stages.json.template) | 模板；`.pipeline/stages.json` 不存在时由 `setup.cjs` 拷贝后再填入 |
+| [`templates/stages.json.template`](../templates/stages.json.template) | 模板；`output-stages/stages.json` 不存在时由 `setup.cjs` 拷贝后再填入 |
 
 > **安全注意**：`inputs/config.env` 与 `docs/config.env` 含云平台密钥，**必须**加入业务项目的 `.gitignore`（`sync-config-env.cjs` 在首次同步时自动追加；若已存在则跳过写入，仅打印 WARN 提示）。
 
@@ -48,7 +48,7 @@ node ai-std4/scripts/stages/setup.cjs --project=<业务项目根绝对路径>
 0. **hash 门控**（见「重跑与 hash 门控」）：读取 `stages.json`（不存在则视为 hash miss）；若命中则直接 `stage_skipped` 并退出 **0**。
 1. **`setup-inputs.cjs`**：拷贝模板到 `<业务项目根>/inputs/`；已存在则跳过（`file_skipped`）。
 2. **初始化或更新 `stages.json`**：
-   - 若 `.pipeline/stages.json` **不存在**：先创建 `.pipeline/` 目录（若不存在）；从 skill 安装目录 `templates/stages.json.template` 拷贝；探测 Git（`git remote get-url origin`、`git symbolic-ref --short HEAD`）填写 `pipeline.project.git` 字段（探测失败时对应字段写 `null`，不报错）。
+   - 若 `output-stages/stages.json` **不存在**（只读兼容 `.pipeline/stages.json`）：创建 `output-stages/`（及 `.pipeline/` 运行时目录）；从 `templates/stages.json.template` 拷贝；探测 Git（`git remote get-url origin`、`git symbolic-ref --short HEAD`）填写 `pipeline.project.git` 字段（探测失败时对应字段写 `null`，不报错）。
    - 若已存在：仅更新 `stages.setup` 部分（**不重置其它 stage 的状态**）。
    - 无论哪种情况：将 `stages.setup.status` 置为 `"started"`，更新 `started_at`（本地时间），写入 `inputs.source_prd_spec`、`inputs.req_hash`（`req.md` SHA-256）、`inputs.config_env_hash`（`config.env` SHA-256，文件不存在时为 `null`）。
 3. **`verify-inputs.cjs`**：检查 `inputs/req.md` 所有带 `*` 的 H2 节非空；检查 `inputs/config.env` 的 **`CURSOR_API_KEY`**、`CLOUD_PROVIDER` 与对应云密钥非空（规则见 [`config.env.template`](../templates/config.env.template)）。**未通过 → 将 `stages.setup.status` 置为 `"pending_user_input"`，退出码 2**，`validation_fail`，列出 `missing[]`（用户补全后重跑 `--from-stage=setup` 即可；`pending_user_input` 状态下 hash 门控同样不命中，确保重跑执行全流程）。
@@ -58,7 +58,7 @@ node ai-std4/scripts/stages/setup.cjs --project=<业务项目根绝对路径>
 
 ### 重跑与 hash 门控
 
-- **首次运行**（`.pipeline/stages.json` 不存在，或 `stages.setup.status` 非 `completed`）：跳过 hash 比对，直接执行全部步骤。
+- **首次运行**（`output-stages/stages.json` 不存在，或 `stages.setup.status` 非 `completed`）：跳过 hash 比对，直接执行全部步骤。
 - **重跑命中条件**：`stages.setup.status=completed` **且** `inputs.req_hash` 与当前 `inputs/req.md` SHA-256 一致 **且** `inputs.config_env_hash` 与当前 `inputs/config.env` SHA-256 一致 → 整段 setup **skipped**（退出码 **0**，`stage_skipped`）。
 - **任意一个 hash 不一致**（用户修改了 `req.md` 或 `config.env`）→ 重跑 verify → sync → register，并刷新两个 hash 字段。
 - 用户补全 inputs 后：`node ai-std4/scripts/run-pipeline.cjs --project=... --from-stage=setup`（见 [卡点速查](../std4.md#4-agent-卡点速查)）。
