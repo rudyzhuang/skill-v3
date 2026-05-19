@@ -16,6 +16,7 @@ const { runWebScenarioHttp } = require('./ui-e2e-browser-http.cjs');
 const { runWebScenarioPlaywright } = require('./ui-e2e-browser-playwright.cjs');
 const { runWebScenarioMcp } = require('./ui-e2e-browser-mcp.cjs');
 const { runMobileScenarioWithRunner, resetMobileSessions } = require('./ui-e2e-dart-runner.cjs');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
 
 /**
  * @param {object} opts
@@ -46,9 +47,10 @@ async function runScenarioWithRunner(opts) {
   const d = new Date(startedAt);
   const startedStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
-  const scLogDir = path.join(projectRoot, 'logs', 'stages', 'ui_e2e');
-  const featLogDir = path.join(projectRoot, 'logs', 'features', sc.feature_id);
-  const snapDir = path.join(projectRoot, '.pipeline', 'logs', 'snapshots', sc.scenario_id);
+  const paths = createPipelinePaths(projectRoot);
+  const scLogDir = paths.stageLogsDir('ui_e2e');
+  const featLogDir = paths.featureLogDir(sc.feature_id);
+  const snapDir = paths.snapshotDir(sc.scenario_id);
   fs.mkdirSync(scLogDir, { recursive: true });
   fs.mkdirSync(featLogDir, { recursive: true });
   fs.mkdirSync(snapDir, { recursive: true });

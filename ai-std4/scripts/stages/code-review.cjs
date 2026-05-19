@@ -28,6 +28,7 @@ const path   = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 
@@ -46,6 +47,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -85,29 +87,23 @@ function strSha256(str) {
 
 /** 读取 stages.json；不存在返回 null */
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 /** 写 stages.json（原子覆盖） */
 function writeStagesJson(obj) {
-  const pipelineDir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  const p = path.join(pipelineDir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 /** 检查 stop.signal 是否存在 */
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 /** 读取 stop.signal 的 reason */
 function getStopReason() {
   try {
-    const raw = fs.readFileSync(path.join(projectRoot, '.pipeline', 'stop.signal'), 'utf8');
+    const raw = fs.readFileSync(paths.stopSignalPath, 'utf8');
     return JSON.parse(raw).reason || 'unknown';
   } catch (_) { return 'unknown'; }
 }
@@ -134,7 +130,7 @@ function gracefulStop(stagesObj) {
   }
 
   try {
-    const signalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+    const signalPath = paths.stopSignalPath;
     if (fs.existsSync(signalPath)) fs.unlinkSync(signalPath);
   } catch (_) { /* ignore */ }
 
@@ -169,7 +165,7 @@ function getFeatureCommit(featureData) {
 /** 兼容 worktree_path 字段及默认路径 */
 function getWorktreePath(featureData, featureId) {
   if (featureData.worktree_path) return featureData.worktree_path;
-  return path.join(projectRoot, '.pipeline', 'worktrees', `v3-${featureId}`);
+  return path.join(paths.worktreesDir, `v3-${featureId}`);
 }
 
 // ── 收集 codegen 目标 features ───────────────────────────────────
@@ -541,7 +537,7 @@ function runDeterministicChecks({ featureId, featureData, worktreePath, designDa
 
 // ── 生成 diff 文件 ─────────────────────────────────────────────────
 function generateDiffFile(featureId, featureData, worktreePath, scopedPaths) {
-  const diffPath = path.join(projectRoot, '.pipeline', `code-review-${featureId}.diff`);
+  const diffPath = paths.stageOutputFile('code-review', `code-review-${featureId}.diff`);
 
   if (!fs.existsSync(worktreePath)) {
     fs.writeFileSync(diffPath, `# worktree not found: ${worktreePath}\n`, 'utf8');
@@ -696,7 +692,7 @@ async function runCodeReviewAgentForFeature({
   featureId, featureData, designData, worktreePath, diffPath,
   deterministicIssues, model, timeoutMs, maxRetries, stagesObj,
 }) {
-  const outputFile = path.join(projectRoot, '.pipeline', `code-review-${featureId}.json`);
+  const outputFile = paths.stageOutputFile('code-review', `code-review-${featureId}.json`);
   const agentId    = `code-review-agent-${featureId}`;
   const t0         = Date.now();
 
@@ -1140,7 +1136,7 @@ function generateSummaryReport({ features, featureResults, decision, criticalIss
       md += `- **错误**: ${fr.error || '见评审 JSON 文件'}\n\n`;
 
       // 读取评审 JSON 中的 issues
-      const reviewFile = path.join(projectRoot, '.pipeline', `code-review-${fid}.json`);
+      const reviewFile = paths.stageOutputFile('code-review', `code-review-${fid}.json`);
       if (fs.existsSync(reviewFile)) {
         try {
           const reviewData = JSON.parse(fs.readFileSync(reviewFile, 'utf8'));
@@ -1299,7 +1295,7 @@ async function main() {
         attempts_used:   0,
         commit_reviewed: null,
         review_hash:     null,
-        review_file:     path.join(projectRoot, '.pipeline', `code-review-${fid}.json`),
+        review_file:     paths.stageOutputFile('code-review', `code-review-${fid}.json`),
         critical_issues: 0,
         warnings:        0,
         total_issues:    0,
@@ -1370,7 +1366,7 @@ async function main() {
           attempts_used:   0,
           commit_reviewed: null,
           review_hash:     null,
-          review_file:     path.join(projectRoot, '.pipeline', `code-review-${fid}.json`),
+          review_file:     paths.stageOutputFile('code-review', `code-review-${fid}.json`),
           critical_issues: 0,
           warnings:        0,
           total_issues:    0,
@@ -1508,7 +1504,7 @@ async function main() {
       fEntry.attempts_used   = r.attemptsUsed || 1;
       fEntry.commit_reviewed = r.commit || getFeatureCommit(codegenFeatures[fid]) || null;
       fEntry.review_hash     = r.reviewHash || null;
-      fEntry.review_file     = path.join(projectRoot, '.pipeline', `code-review-${fid}.json`);
+      fEntry.review_file     = paths.stageOutputFile('code-review', `code-review-${fid}.json`);
       fEntry.critical_issues = r.criticalIssues || 0;
       fEntry.warnings        = r.warnings || 0;
       fEntry.total_issues    = r.totalIssues || 0;
@@ -1538,7 +1534,7 @@ async function main() {
   const featureReviews = [];
   for (const fid of featureIds) {
     const r         = featureResultMap[fid] || {};
-    const reviewFile = path.join(projectRoot, '.pipeline', `code-review-${fid}.json`);
+    const reviewFile = paths.stageOutputFile('code-review', `code-review-${fid}.json`);
     let checklistPassed = r.checklistPassed || 0;
     let checklistFailed = r.checklistFailed || 0;
     let issuesSummary   = '';
@@ -1625,9 +1621,9 @@ async function main() {
   });
 
   // 生成 code-review-summary.md
-  const reportsDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportsDir = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportsDir, { recursive: true });
-  const summaryPath = path.join(reportsDir, 'code-review-summary.md');
+  const summaryPath = paths.stageSummaryPath('code-review', 'code-review-summary.md');
   const summaryContent = generateSummaryReport({
     features:            codegenFeatures,
     featureResults:      featureResultMap,

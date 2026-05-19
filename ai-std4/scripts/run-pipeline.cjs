@@ -27,6 +27,7 @@ const crypto = require('crypto');
 const { spawnSync, spawn } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('./libs/logger.cjs');
+const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
 const { loadProjectEnv, getSkillsRoot } = require('./libs/pipeline-config.cjs');
 
 /** 每次 recovery 前加载最新 pipeline-recovery（Agent 可能在上一轮修改了该文件） */
@@ -75,9 +76,10 @@ const runId = args['run-id'] ? String(args['run-id']) : generateRunId();
 // ── 路径常量 ──────────────────────────────────────────────────────
 const SCRIPTS_DIR    = __dirname;                               // ai-std4/scripts/
 const STAGES_DIR     = path.join(SCRIPTS_DIR, 'stages');        // ai-std4/scripts/stages/
-const pipelineDir    = path.join(projectRoot, '.pipeline');
-const stopSignalPath = path.join(pipelineDir, 'stop.signal');
-const stagesJsonPath = path.join(pipelineDir, 'stages.json');
+const paths          = createPipelinePaths(projectRoot);
+const pipelineDir    = paths.pipelineDir;
+const stopSignalPath = paths.stopSignalPath;
+const stagesJsonPath = paths.stagesJsonPath;
 
 // ── stage → 脚本文件名映射 ────────────────────────────────────────
 const stageScripts = {
@@ -115,7 +117,8 @@ const PIPELINE_STEPS = [
 ];
 
 // ── Logger（需先确保目录存在）────────────────────────────────────
-fs.mkdirSync(pipelineDir, { recursive: true });
+paths.ensureRuntimeDirs();
+paths.ensureOutputStagesDir();
 const log = createLogger({ projectRoot, stage: 'pipeline', runId });
 
 // ── from / to stage 过滤工具 ─────────────────────────────────────
@@ -158,13 +161,11 @@ function isLastStep(step) {
 
 // ── stages.json 读写 ──────────────────────────────────────────────
 function readStagesJson() {
-  if (!fs.existsSync(stagesJsonPath)) return null;
-  try { return JSON.parse(fs.readFileSync(stagesJsonPath, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  fs.writeFileSync(stagesJsonPath, JSON.stringify(obj, null, 2) + '\n', 'utf8');
+  return paths.writeStagesJson(obj);
 }
 
 // ── stop.signal 检查（检测到信号则写日志并 exit 5）───────────────
@@ -747,7 +748,7 @@ async function main() {
                         finalStages.stages.report.outputs &&
                         finalStages.stages.report.outputs.overall) || null,
     duration_ms:       durationMs,
-    report_path:       path.join(pipelineDir, 'reports'),
+    report_path:       paths.stageOutputDir('report'),
     process_exit_code: processExitCode,
   });
 

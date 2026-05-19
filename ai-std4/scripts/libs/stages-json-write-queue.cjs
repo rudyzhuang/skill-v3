@@ -3,8 +3,7 @@
 /**
  * 串行化 stages.json 读-改-写，避免并发 worker 竞态。
  */
-const fs   = require('fs');
-const path = require('path');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
 
 function getStageRecord(stages, stageName) {
   if (!stages) return {};
@@ -23,22 +22,14 @@ function resolveStageRef(stages, stageKey) {
 }
 
 function createStagesJsonWriteQueue(projectRoot, { touchUpdatedAt } = {}) {
-  const pipelineDir    = path.join(projectRoot, '.pipeline');
-  const stagesJsonPath = path.join(pipelineDir, 'stages.json');
+  const paths = createPipelinePaths(projectRoot);
 
   function readStagesJson() {
-    if (!fs.existsSync(stagesJsonPath)) return null;
-    try {
-      return JSON.parse(fs.readFileSync(stagesJsonPath, 'utf8'));
-    } catch (_) {
-      return null;
-    }
+    return paths.readStagesJson();
   }
 
   function writeStagesJson(obj) {
-    fs.mkdirSync(pipelineDir, { recursive: true });
-    fs.writeFileSync(stagesJsonPath, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-    return stagesJsonPath;
+    return paths.writeStagesJson(obj);
   }
 
   let chain = Promise.resolve();

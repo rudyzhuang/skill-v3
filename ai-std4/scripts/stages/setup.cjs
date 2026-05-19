@@ -23,6 +23,7 @@ const fs    = require('fs');
 const path  = require('path');
 const crypto = require('crypto');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort, datetimeFromRunId } = require('../libs/logger.cjs');
 const { setupInputs }    = require('../libs/setup-inputs.cjs');
 const { verifyInputs }   = require('../libs/verify-inputs.cjs');
@@ -46,6 +47,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -80,22 +82,12 @@ function fileSha256(filePath) {
 
 /** 读取 stages.json；不存在返回 null */
 function readStagesJson() {
-  const stagesPath = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(stagesPath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(stagesPath, 'utf8'));
-  } catch (_) {
-    return null;
-  }
+  return paths.readStagesJson();
 }
 
 /** 原子写入 stages.json */
 function writeStagesJson(obj) {
-  const pipelineDir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  const stagesPath = path.join(pipelineDir, 'stages.json');
-  fs.writeFileSync(stagesPath, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return stagesPath;
+  return paths.writeStagesJson(obj);
 }
 
 /** 探测 git 信息 */
@@ -125,7 +117,7 @@ async function main() {
   const startedAtStr = formatLocalTimeShort(startedAt);
 
   // 0. 检测 stop.signal
-  const stopSignalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+  const stopSignalPath = paths.stopSignalPath;
   if (fs.existsSync(stopSignalPath)) {
     log.info('pipeline_stop', '检测到 stop.signal，立即中止 setup', {
       stage: 'setup',
@@ -256,7 +248,7 @@ async function main() {
 
     const stagesPath = writeStagesJson(stagesObj);
     const stat = fs.statSync(stagesPath);
-    log.info('file_created', '已从模板创建 .pipeline/stages.json', {
+    log.info('file_created', '已从模板创建 output-stages/stages.json', {
       path: stagesPath,
       size_bytes: stat.size,
       from_template: true,
@@ -277,7 +269,7 @@ async function main() {
 
     const stagesPath = writeStagesJson(stagesObj);
     const stat = fs.statSync(stagesPath);
-    log.info('file_updated', '已更新 .pipeline/stages.json（status=started）', {
+    log.info('file_updated', '已更新 output-stages/stages.json（status=started）', {
       path: stagesPath,
       size_bytes: stat.size,
     });

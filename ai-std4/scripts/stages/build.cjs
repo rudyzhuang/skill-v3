@@ -24,6 +24,7 @@ const path   = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { probe }     = require('../libs/build-probe.cjs');
 const { runUnit }   = require('../libs/build-runner.cjs');
@@ -43,6 +44,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const runId      = args['run-id'] || null;
 const forceRerun = args['force-rerun'] === true || args['force-rerun'] === 'true';
@@ -52,17 +54,11 @@ const log = createLogger({ projectRoot, stage: 'build', runId });
 
 // ── stages.json 读写 ──────────────────────────────────────────────
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 // ── config.dev.json 读取 ──────────────────────────────────────────
@@ -84,7 +80,7 @@ function getHeadCommit() {
 }
 
 // ── PID 锁 ────────────────────────────────────────────────────────
-const locksDir    = path.join(projectRoot, '.pipeline', 'locks');
+const locksDir    = paths.locksDir;
 const pidLockPath = path.join(locksDir, 'build.pid');
 
 function acquirePidLock() {
@@ -112,7 +108,7 @@ function releasePidLock() {
 }
 
 // ── stop.signal ───────────────────────────────────────────────────
-const stopSignalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+const stopSignalPath = paths.stopSignalPath;
 
 function getStopReason() {
   if (!fs.existsSync(stopSignalPath)) return null;
@@ -557,7 +553,7 @@ async function main() {
   }
 
   // ── 12. 并行构建 ──────────────────────────────────────────────────
-  const logDir  = path.join(projectRoot, 'logs', 'stages', 'build');
+  const logDir  = paths.stageLogsDir('build');
   const datetime = log.datetime;
 
   log.info('build_batch_start',
@@ -727,8 +723,8 @@ async function main() {
   }));
 
   // 生成报告
-  const reportDir  = path.join(projectRoot, '.pipeline', 'reports');
-  const reportPath = path.join(reportDir, 'build-summary.md');
+  const reportDir  = path.join(paths.stageOutputDir('report'));
+  const reportPath = paths.stageSummaryPath('build', 'build-summary.md');
   fs.mkdirSync(reportDir, { recursive: true });
 
   const reportContent = generateBuildReport({

@@ -36,6 +36,7 @@ const path   = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const {
   loadProjectEnv,
@@ -68,6 +69,7 @@ const projectRoot       = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths             = createPipelinePaths(projectRoot);
 
 const runId             = args['run-id'] || null;
 const featureFilter     = args.feature   || null;
@@ -85,17 +87,11 @@ const log = createLogger({ projectRoot, stage: 'ui_e2e', runId });
 
 // ── stages.json 读写 ──────────────────────────────────────────────
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 // ── 配置读取 ──────────────────────────────────────────────────────
@@ -133,7 +129,7 @@ function getUiE2eCfg(config) {
 }
 
 // ── PID 锁 ────────────────────────────────────────────────────────
-const locksDir    = path.join(projectRoot, '.pipeline', 'locks');
+const locksDir    = paths.locksDir;
 const pidLockPath = path.join(locksDir, 'ui_e2e.pid');
 
 function acquirePidLock() {
@@ -161,7 +157,7 @@ function releasePidLock() {
 }
 
 // ── stop.signal ───────────────────────────────────────────────────
-const stopSignalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+const stopSignalPath = paths.stopSignalPath;
 
 function getStopReason() {
   if (!fs.existsSync(stopSignalPath)) return null;
@@ -337,9 +333,9 @@ async function runScenarioViaSdkAgent({ sc, config, datetime, scenarioTimeoutMs,
   const startedAt  = Date.now();
   const startedStr = formatLocalTimeShort(new Date(startedAt));
 
-  const scLogDir   = path.join(projectRoot, 'logs', 'stages', 'ui_e2e');
-  const featLogDir = path.join(projectRoot, 'logs', 'features', sc.feature_id);
-  const snapDir    = path.join(projectRoot, '.pipeline', 'logs', 'snapshots', sc.scenario_id);
+  const scLogDir   = paths.stageLogsDir('ui_e2e');
+  const featLogDir = path.join(paths.logsRoot, 'features', sc.feature_id);
+  const snapDir    = path.join(paths.logsRoot, 'snapshots', sc.scenario_id);
   fs.mkdirSync(scLogDir,   { recursive: true });
   fs.mkdirSync(featLogDir, { recursive: true });
   fs.mkdirSync(snapDir,    { recursive: true });
@@ -384,7 +380,7 @@ async function runScenarioViaSdkAgent({ sc, config, datetime, scenarioTimeoutMs,
 
   // 执行（含即时重试）— SDK Agent + 结构化结果 JSON
   async function attemptExecution() {
-    const contextPath = path.join(projectRoot, '.pipeline', `ui-e2e-scenario-ctx-${sc.scenario_id}.json`);
+    const contextPath = paths.stageOutputFile('ui_e2e', `ui-e2e-scenario-ctx-${sc.scenario_id}.json`);
     fs.writeFileSync(contextPath, JSON.stringify({
       scenario_id: sc.scenario_id,
       feature_id:  sc.feature_id,
@@ -394,7 +390,7 @@ async function runScenarioViaSdkAgent({ sc, config, datetime, scenarioTimeoutMs,
       expect:      sc.expect,
     }, null, 2) + '\n', 'utf8');
 
-    const scenarioResultPath = path.join(projectRoot, '.pipeline', `ui-e2e-scenario-result-${sc.scenario_id}.json`);
+    const scenarioResultPath = paths.stageOutputFile('ui_e2e', `ui-e2e-scenario-result-${sc.scenario_id}.json`);
     const cfg   = readPipelineConfigJson(projectRoot, configName);
     const model = resolvePipelineModel(cfg);
 
@@ -577,8 +573,8 @@ async function runWithConcurrency(items, concurrency, fn, shouldStop) {
 // ── 分诊 Agent（SDK）──────────────────────────────────────────────
 async function runTriageAgent({ featureId, failedScenarioResults, stages, session, attempt }) {
   const skillsRoot  = getSkillsRoot();
-  const lastErrPath = path.join(projectRoot, '.pipeline', `ui-e2e-last-error-${featureId}.json`);
-  const triagePath  = path.join(projectRoot, '.pipeline', `ui-e2e-triage-${featureId}.json`);
+  const lastErrPath = paths.stageOutputFile('ui_e2e', `ui-e2e-last-error-${featureId}.json`);
+  const triagePath  = paths.stageOutputFile('ui_e2e', `ui-e2e-triage-${featureId}.json`);
 
   // 组装错误包
   const lastErrorDoc = {
@@ -597,7 +593,7 @@ async function runTriageAgent({ featureId, failedScenarioResults, stages, sessio
     design_info: (stages.stages && stages.stages.design &&
                   stages.stages.design.features &&
                   stages.stages.design.features[featureId]) || null,
-    report_path: path.join(projectRoot, '.pipeline', 'reports', `ui-e2e-${session}.md`),
+    report_path: path.join(paths.stageOutputDir('report'), `ui-e2e-${session}.md`),
   };
   fs.writeFileSync(lastErrPath, JSON.stringify(lastErrorDoc, null, 2) + '\n', 'utf8');
 
@@ -1216,7 +1212,7 @@ async function main() {
   const timedOutAny = allResults.some(r => r.status === 'timed_out');
 
   // 生成报告
-  const reportDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportDir = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportDir, { recursive: true });
   const reportPath = path.join(reportDir, `ui-e2e-${session}.md`);
   fs.writeFileSync(reportPath, generateReport({

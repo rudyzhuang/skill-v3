@@ -8,6 +8,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
 
 const args = Object.fromEntries(
   process.argv.slice(2)
@@ -24,7 +25,8 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 
-const stagesPath = path.join(projectRoot, '.pipeline', 'stages.json');
+const paths = createPipelinePaths(projectRoot);
+const stagesPath = paths.stagesJsonPath;
 if (!fs.existsSync(stagesPath)) {
   process.stderr.write(`[recovery-reset-codegen] 未找到 ${stagesPath}\n`);
   process.exit(1);

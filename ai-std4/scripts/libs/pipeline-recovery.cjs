@@ -12,6 +12,7 @@ const { spawnSync } = require('child_process');
 const { getCursorApiKey, getSkillsRoot, readConfigJson, resolvePipelineModel, loadProjectEnv } = require('./pipeline-config.cjs');
 const gitStageSync = require('./git-stage-sync.cjs');
 const { invokeSdkAgent } = require('./invoke-sdk-agent.cjs');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
 
 const NON_RECOVERABLE_EXIT = new Set([0, 2, 5, 9]);
 const NO_RECOVERY_STEPS    = new Set(['report']);
@@ -122,7 +123,8 @@ function collectFailedFeatures(stages, step) {
 }
 
 function collectCodegenWorkerExcerpts(projectRoot, maxBytes) {
-  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  const paths = createPipelinePaths(projectRoot);
+  const workerDir = paths.codegenWorkersDir();
   if (!fs.existsSync(workerDir)) return [];
   const excerpts = [];
   let budget = maxBytes;
@@ -223,7 +225,8 @@ function shouldClearCodegenWorkers({ recovery, step, cfg }) {
 }
 
 function clearStaleCodegenWorkers(projectRoot, log) {
-  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  const paths = createPipelinePaths(projectRoot);
+  const workerDir = paths.codegenWorkersDir();
   if (!fs.existsSync(workerDir)) return { removed: [] };
   const removed = [];
   for (const name of fs.readdirSync(workerDir)) {
@@ -260,7 +263,8 @@ function isCodegenRecoverableFailure(err, feat) {
 }
 
 function readLatestCodegenArchiveState(projectRoot, featureId) {
-  const archiveDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen', 'archive');
+  const paths = createPipelinePaths(projectRoot);
+  const archiveDir = path.join(paths.codegenWorkersDir(), 'archive');
   if (!fs.existsSync(archiveDir)) return null;
   const prefix = `${featureId}.`;
   const candidates = fs.readdirSync(archiveDir)
@@ -276,7 +280,8 @@ function readLatestCodegenArchiveState(projectRoot, featureId) {
 }
 
 function scanCodegenArchiveSignatures(projectRoot) {
-  const archiveDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen', 'archive');
+  const paths = createPipelinePaths(projectRoot);
+  const archiveDir = path.join(paths.codegenWorkersDir(), 'archive');
   if (!fs.existsSync(archiveDir)) return { signature_ids: [], matched_lines: [] };
   const ids = [];
   const lines = [];
@@ -320,6 +325,7 @@ function shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg }) {
  * skill 修复 SDK 加载后，将触顶的 failed/blocked codegen feature 重置为 pending 以便重跑。
  */
 function resetCodegenSdkFailures(projectRoot, stages, log) {
+  const paths = createPipelinePaths(projectRoot);
   const cg = stages && stages.stages && stages.stages.codegen;
   if (!cg || !cg.features) return { reset: [] };
 
@@ -351,7 +357,7 @@ function resetCodegenSdkFailures(projectRoot, stages, log) {
     }
   }
 
-  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  const workerDir = paths.codegenWorkersDir();
   for (const fid of resetIds) {
     const feat = features[fid];
     if (!feat) continue;
@@ -389,6 +395,7 @@ const DESIGN_REVIEW_TIMEOUT_RE = /Agent timeout after \d+ms/i;
  * skill 修复 design-review 调度后，将超时失败的 review feature 重置为 pending 以便重跑。
  */
 function resetDesignReviewFailures(projectRoot, stages, log) {
+  const paths = createPipelinePaths(projectRoot);
   const dr = stages && stages.stages && stages.stages.design_review;
   if (!dr || !dr.features) return { reset: [] };
 
@@ -406,7 +413,7 @@ function resetDesignReviewFailures(projectRoot, stages, log) {
     feat.review_hash = null;
     feat.decision = null;
     feat.can_enter_codegen = false;
-    const reviewPath = path.join(projectRoot, '.pipeline', `design-review-${fid}.json`);
+    const reviewPath = paths.stageOutputFile('design-review', `design-review-${fid}.json`);
     try {
       if (fs.existsSync(reviewPath)) fs.unlinkSync(reviewPath);
     } catch (_) { /* */ }
@@ -512,9 +519,10 @@ function stageKeyInJson(step) {
 
 // ── 日志尾行 ──────────────────────────────────────────────────────
 function readLogTail(projectRoot, logStages, maxLines) {
+  const paths = createPipelinePaths(projectRoot);
   const out = {};
   for (const st of logStages) {
-    const dir = path.join(projectRoot, 'logs', 'stages', st);
+    const dir = paths.stageLogsDir(st);
     if (!fs.existsSync(dir)) {
       out[st] = [];
       continue;

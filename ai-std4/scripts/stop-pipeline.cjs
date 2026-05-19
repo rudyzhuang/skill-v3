@@ -15,6 +15,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
 
 // ── 参数解析 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -35,9 +36,10 @@ const projectRoot = args.project
 const reason = args.reason ? String(args.reason) : 'user_request';
 
 // ── 路径常量 ──────────────────────────────────────────────────────
-const pipelineDir    = path.join(projectRoot, '.pipeline');
-const stagesJsonPath = path.join(pipelineDir, 'stages.json');
-const stopSignalPath = path.join(pipelineDir, 'stop.signal');
+const paths          = createPipelinePaths(projectRoot);
+const pipelineDir    = paths.pipelineDir;
+const stagesJsonPath = paths.stagesJsonPath;
+const stopSignalPath = paths.stopSignalPath;
 
 // ── 校验：stages.json 必须存在 ────────────────────────────────────
 if (!fs.existsSync(stagesJsonPath)) {

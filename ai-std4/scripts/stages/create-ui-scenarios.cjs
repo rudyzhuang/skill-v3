@@ -33,6 +33,7 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 
@@ -51,6 +52,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -83,27 +85,21 @@ function fileSha256(filePath) {
 
 /** 读取 stages.json；不存在或解析失败返回 null */
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 /** 写 stages.json（原子覆盖） */
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 function getStopReason() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(projectRoot, '.pipeline', 'stop.signal'), 'utf8')).reason || 'unknown';
+    return JSON.parse(fs.readFileSync(paths.stopSignalPath, 'utf8')).reason || 'unknown';
   } catch (_) { return 'unknown'; }
 }
 
@@ -130,7 +126,7 @@ function gracefulStop(stagesObj) {
   }
 
   try {
-    const sig = path.join(projectRoot, '.pipeline', 'stop.signal');
+    const sig = paths.stopSignalPath;
     if (fs.existsSync(sig)) fs.unlinkSync(sig);
   } catch (_) { /* ignore */ }
 
@@ -929,9 +925,9 @@ async function doValidate(stagesObj, targetFeatureIds) {
   cus.outputs.duration_ms      = Date.now() - startedAt;
 
   // 生成摘要报告
-  const reportsDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportsDir = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportsDir, { recursive: true });
-  const summaryPath  = path.join(reportsDir, 'create-ui-scenarios-summary.md');
+  const summaryPath  = paths.stageSummaryPath('create-ui-scenarios', 'create-ui-scenarios-summary.md');
   const summaryLines = [
     '# create-ui-scenarios 阶段摘要',
     '',

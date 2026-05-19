@@ -1,13 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Read .pipeline/stages.json from project root (Node.js / wrangler local dev only). */
+/** Read output-stages/stages.json (legacy: .pipeline/stages.json) from project root. */
 export function readStagesJsonFromRoot(rootPath: string): unknown | null {
-  try {
-    const filePath = join(rootPath, '.pipeline', 'stages.json');
-    const content = readFileSync(filePath, 'utf8');
-    return JSON.parse(content) as unknown;
-  } catch {
-    return null;
+  const candidates = [
+    join(rootPath, 'output-stages', 'stages.json'),
+    join(rootPath, '.pipeline', 'stages.json'),
+  ];
+  for (const filePath of candidates) {
+    try {
+      const content = readFileSync(filePath, 'utf8');
+      return JSON.parse(content) as unknown;
+    } catch {
+      /* try next */
+    }
   }
+  return null;
 }

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
 
 /**
  * 格式化本地时间（用于日志行前缀）
@@ -76,13 +77,12 @@ function datetimeFromRunId(runId) {
  */
 function createLogger({ projectRoot, stage, runId }) {
   const datetime = datetimeFromRunId(runId);
+  const paths = createPipelinePaths(projectRoot);
+  paths.ensureRuntimeDirs();
+  fs.mkdirSync(path.dirname(paths.stageLogPath(stage, datetime)), { recursive: true });
 
-  const globalLogPath = path.join(projectRoot, 'logs', `${datetime}.log`);
-  const stageLogPath = path.join(projectRoot, 'logs', 'stages', stage, `${datetime}.log`);
-
-  // 确保目录存在
-  fs.mkdirSync(path.dirname(globalLogPath), { recursive: true });
-  fs.mkdirSync(path.dirname(stageLogPath), { recursive: true });
+  const globalLogPath = paths.globalLogPath(datetime);
+  const stageLogPath  = paths.stageLogPath(stage, datetime);
 
   /**
    * 写一行日志

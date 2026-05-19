@@ -22,6 +22,7 @@
 const fs   = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
 
 // ── 参数解析 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -42,9 +43,10 @@ const projectRoot = args.project
 const tailLines = Math.max(10, parseInt(String(args.tail || '50'), 10) || 50);
 
 // ── 路径常量 ──────────────────────────────────────────────────────
-const pipelineDir        = path.join(projectRoot, '.pipeline');
-const stagesJsonPath     = path.join(pipelineDir, 'stages.json');
-const stopSignalPath     = path.join(pipelineDir, 'stop.signal');
+const paths              = createPipelinePaths(projectRoot);
+const pipelineDir        = paths.pipelineDir;
+const stagesJsonPath     = paths.stagesJsonPath;
+const stopSignalPath     = paths.stopSignalPath;
 const stopPipelineScript = path.join(__dirname, 'stop-pipeline.cjs');
 
 // ── 校验：stages.json 必须存在 ────────────────────────────────────
@@ -489,10 +491,10 @@ function getLogFilePath(stagesData, { stageName, featureId } = {}) {
   const datetime = getPipelineDatetime(stagesData);
   if (!datetime) return null;
   if (featureId) {
-    return path.join(projectRoot, 'logs', 'features', featureId, `${datetime}.log`);
+    return path.join(paths.logsRoot, 'features', featureId, `${datetime}.log`);
   }
   if (!stageName) return null;
-  return path.join(projectRoot, 'logs', 'stages', stageName, `${datetime}.log`);
+  return paths.stageLogPath(stageName, datetime);
 }
 
 function findNewestLogInDir(dir) {
@@ -511,14 +513,14 @@ function resolveLogFilePath(stagesData, { trackStage, selectedFeatureId } = {}) 
   if (selectedFeatureId) {
     const exact = getLogFilePath(stagesData, { featureId: selectedFeatureId });
     if (exact && fs.existsSync(exact)) return exact;
-    const dir = path.join(projectRoot, 'logs', 'features', selectedFeatureId);
+    const dir = path.join(paths.logsRoot, 'features', selectedFeatureId);
     return findNewestLogInDir(dir) || exact;
   }
   const stageName = trackStage || getCurrentStage(stagesData);
   const exact = getLogFilePath(stagesData, { stageName });
   if (exact && fs.existsSync(exact)) return exact;
   if (stageName) {
-    const dir = path.join(projectRoot, 'logs', 'stages', stageName);
+    const dir = paths.stageLogsDir(stageName);
     return findNewestLogInDir(dir) || exact;
   }
   return null;

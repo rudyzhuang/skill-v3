@@ -26,6 +26,7 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort, datetimeFromRunId } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 const { applyDeployInference } = require('../libs/infer-deploy-services.cjs');
@@ -46,6 +47,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -101,29 +103,23 @@ function fileSha256(filePath) {
 
 /** 读取 stages.json；不存在返回 null */
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 /** 写 stages.json（原子覆盖） */
 function writeStagesJson(obj) {
-  const pipelineDir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  const p = path.join(pipelineDir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 /** 检查 stop.signal 是否存在 */
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 /** 读取 stop.signal 的 reason */
 function getStopReason() {
   try {
-    const raw = fs.readFileSync(path.join(projectRoot, '.pipeline', 'stop.signal'), 'utf8');
+    const raw = fs.readFileSync(paths.stopSignalPath, 'utf8');
     return JSON.parse(raw).reason || 'unknown';
   } catch (_) { return 'unknown'; }
 }
@@ -155,7 +151,7 @@ function gracefulStop(stagesObj) {
 
   // 删除 stop.signal（避免下次重跑被误拦截）
   try {
-    const signalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+    const signalPath = paths.stopSignalPath;
     if (fs.existsSync(signalPath)) fs.unlinkSync(signalPath);
   } catch (_) { /* ignore */ }
 
@@ -926,7 +922,7 @@ async function main() {
   stagesObj.pipeline.updated_at = formatLocalTimeShort();
   writeStagesJson(stagesObj);
   log.info('file_updated', '已写 prd status=running', {
-    path: path.join(projectRoot, '.pipeline', 'stages.json'), status: 'running',
+    path: paths.stagesJsonPath, status: 'running',
   });
 
   if (skipAgentA) {

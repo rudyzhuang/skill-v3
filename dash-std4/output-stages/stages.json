@@ -1,0 +1,1444 @@
+{
+  "pipeline": {
+    "current_stage": "report",
+    "last_completed_stage": "prd-review",
+    "updated_at": "2026-05-20 02:49:26 +0800",
+    "updated_by": "ai-std4",
+    "project": {
+      "project_id": "proj-03f879fa",
+      "root_path": "/Users/guodongzhuang/.cursor/skills/dash-std4",
+      "name": "DashStd4",
+      "git": {
+        "remote": "origin",
+        "remote_url": "https://github.com/rudyzhuang/skill-v3.git",
+        "default_branch": "main",
+        "repo_initialized_at": "2026-05-19 22:44:25 +0800",
+        "remote_configured_at": null
+      }
+    },
+    "run_id": "2026-05-19_22-44-50-60f9e970",
+    "started_at": "2026-05-19 23:43:49 +0800",
+    "pipeline_complete_at": "2026-05-20 02:49:26 +0800",
+    "teardown_at": "2026-05-20 02:49:26 +0800",
+    "recovery_history": [
+      {
+        "stage": "design_phase",
+        "run_id": "2026-05-19_22-44-50-60f9e970",
+        "exit_code": 3,
+        "attempt": 1,
+        "decision": "fix",
+        "repair_target": "skill",
+        "commit": "449d23b",
+        "pushed": true,
+        "at": "2026-05-19 22:55:34 +0800"
+      },
+      {
+        "stage": "design_phase",
+        "run_id": "2026-05-19_22-44-50-60f9e970",
+        "exit_code": 4,
+        "attempt": 1,
+        "decision": "fix",
+        "repair_target": "skill",
+        "commit": "8c79cd7",
+        "pushed": false,
+        "at": "2026-05-19 23:39:24 +0800"
+      },
+      {
+        "stage": "design_phase",
+        "run_id": "2026-05-19_22-44-50-60f9e970",
+        "exit_code": 4,
+        "attempt": 2,
+        "decision": "fix",
+        "repair_target": "skill",
+        "commit": "9c19a5d",
+        "pushed": false,
+        "at": "2026-05-19 23:43:49 +0800"
+      }
+    ]
+  },
+  "stages": {
+    "setup": {
+      "status": "completed",
+      "started_at": "2026-05-19 22:44:24 +0800",
+      "completed_at": "2026-05-19 22:44:25 +0800",
+      "inputs": {
+        "source_prd_spec": "/Users/guodongzhuang/.cursor/skills/dash-std4/inputs/req.md",
+        "req_hash": "16f81e612531a706f27e99a8d828f2414658b014fd4524b7c9807401431f5064",
+        "config_env_hash": "e8c106096e18d6121648150b4bb33af01f0e83ec4f9ea4b1182b312ed75ca85c",
+        "summary_hash": "16f81e612531a706f27e99a8d828f2414658b014fd4524b7c9807401431f5064",
+        "raw_input_refs": []
+      },
+      "outputs": {
+        "config_dev": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.dev.json",
+        "config_release": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.release.json",
+        "config_env": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.env",
+        "client_targets": [],
+        "duration_ms": 167,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-19 22:44:25 +0800",
+        "summary": null,
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": [
+          "CURSOR_SKILLS_ROOT 未设置，将使用默认 ~/.cursor/skills"
+        ]
+      },
+      "generated_files": [
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/inputs/req.md",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/inputs/config.env",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.dev.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.release.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.env",
+        "/Users/guodongzhuang/.cursor/skills/_projects/DashStd4/runtime.json"
+      ],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": null
+      }
+    },
+    "prd": {
+      "status": "completed",
+      "started_at": "2026-05-19 22:44:50 +0800",
+      "completed_at": "2026-05-19 22:48:16 +0800",
+      "inputs": {
+        "req_hash": "16f81e612531a706f27e99a8d828f2414658b014fd4524b7c9807401431f5064",
+        "prd_spec_hash": "970b1fdac677a7c8af4ca9cb1cce3b6eae291072aa2055ccb344429ea0ffab5e",
+        "source_req": "/Users/guodongzhuang/.cursor/skills/dash-std4/inputs/req.md",
+        "raw_input_refs": []
+      },
+      "outputs": {
+        "config_dev": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.dev.json",
+        "config_release": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.release.json",
+        "config_env": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/config.env",
+        "client_targets": [
+          "admin",
+          "backend"
+        ],
+        "features": [
+          {
+            "feature_id": "AUTH-LOGIN-001",
+            "name": "管理员登录与会话",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "管理后台受 Session/Cookie 保护；提供登录页，校验凭据后建立会话；未登录访问受保护路由时跳转登录；支持登出。默认管理员凭据仅由部署环境配置，不在 PRD 或前端代码中硬编码。admin 与 api 跨子域须通过 credentials 与 Cookie Domain 策略保持一致。",
+            "client_targets": [
+              "admin",
+              "backend"
+            ],
+            "dependencies": [],
+            "sources": {
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          },
+          {
+            "feature_id": "AUTH-USER-001",
+            "name": "用户管理（管理员创建账号）",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "已登录的管理员（admin、super_admin）可在后台创建、查看与管理其他用户账号；支持更新用户状态（启用/禁用）与角色（super_admin、admin、operator）。环境引导的默认管理员（is_bootstrap）不可通过界面删除或禁用。",
+            "client_targets": [
+              "admin",
+              "backend"
+            ],
+            "dependencies": [
+              "AUTH-LOGIN-001"
+            ],
+            "sources": {
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          },
+          {
+            "feature_id": "BACKEND-API-PIPELINE-001",
+            "name": "流水线运行数据上报 API",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "集成方通过 Open API 新建项目并上报 `.pipeline/stages.json` 及关联运行数据，供看板与管理端只读展示。",
+            "client_targets": [
+              "backend"
+            ],
+            "dependencies": [],
+            "sources": {
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          },
+          {
+            "feature_id": "BACKEND-API-QUERY-001",
+            "name": "项目查询 Open API",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "供 ai-std4 或集成方通过 Bearer Token / API Key 查询已登记项目，支撑基于 std4 的远程项目开发与状态拉取。",
+            "client_targets": [
+              "backend"
+            ],
+            "dependencies": [],
+            "sources": {
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          },
+          {
+            "feature_id": "PROJECT-CREATE-001",
+            "name": "新建项目（req 表单字段）",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "提供新建项目表单，字段对齐 ai-std4 inputs/req.md：项目中/英文名称、项目简介、客户端目标多选（admin、backend）；含 is_new 标识「新增」来源。仅 admin、super_admin 可访问与提交。",
+            "client_targets": [
+              "admin",
+              "backend"
+            ],
+            "dependencies": [
+              "AUTH-LOGIN-001",
+              "PROJECT-LIST-001"
+            ],
+            "sources": {
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          },
+          {
+            "feature_id": "PROJECT-DASH-001",
+            "name": "项目流水线看板",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "只读看板页展示指定项目的 ai-std4 流水线详情：阶段表、feature 流水线、当前 stage、阻塞摘要、日志 tail；数据经 GET /api/projects/:id/pipeline 聚合返回，容忍 data_status 为 empty/partial 的空态。",
+            "client_targets": [
+              "admin",
+              "backend"
+            ],
+            "dependencies": [
+              "PROJECT-LIST-001"
+            ],
+            "sources": {
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          },
+          {
+            "feature_id": "PROJECT-LIST-001",
+            "name": "项目列表与状态",
+            "priority": "P0",
+            "phase": "mvp",
+            "description": "登录后默认进入项目列表，展示已登记项目的中英文名称、登记/流水线状态摘要（含 pipeline_summary）；支持筛选或搜索；点击行可在新标签页打开该项目流水线看板。operator 与 admin 均可只读访问列表。",
+            "client_targets": [
+              "admin",
+              "backend"
+            ],
+            "dependencies": [
+              "AUTH-LOGIN-001"
+            ],
+            "sources": {
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+            }
+          }
+        ],
+        "features_hash": "aaf51918d192db6a1bd0ce84c1fa7ab1c4d1619f43c360e52597d16e66580198",
+        "features_total": 7,
+        "duration_ms": 205754,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-19 22:48:16 +0800",
+        "summary": null,
+        "required_files": [
+          "docs/prd-spec.md",
+          "docs/prd-admin.json",
+          "docs/prd-backend.json",
+          "docs/config.dev.json"
+        ],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-spec.md",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/feature_list-admin.md",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/feature_list-backend.md"
+      ],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": "git.auto_commit=false"
+      }
+    },
+    "ui_e2e": {
+      "status": "failed",
+      "started_at": "2026-05-20 02:48:10 +0800",
+      "blocking_issues": [
+        "deploy.status=undefined"
+      ]
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-05-20 02:48:10 +0800",
+      "completed_at": "2026-05-20 02:49:26 +0800",
+      "inputs": {
+        "stages_snapshot_hash": "30123643be1e8d1223df2deff3b48c509dcf8608b9e43df7a889af96cb5bb210"
+      },
+      "outputs": {
+        "overall": "partial",
+        "report_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/reports/pipeline-report.md",
+        "summary": {
+          "total_features": 7,
+          "completed_features": 7,
+          "failed_features": 0,
+          "skipped_features": 0,
+          "total_scenarios": 0,
+          "passed_scenarios": 0,
+          "failed_scenarios": 0
+        },
+        "failed_stages": [
+          "ui_e2e"
+        ],
+        "duration_ms": 76593,
+        "timed_out": false,
+        "timeout_reason": null,
+        "agent_report_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/reports/.report-agent-2026-05-19_22-44-50.md",
+        "error_excerpt_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/reports/.report-error-excerpt-2026-05-19_22-44-50.txt"
+      },
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-20 02:49:26 +0800",
+        "summary": null,
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/reports/pipeline-report.md"
+      ],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": null
+      }
+    },
+    "prd_review": {
+      "status": "completed",
+      "started_at": "2026-05-19 22:48:16 +0800",
+      "completed_at": "2026-05-19 22:50:50 +0800",
+      "inputs": {
+        "prd_spec_hash": "970b1fdac677a7c8af4ca9cb1cce3b6eae291072aa2055ccb344429ea0ffab5e",
+        "requires_stage": "prd",
+        "source_prd_spec": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-spec.md",
+        "feature_index_ref": "stages.prd.outputs.features",
+        "per_target_hashes": {
+          "admin": "df804b7143f340695aee6c637c0b80e267cb5b55905de3dd736115761e213c0a",
+          "backend": "fb37fc32fc1e80a1c60c658eee35f357b5eb0e55d098dee5920bcd09168553bc"
+        }
+      },
+      "outputs": {
+        "decision": "passed",
+        "can_enter_design": true,
+        "current_phase": "mvp",
+        "client_results": {
+          "admin": {
+            "decision": "passed",
+            "issues_count": 0,
+            "output_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/prd-review-admin.json"
+          },
+          "backend": {
+            "decision": "passed",
+            "issues_count": 0,
+            "output_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/prd-review-backend.json"
+          }
+        },
+        "merged_output": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/prd-review-output.json",
+        "duration_ms": 153506,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "review": {
+        "summary": "### admin\nAdmin 端 5 项 MVP 功能与 prd-spec、prd-backend 管理类 API 对齐良好：Session 跨子域、三级角色与路由守卫、项目只读看板与写操作边界清晰，且无 website 混入。敏感操作审计未在 PRD 中落地，建议纳入后续分期而非阻塞 MVP。\n\n### backend\n后端 PRD 七项 MVP 功能 API 路径、鉴权分层（Session /api/* 与 API Key /api/v1/*）及 D1 表设计完整，与 prd-spec、admin 端契约基本对齐，可进入设计与 codegen。需在实现契约中补齐看板/列表聚合字段，并在 config.dev.json 补充 Workers 服务项以使 deploy smoke 占位符可解析。",
+        "phase_plan": [
+          {
+            "phase": "mvp",
+            "feature_ids": [
+              "AUTH-LOGIN-001",
+              "AUTH-USER-001",
+              "PROJECT-LIST-001",
+              "PROJECT-DASH-001",
+              "PROJECT-CREATE-001",
+              "BACKEND-API-QUERY-001",
+              "BACKEND-API-PIPELINE-001"
+            ],
+            "goal": "[admin] 登录页、returnUrl 回跳、credentials: include 与 POST/GET /api/auth/*、POST /api/auth/logout 一致；未登录 ProtectedRoute 与 backend Session 行为匹配；凭据不落 PRD/前端，符合安全约束。；[backend] POST /api/auth/login|logout、GET /api/auth/me 与 acceptance 一致；Session + users/sessions 表可落地。须与 admin 跨子域（admin.dash.ai-ww.com ↔ api.das",
+            "exit_criteria": [
+              "mvp 阶段所有 feature 实现完成并通过验收",
+              "功能列表覆盖：AUTH-LOGIN-001, AUTH-USER-001, PROJECT-LIST-001, PROJECT-DASH-001, PROJECT-CREATE-001, BACKEND-API-QUERY-001, BACKEND-API-PIPELINE-001"
+            ]
+          }
+        ],
+        "deferred_features": [],
+        "priority_changes": [],
+        "cross_phase_dependencies": [],
+        "config_change_suggestions": {
+          "dev": [],
+          "release": []
+        },
+        "suggested_prd_spec_changes": [
+          "在 standard 阶段补充管理端敏感操作审计（用户创建、角色/状态变更、项目创建）的保留策略与展示入口，当前 prd-spec 仅强调鉴权未覆盖审计。",
+          "在 prd-spec 鉴权或分期表中显式列出角色枚举 super_admin、admin、operator 及各角色页面/API 权限矩阵，与 prd-admin constraints 保持一致，便于跨端验收。",
+          "在 prd-spec 鉴权或技术约束中补充管理端角色枚举（super_admin、admin、operator）及 bootstrap 账号保护规则，与 admin/backend PRD 实现对齐。",
+          "在 prd-spec 部署架构或 NFR 中注明 backend 冒烟探针 GET /health（与 prd-backend deploy.notes 及 smoke.checks 一致）。"
+        ]
+      },
+      "blocking_issues": [],
+      "conditions": [],
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-19 22:50:50 +0800",
+        "summary": null,
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/prd-review-output.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/reports/prd-implementation-summary.md"
+      ],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": "git.auto_commit=false"
+      }
+    },
+    "design": {
+      "status": "completed",
+      "started_at": "2026-05-19 22:50:50 +0800",
+      "completed_at": "2026-05-19 22:50:50 +0800",
+      "inputs": {
+        "prd_review_hash": "44ce86cb94b2b0845f6dfb093346e32003177eb43b45e26f9d1d6c82c0da9ac6",
+        "phase_plan_hash": "d666c404b2ea7079a0612f48b7484be653d43e6d0114cef0ae4e0d585489d1ba",
+        "prd_spec_hash": "970b1fdac677a7c8af4ca9cb1cce3b6eae291072aa2055ccb344429ea0ffab5e",
+        "feature_ids": [
+          "AUTH-LOGIN-001",
+          "AUTH-USER-001",
+          "PROJECT-LIST-001",
+          "PROJECT-DASH-001",
+          "PROJECT-CREATE-001",
+          "BACKEND-API-QUERY-001",
+          "BACKEND-API-PIPELINE-001"
+        ],
+        "dependency_groups": [
+          {
+            "group_id": "group-db9df281",
+            "feature_ids": [
+              "AUTH-LOGIN-001",
+              "AUTH-USER-001",
+              "PROJECT-CREATE-001",
+              "PROJECT-DASH-001",
+              "PROJECT-LIST-001"
+            ],
+            "topo_order": [
+              "AUTH-LOGIN-001",
+              "AUTH-USER-001",
+              "PROJECT-LIST-001",
+              "PROJECT-CREATE-001",
+              "PROJECT-DASH-001"
+            ],
+            "dependencies_on_groups": []
+          },
+          {
+            "group_id": "group-39762c3c",
+            "feature_ids": [
+              "BACKEND-API-PIPELINE-001"
+            ],
+            "topo_order": [
+              "BACKEND-API-PIPELINE-001"
+            ],
+            "dependencies_on_groups": []
+          },
+          {
+            "group_id": "group-ab5e7d35",
+            "feature_ids": [
+              "BACKEND-API-QUERY-001"
+            ],
+            "topo_order": [
+              "BACKEND-API-QUERY-001"
+            ],
+            "dependencies_on_groups": []
+          }
+        ]
+      },
+      "outputs": {
+        "design_files": {},
+        "design_specs": [],
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "features": {
+        "AUTH-LOGIN-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/AUTH-LOGIN-001.design.json",
+          "design_hash": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
+          "error": null
+        },
+        "AUTH-USER-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/AUTH-USER-001.design.json",
+          "design_hash": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
+          "error": null
+        },
+        "PROJECT-LIST-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/PROJECT-LIST-001.design.json",
+          "design_hash": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4",
+          "error": null
+        },
+        "PROJECT-DASH-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/PROJECT-DASH-001.design.json",
+          "design_hash": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",
+          "error": null
+        },
+        "PROJECT-CREATE-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/PROJECT-CREATE-001.design.json",
+          "design_hash": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
+          "error": null
+        },
+        "BACKEND-API-QUERY-001": {
+          "status": "completed",
+          "group_id": "group-ab5e7d35",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/BACKEND-API-QUERY-001.design.json",
+          "design_hash": "bd3f2dc8695fe037195fcce26cadf5b826c4900a9fb8495fdeeacb2d86330946",
+          "error": null
+        },
+        "BACKEND-API-PIPELINE-001": {
+          "status": "completed",
+          "group_id": "group-39762c3c",
+          "started_at": null,
+          "completed_at": "2026-05-19 22:50:50 +0800",
+          "attempts": 0,
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/BACKEND-API-PIPELINE-001.design.json",
+          "design_hash": "8eeefc5e8ba18fb26362352c72ec207cc990d472918c09c4acfd5f70983e45e5",
+          "error": null
+        }
+      },
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-19 22:50:50 +0800",
+        "summary": "所有 feature 设计完成",
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": "git.auto_commit=false"
+      }
+    },
+    "design_review": {
+      "status": "completed",
+      "started_at": "2026-05-19 22:50:50 +0800",
+      "completed_at": "2026-05-19 23:47:22 +0800",
+      "inputs": {
+        "design_bundle_hash": "1b55f5d05736a0770cf2142793cf9eb6fc59ef90acd33e50a370a485c8123fad",
+        "phase_plan_hash": "d666c404b2ea7079a0612f48b7484be653d43e6d0114cef0ae4e0d585489d1ba",
+        "design_hashes": {
+          "AUTH-LOGIN-001": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
+          "AUTH-USER-001": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
+          "PROJECT-LIST-001": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4",
+          "PROJECT-DASH-001": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",
+          "PROJECT-CREATE-001": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
+          "BACKEND-API-QUERY-001": "bd3f2dc8695fe037195fcce26cadf5b826c4900a9fb8495fdeeacb2d86330946",
+          "BACKEND-API-PIPELINE-001": "8eeefc5e8ba18fb26362352c72ec207cc990d472918c09c4acfd5f70983e45e5"
+        },
+        "_tick_wave_index": 2
+      },
+      "outputs": {
+        "can_enter_codegen": true,
+        "released_groups": [
+          {
+            "group_id": "group-39762c3c",
+            "feature_ids": [
+              "BACKEND-API-PIPELINE-001"
+            ],
+            "released_at": "2026-05-19 23:24:31 +0800",
+            "design_hashes": {
+              "BACKEND-API-PIPELINE-001": "8eeefc5e8ba18fb26362352c72ec207cc990d472918c09c4acfd5f70983e45e5"
+            }
+          },
+          {
+            "group_id": "group-ab5e7d35",
+            "feature_ids": [
+              "BACKEND-API-QUERY-001"
+            ],
+            "released_at": "2026-05-19 23:24:31 +0800",
+            "design_hashes": {
+              "BACKEND-API-QUERY-001": "bd3f2dc8695fe037195fcce26cadf5b826c4900a9fb8495fdeeacb2d86330946"
+            }
+          },
+          {
+            "group_id": "group-db9df281",
+            "feature_ids": [
+              "AUTH-LOGIN-001",
+              "AUTH-USER-001",
+              "PROJECT-CREATE-001",
+              "PROJECT-DASH-001",
+              "PROJECT-LIST-001"
+            ],
+            "released_at": "2026-05-19 23:47:22 +0800",
+            "design_hashes": {
+              "AUTH-LOGIN-001": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
+              "AUTH-USER-001": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
+              "PROJECT-CREATE-001": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
+              "PROJECT-DASH-001": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",
+              "PROJECT-LIST-001": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4"
+            }
+          }
+        ],
+        "failed_features": [],
+        "blocked_features": [],
+        "decision": "passed",
+        "gaps": [],
+        "duration_ms": 96175,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "features": {
+        "AUTH-LOGIN-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 23:43:49 +0800",
+          "completed_at": "2026-05-19 23:45:46 +0800",
+          "attempts": 1,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-AUTH-LOGIN-001.json",
+          "review_hash": "5caefba622be2191c529730ff66cdef0393bff4494d2d3e83075e65cb9e35b76",
+          "design_hash": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [],
+          "error": null
+        },
+        "AUTH-USER-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 23:45:46 +0800",
+          "completed_at": "2026-05-19 23:47:22 +0800",
+          "attempts": 1,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-AUTH-USER-001.json",
+          "review_hash": "56379d04468ecb0e66e2390915e1139af9b569faf29316a98105bb561c89c3de",
+          "design_hash": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/index.ts 与 feature [PROJECT-LIST-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/db/schema.ts 与 feature [PROJECT-LIST-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/App.tsx 与 feature [PROJECT-LIST-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/components/AppHeader.tsx 与 feature [PROJECT-LIST-001] 冲突"
+            }
+          ],
+          "error": null
+        },
+        "PROJECT-LIST-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 23:45:46 +0800",
+          "completed_at": "2026-05-19 23:47:22 +0800",
+          "attempts": 1,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-PROJECT-LIST-001.json",
+          "review_hash": "42fb09a36fe1822e052cf5b756a57595bcad051d292dd034c51436abb10e2cbb",
+          "design_hash": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/index.ts 与 feature [AUTH-USER-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/db/schema.ts 与 feature [AUTH-USER-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/App.tsx 与 feature [AUTH-USER-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/components/AppHeader.tsx 与 feature [AUTH-USER-001] 冲突"
+            }
+          ],
+          "error": null
+        },
+        "PROJECT-DASH-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 22:50:50 +0800",
+          "completed_at": "2026-05-19 23:24:31 +0800",
+          "attempts": 4,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-PROJECT-DASH-001.json",
+          "review_hash": "61243243bb15022b2514ace4b39971127fffb44b42a17593bdb16acaf2081b72",
+          "design_hash": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/index.ts 与 feature [AUTH-USER-001, PROJECT-LIST-001, PROJECT-CREATE-001, BACKEND-API-PIPELINE-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/db/schema.ts 与 feature [AUTH-USER-001, PROJECT-LIST-001, PROJECT-CREATE-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/App.tsx 与 feature [AUTH-USER-001, PROJECT-LIST-001, PROJECT-CREATE-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/api/projects.ts 与 feature [PROJECT-CREATE-001] 冲突"
+            }
+          ],
+          "error": null
+        },
+        "PROJECT-CREATE-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 22:50:50 +0800",
+          "completed_at": "2026-05-19 23:24:31 +0800",
+          "attempts": 4,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-PROJECT-CREATE-001.json",
+          "review_hash": "e0748357971cadf0617afa4a5185e4c5fe1c00d63a5172e04491e1d6d498286f",
+          "design_hash": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/db/schema.ts 与 feature [AUTH-USER-001, PROJECT-LIST-001, PROJECT-DASH-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/index.ts 与 feature [AUTH-USER-001, PROJECT-LIST-001, PROJECT-DASH-001, BACKEND-API-PIPELINE-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/api/projects.ts 与 feature [PROJECT-DASH-001] 冲突"
+            },
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/admin/src/App.tsx 与 feature [AUTH-USER-001, PROJECT-LIST-001, PROJECT-DASH-001] 冲突"
+            }
+          ],
+          "error": null
+        },
+        "BACKEND-API-QUERY-001": {
+          "status": "completed",
+          "group_id": "group-ab5e7d35",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 22:50:50 +0800",
+          "completed_at": "2026-05-19 23:24:31 +0800",
+          "attempts": 4,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-BACKEND-API-QUERY-001.json",
+          "review_hash": "4d4859e2a9675510f382f4778cd4500302c936b96013a8f92d4bcc537fa3a3f6",
+          "design_hash": "bd3f2dc8695fe037195fcce26cadf5b826c4900a9fb8495fdeeacb2d86330946",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [],
+          "error": null
+        },
+        "BACKEND-API-PIPELINE-001": {
+          "status": "completed",
+          "group_id": "group-39762c3c",
+          "can_enter_codegen": true,
+          "started_at": "2026-05-19 22:50:50 +0800",
+          "completed_at": "2026-05-19 23:24:31 +0800",
+          "attempts": 5,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/design-review-BACKEND-API-PIPELINE-001.json",
+          "review_hash": "48ee237d0e3dc9456cead63a03c81c0e4743a68d20e89b6d80d9396a6f82fc23",
+          "design_hash": "8eeefc5e8ba18fb26362352c72ec207cc990d472918c09c4acfd5f70983e45e5",
+          "decision": "passed",
+          "blocking_gaps": [],
+          "deterministic_gaps": [
+            {
+              "field": "file_plan",
+              "category": "conflict",
+              "severity": "warning",
+              "blocking": false,
+              "message": "modify_files 路径 src/backend/src/index.ts 与 feature [AUTH-USER-001, PROJECT-LIST-001] 冲突"
+            }
+          ],
+          "error": null
+        }
+      },
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-19 23:47:22 +0800",
+        "summary": "所有 group 已放行",
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": "git.auto_commit=false"
+      }
+    },
+    "codegen": {
+      "status": "completed",
+      "started_at": "2026-05-19 23:47:22 +0800",
+      "completed_at": "2026-05-20 00:20:43 +0800",
+      "inputs": {
+        "design_review_hash": null,
+        "release_bundle_hash": "1b55f5d05736a0770cf2142793cf9eb6fc59ef90acd33e50a370a485c8123fad",
+        "design_bundle_hash": "1b55f5d05736a0770cf2142793cf9eb6fc59ef90acd33e50a370a485c8123fad",
+        "dependency_groups": [
+          {
+            "group_id": "group-db9df281",
+            "feature_ids": [
+              "AUTH-LOGIN-001",
+              "AUTH-USER-001",
+              "PROJECT-CREATE-001",
+              "PROJECT-DASH-001",
+              "PROJECT-LIST-001"
+            ],
+            "topo_order": [
+              "AUTH-LOGIN-001",
+              "AUTH-USER-001",
+              "PROJECT-LIST-001",
+              "PROJECT-CREATE-001",
+              "PROJECT-DASH-001"
+            ],
+            "dependencies_on_groups": []
+          },
+          {
+            "group_id": "group-39762c3c",
+            "feature_ids": [
+              "BACKEND-API-PIPELINE-001"
+            ],
+            "topo_order": [
+              "BACKEND-API-PIPELINE-001"
+            ],
+            "dependencies_on_groups": []
+          },
+          {
+            "group_id": "group-ab5e7d35",
+            "feature_ids": [
+              "BACKEND-API-QUERY-001"
+            ],
+            "topo_order": [
+              "BACKEND-API-QUERY-001"
+            ],
+            "dependencies_on_groups": []
+          }
+        ],
+        "_tick_wave_index": 8
+      },
+      "outputs": {
+        "completed_features": [
+          "AUTH-LOGIN-001",
+          "AUTH-USER-001",
+          "PROJECT-LIST-001",
+          "PROJECT-DASH-001",
+          "PROJECT-CREATE-001",
+          "BACKEND-API-QUERY-001",
+          "BACKEND-API-PIPELINE-001"
+        ],
+        "failed_features": [],
+        "feature_artifacts": [
+          {
+            "feature_id": "AUTH-LOGIN-001",
+            "group_id": "group-db9df281",
+            "branch": "features/v3-AUTH-LOGIN-001",
+            "commit": "153c6f6e70677e58b084ebc4ad72bbb419f8fb49",
+            "files_changed_count": 2,
+            "attempts_used": 2,
+            "hang_count": 0,
+            "duration_ms": null
+          },
+          {
+            "feature_id": "AUTH-USER-001",
+            "group_id": "group-db9df281",
+            "branch": "features/v3-AUTH-USER-001",
+            "commit": "b4c46df162c683a3b6e19770c8dc43af8e3305e3",
+            "files_changed_count": 10,
+            "attempts_used": 3,
+            "hang_count": 0,
+            "duration_ms": null
+          },
+          {
+            "feature_id": "PROJECT-LIST-001",
+            "group_id": "group-db9df281",
+            "branch": "features/v3-PROJECT-LIST-001",
+            "commit": "c941ac99b02d78332063757ff0e57e4b78e5fc65",
+            "files_changed_count": 7,
+            "attempts_used": 2,
+            "hang_count": 0,
+            "duration_ms": null
+          },
+          {
+            "feature_id": "PROJECT-DASH-001",
+            "group_id": "group-db9df281",
+            "branch": "features/v3-PROJECT-DASH-001",
+            "commit": "732603d88f2cec67d31ec5cef5e6bf1cf75c9415",
+            "files_changed_count": 11,
+            "attempts_used": 2,
+            "hang_count": 0,
+            "duration_ms": null
+          },
+          {
+            "feature_id": "PROJECT-CREATE-001",
+            "group_id": "group-db9df281",
+            "branch": "features/v3-PROJECT-CREATE-001",
+            "commit": "42c3fbdb85b59d592d5389860674b9c798d41891",
+            "files_changed_count": 8,
+            "attempts_used": 2,
+            "hang_count": 0,
+            "duration_ms": null
+          },
+          {
+            "feature_id": "BACKEND-API-QUERY-001",
+            "group_id": "group-ab5e7d35",
+            "branch": "features/v3-BACKEND-API-QUERY-001",
+            "commit": "d44d3a0715691afd4dba8352877688832e05bd68",
+            "files_changed_count": 2,
+            "attempts_used": 2,
+            "hang_count": 0,
+            "duration_ms": null
+          },
+          {
+            "feature_id": "BACKEND-API-PIPELINE-001",
+            "group_id": "group-39762c3c",
+            "branch": "features/v3-BACKEND-API-PIPELINE-001",
+            "commit": "3d004189b70685fc7dc12dea0ac4facc64678627",
+            "files_changed_count": 2,
+            "attempts_used": 2,
+            "hang_count": 0,
+            "duration_ms": null
+          }
+        ],
+        "duration_ms": 2001319,
+        "timed_out": false,
+        "timeout_reason": null,
+        "decision": "passed",
+        "smoke_summary": {
+          "passed_count": 7,
+          "failed_count": 0
+        },
+        "total_attempts": 15,
+        "resume_count": 8
+      },
+      "features": {
+        "AUTH-LOGIN-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": "2026-05-19 23:47:23 +0800",
+          "completed_at": "2026-05-19 23:52:39 +0800",
+          "attempts_used": 2,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-AUTH-LOGIN-001",
+          "branch": "features/v3-AUTH-LOGIN-001",
+          "agent_id": "codegen-AUTH-LOGIN-001-001",
+          "last_commit": "153c6f6e70677e58b084ebc4ad72bbb419f8fb49",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "153c6f6e70677e58b084ebc4ad72bbb419f8fb49",
+          "files_changed": [
+            "src/backend/tests/auth.test.ts",
+            "src/backend/tests/test-db.ts"
+          ]
+        },
+        "AUTH-USER-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": "2026-05-19 23:52:44 +0800",
+          "completed_at": "2026-05-20 00:04:52 +0800",
+          "attempts_used": 3,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-AUTH-USER-001",
+          "branch": "features/v3-AUTH-USER-001",
+          "agent_id": "codegen-AUTH-USER-001-002",
+          "last_commit": "b4c46df162c683a3b6e19770c8dc43af8e3305e3",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "b4c46df162c683a3b6e19770c8dc43af8e3305e3",
+          "files_changed": [
+            "src/admin/package-lock.json",
+            "src/admin/src/components/AdminRoute.test.tsx",
+            "src/admin/src/pages/UsersPage.test.tsx",
+            "src/backend/package-lock.json",
+            "src/backend/src/index.ts",
+            "src/backend/tests/auth.test.ts",
+            "src/backend/tests/project-pipeline.test.ts",
+            "src/backend/tests/projects-create.test.ts",
+            "src/backend/tests/projects-list.test.ts",
+            "src/backend/tests/test-db.ts"
+          ]
+        },
+        "PROJECT-LIST-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": "2026-05-20 00:04:57 +0800",
+          "completed_at": "2026-05-20 00:08:01 +0800",
+          "attempts_used": 2,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-PROJECT-LIST-001",
+          "branch": "features/v3-PROJECT-LIST-001",
+          "agent_id": "codegen-PROJECT-LIST-001-001",
+          "last_commit": "c941ac99b02d78332063757ff0e57e4b78e5fc65",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "c941ac99b02d78332063757ff0e57e4b78e5fc65",
+          "files_changed": [
+            "src/admin/package-lock.json",
+            "src/admin/src/App.tsx",
+            "src/admin/src/components/AppHeader.tsx",
+            "src/admin/src/pages/ProjectsPage.tsx",
+            "src/backend/package-lock.json",
+            "src/backend/tests/projects-list.test.ts",
+            "src/backend/tests/test-db.ts"
+          ]
+        },
+        "PROJECT-DASH-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": "2026-05-20 00:08:04 +0800",
+          "completed_at": "2026-05-20 00:11:20 +0800",
+          "attempts_used": 2,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-PROJECT-DASH-001",
+          "branch": "features/v3-PROJECT-DASH-001",
+          "agent_id": "codegen-PROJECT-DASH-001-001",
+          "last_commit": "732603d88f2cec67d31ec5cef5e6bf1cf75c9415",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "732603d88f2cec67d31ec5cef5e6bf1cf75c9415",
+          "files_changed": [
+            "src/admin/src/App.tsx",
+            "src/admin/src/api/projects.ts",
+            "src/admin/src/components/ProjectListTable.tsx",
+            "src/backend/src/db/schema.ts",
+            "src/backend/src/index.ts",
+            "src/backend/src/lib/pipeline-normalize.ts",
+            "src/backend/src/routes/project-pipeline.ts",
+            "src/backend/src/routes/projects.ts",
+            "src/backend/src/services/pipeline-dashboard.ts",
+            "src/backend/tests/project-pipeline.test.ts",
+            "src/backend/tests/test-db.ts"
+          ]
+        },
+        "PROJECT-CREATE-001": {
+          "status": "completed",
+          "group_id": "group-db9df281",
+          "started_at": "2026-05-20 00:11:21 +0800",
+          "completed_at": "2026-05-20 00:15:15 +0800",
+          "attempts_used": 2,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-PROJECT-CREATE-001",
+          "branch": "features/v3-PROJECT-CREATE-001",
+          "agent_id": "codegen-PROJECT-CREATE-001-001",
+          "last_commit": "42c3fbdb85b59d592d5389860674b9c798d41891",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "42c3fbdb85b59d592d5389860674b9c798d41891",
+          "files_changed": [
+            "src/admin/package-lock.json",
+            "src/admin/src/App.tsx",
+            "src/admin/src/api/client.ts",
+            "src/admin/src/components/ProjectCreateForm.tsx",
+            "src/admin/src/pages/ProjectCreatePage.test.tsx",
+            "src/backend/migrations/0001_users_sessions.sql",
+            "src/backend/package-lock.json",
+            "src/backend/tests/projects-create.test.ts"
+          ]
+        },
+        "BACKEND-API-QUERY-001": {
+          "status": "completed",
+          "group_id": "group-ab5e7d35",
+          "started_at": "2026-05-20 00:15:19 +0800",
+          "completed_at": "2026-05-20 00:17:54 +0800",
+          "attempts_used": 2,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-BACKEND-API-QUERY-001",
+          "branch": "features/v3-BACKEND-API-QUERY-001",
+          "agent_id": "codegen-BACKEND-API-QUERY-001-001",
+          "last_commit": "d44d3a0715691afd4dba8352877688832e05bd68",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "d44d3a0715691afd4dba8352877688832e05bd68",
+          "files_changed": [
+            "src/backend/package-lock.json",
+            "src/backend/src/index.ts"
+          ]
+        },
+        "BACKEND-API-PIPELINE-001": {
+          "status": "completed",
+          "group_id": "group-39762c3c",
+          "started_at": "2026-05-20 00:17:56 +0800",
+          "completed_at": "2026-05-20 00:20:39 +0800",
+          "attempts_used": 2,
+          "max_resume_attempts": 2,
+          "worktree_path": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/worktrees/v3-BACKEND-API-PIPELINE-001",
+          "branch": "features/v3-BACKEND-API-PIPELINE-001",
+          "agent_id": "codegen-BACKEND-API-PIPELINE-001-001",
+          "last_commit": "3d004189b70685fc7dc12dea0ac4facc64678627",
+          "smoke_checks": [],
+          "smoke_passed": true,
+          "hang_history": [],
+          "error": null,
+          "base_commit": "64a72b9dcd5c4e7dc4bdbc3893024fd488a31896",
+          "commit": "3d004189b70685fc7dc12dea0ac4facc64678627",
+          "files_changed": [
+            "src/backend/package-lock.json",
+            "src/backend/src/index.ts"
+          ]
+        }
+      },
+      "validation": {
+        "passed": true,
+        "checked_at": "2026-05-20 00:20:43 +0800",
+        "summary": "所有 feature 完成，共 7 个",
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": null
+      }
+    },
+    "create_ui_scenarios": {
+      "features": {
+        "PROJECT-CREATE-001": {
+          "status": "completed",
+          "completed_at": "2026-05-19 23:48:49 +0800",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/PROJECT-CREATE-001.scenarios.yaml",
+          "scenario_hash": "ba84e9de45d09a355c8029422a1bb55e30632246434c5a2ff26e37c9ee1b0623",
+          "scenarios_count": 9,
+          "design_hash": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
+          "skip_reason": null,
+          "error": null
+        },
+        "AUTH-USER-001": {
+          "status": "completed",
+          "completed_at": "2026-05-19 23:49:16 +0800",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/AUTH-USER-001.scenarios.yaml",
+          "scenario_hash": "e7b5329318d58fb0dea2d1edb8fb9cb337b9289d7e44db42eb070e14790988a1",
+          "scenarios_count": 9,
+          "design_hash": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
+          "skip_reason": null,
+          "error": null
+        },
+        "AUTH-LOGIN-001": {
+          "status": "completed",
+          "completed_at": "2026-05-19 23:49:37 +0800",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/AUTH-LOGIN-001.scenarios.yaml",
+          "scenario_hash": "e5757445df8cae413e687b73efc801d5d3d2ca4d9bde9df6e9d9f368aa7fbcf8",
+          "scenarios_count": 7,
+          "design_hash": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
+          "skip_reason": null,
+          "error": null
+        },
+        "PROJECT-LIST-001": {
+          "status": "completed",
+          "completed_at": "2026-05-19 23:50:30 +0800",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/PROJECT-LIST-001.scenarios.yaml",
+          "scenario_hash": "5441f1db1c69285d506e71367fe5096b86e661dcdf33c153ef2c32088cf2f350",
+          "scenarios_count": 10,
+          "design_hash": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4",
+          "skip_reason": null,
+          "error": null
+        },
+        "PROJECT-DASH-001": {
+          "status": "completed",
+          "completed_at": "2026-05-19 23:50:58 +0800",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/PROJECT-DASH-001.scenarios.yaml",
+          "scenario_hash": "543e34c6d000975f4fad65af5a017c0734c0ca4a214afae6079525daee220c09",
+          "scenarios_count": 10,
+          "design_hash": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",
+          "skip_reason": null,
+          "error": null
+        }
+      }
+    },
+    "code_review": {
+      "status": "running",
+      "started_at": "2026-05-20 02:21:50 +0800",
+      "completed_at": null,
+      "inputs": {
+        "review_bundle_hash": "97c3f939f8f9c16d029aca6a48e1ccd09e68884d0cfd8e3971271ec2235ff281",
+        "codegen_commit_hashes": {
+          "AUTH-LOGIN-001": "153c6f6e70677e58b084ebc4ad72bbb419f8fb49",
+          "AUTH-USER-001": "b4c46df162c683a3b6e19770c8dc43af8e3305e3",
+          "PROJECT-LIST-001": "c941ac99b02d78332063757ff0e57e4b78e5fc65",
+          "PROJECT-DASH-001": "732603d88f2cec67d31ec5cef5e6bf1cf75c9415",
+          "PROJECT-CREATE-001": "42c3fbdb85b59d592d5389860674b9c798d41891",
+          "BACKEND-API-QUERY-001": "d44d3a0715691afd4dba8352877688832e05bd68",
+          "BACKEND-API-PIPELINE-001": "3d004189b70685fc7dc12dea0ac4facc64678627"
+        },
+        "requires_stage": "codegen"
+      },
+      "outputs": {
+        "decision": "pending",
+        "feature_reviews": [],
+        "passed_features": [],
+        "failed_features": [],
+        "critical_issues_total": 0,
+        "warnings_total": 0,
+        "duration_ms": null,
+        "timed_out": false,
+        "timeout_reason": null
+      },
+      "features": {
+        "AUTH-LOGIN-001": {
+          "status": "completed",
+          "decision": "passed_with_warnings",
+          "started_at": "2026-05-20 02:21:50 +0800",
+          "completed_at": "2026-05-20 02:41:22 +0800",
+          "attempts_used": 3,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-AUTH-LOGIN-001.json",
+          "critical_issues": 0,
+          "warnings": 7,
+          "total_issues": 7,
+          "timed_out": false,
+          "error": null
+        },
+        "AUTH-USER-001": {
+          "status": "completed",
+          "decision": "failed",
+          "started_at": "2026-05-20 02:21:50 +0800",
+          "completed_at": "2026-05-20 02:41:51 +0800",
+          "attempts_used": 3,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-AUTH-USER-001.json",
+          "critical_issues": 4,
+          "warnings": 14,
+          "total_issues": 18,
+          "timed_out": false,
+          "error": null
+        },
+        "BACKEND-API-PIPELINE-001": {
+          "status": "completed",
+          "decision": "passed_with_warnings",
+          "started_at": "2026-05-20 02:21:50 +0800",
+          "completed_at": "2026-05-20 02:42:22 +0800",
+          "attempts_used": 3,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-BACKEND-API-PIPELINE-001.json",
+          "critical_issues": 0,
+          "warnings": 3,
+          "total_issues": 3,
+          "timed_out": false,
+          "error": null
+        },
+        "BACKEND-API-QUERY-001": {
+          "status": "running",
+          "decision": "pending",
+          "started_at": "2026-05-20 02:41:22 +0800",
+          "completed_at": null,
+          "attempts_used": 0,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-BACKEND-API-QUERY-001.json",
+          "critical_issues": 0,
+          "warnings": 0,
+          "total_issues": 0,
+          "timed_out": false,
+          "error": null
+        },
+        "PROJECT-CREATE-001": {
+          "status": "running",
+          "decision": "pending",
+          "started_at": "2026-05-20 02:41:51 +0800",
+          "completed_at": null,
+          "attempts_used": 0,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-PROJECT-CREATE-001.json",
+          "critical_issues": 0,
+          "warnings": 0,
+          "total_issues": 0,
+          "timed_out": false,
+          "error": null
+        },
+        "PROJECT-DASH-001": {
+          "status": "running",
+          "decision": "pending",
+          "started_at": "2026-05-20 02:42:22 +0800",
+          "completed_at": null,
+          "attempts_used": 0,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-PROJECT-DASH-001.json",
+          "critical_issues": 0,
+          "warnings": 0,
+          "total_issues": 0,
+          "timed_out": false,
+          "error": null
+        },
+        "PROJECT-LIST-001": {
+          "status": "pending",
+          "decision": "pending",
+          "started_at": null,
+          "completed_at": null,
+          "attempts_used": 0,
+          "commit_reviewed": null,
+          "review_hash": null,
+          "review_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/.pipeline/code-review-PROJECT-LIST-001.json",
+          "critical_issues": 0,
+          "warnings": 0,
+          "total_issues": 0,
+          "timed_out": false,
+          "error": null
+        }
+      },
+      "validation": {
+        "passed": false,
+        "checked_at": null,
+        "summary": null,
+        "required_files": [],
+        "missing_required_fields": [],
+        "warnings": []
+      },
+      "generated_files": [],
+      "blocking_issues": [],
+      "git_sync": {
+        "initial_pushed_at": null,
+        "docs_pipeline_pushed_at": null,
+        "last_commit": null,
+        "last_push_status": null
+      }
+    }
+  }
+}

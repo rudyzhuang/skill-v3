@@ -11,11 +11,15 @@ const os = require('os');
 const { execSync } = require('child_process');
 
 const {
-  normalizeGitPath,
   getGitTopLevel,
   isProjectGitRoot,
   ensureProjectGitRepo,
 } = require('./libs/resolve-project-git.cjs');
+
+function normalizeGitPath(p) {
+  return path.resolve(String(p || ''));
+}
+const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
 
 let failed = 0;
 
@@ -46,7 +50,8 @@ try {
   const parentTop = getGitTopLevel(projectRoot);
   assert(parentTop === normalizeGitPath(tmpParent), 'nested project resolves to parent toplevel before init');
 
-  const wtDir = path.join(projectRoot, '.pipeline', 'worktrees', 'v3-TEST-001');
+  const paths = createPipelinePaths(projectRoot);
+  const wtDir = path.join(paths.worktreesDir, 'v3-TEST-001');
   fs.mkdirSync(wtDir, { recursive: true });
   execSync(`git worktree add -b features/v3-TEST-001 ${JSON.stringify(wtDir)} HEAD`, {
     cwd: tmpParent,

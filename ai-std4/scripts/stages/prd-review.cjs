@@ -24,6 +24,7 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 const { activateDeployServicesOnPrdReviewPass } = require('../libs/activate-deploy-services.cjs');
@@ -43,6 +44,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -107,29 +109,23 @@ function fileSha256(filePath) {
 
 /** 读取 stages.json；不存在返回 null */
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 /** 写 stages.json（原子覆盖） */
 function writeStagesJson(obj) {
-  const pipelineDir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  const p = path.join(pipelineDir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 /** 检查 stop.signal 是否存在 */
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 /** 读取 stop.signal 的 reason */
 function getStopReason() {
   try {
-    const raw = fs.readFileSync(path.join(projectRoot, '.pipeline', 'stop.signal'), 'utf8');
+    const raw = fs.readFileSync(paths.stopSignalPath, 'utf8');
     return JSON.parse(raw).reason || 'unknown';
   } catch (_) { return 'unknown'; }
 }
@@ -160,7 +156,7 @@ function gracefulStop(stagesObj) {
   }
 
   try {
-    const signalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+    const signalPath = paths.stopSignalPath;
     if (fs.existsSync(signalPath)) fs.unlinkSync(signalPath);
   } catch (_) { /* ignore */ }
 
@@ -364,7 +360,7 @@ async function runReviewAgentForTarget({ clientTarget, model, timeoutMs, maxRetr
   const prdFile     = path.join(projectRoot, 'docs', prdFileName);
   const flFile      = path.join(projectRoot, 'docs', `feature_list-${clientTarget}.md`);
   const prdSpec     = path.join(projectRoot, 'docs', 'prd-spec.md');
-  const outputFile  = path.join(projectRoot, '.pipeline', `prd-review-${clientTarget}.json`);
+  const outputFile  = paths.stageOutputFile('prd-review', `prd-review-${clientTarget}.json`);
   const agentId     = `prd-review-agent-${clientTarget}`;
 
   let lastError = null;
@@ -519,7 +515,7 @@ function mergeClientOutputs({ clientTargets, allFeatures }) {
   const missingFiles  = [];
 
   for (const ct of clientTargets) {
-    const outputFile = path.join(projectRoot, '.pipeline', `prd-review-${ct}.json`);
+    const outputFile = paths.stageOutputFile('prd-review', `prd-review-${ct}.json`);
     if (!fs.existsSync(outputFile)) {
       missingFiles.push(outputFile);
       continue;
@@ -892,8 +888,8 @@ async function main() {
         if (!hit) allTargetHashesHit = false;
       }
 
-      const outputFileExists = fs.existsSync(path.join(projectRoot, '.pipeline', 'prd-review-output.json'));
-      const summaryExists    = fs.existsSync(path.join(projectRoot, '.pipeline', 'reports', 'prd-implementation-summary.md'));
+      const outputFileExists = fs.existsSync(paths.stageOutputFile('prd-review', 'prd-review-output.json'));
+      const summaryExists    = fs.existsSync(path.join(paths.stageOutputDir('report'), 'prd-implementation-summary.md'));
 
       if (allTargetHashesHit && outputFileExists && summaryExists) {
         log.info('stage_skipped', 'prd-review hash 门控命中，跳过执行', {
@@ -968,7 +964,7 @@ async function main() {
     const prdFile    = path.join(projectRoot, 'docs', resolvePrdFileName(ct));
     const curHash    = fileSha256(prdFile);
     const storedHash = storedPerTargetHashes[ct];
-    const outputFile = path.join(projectRoot, '.pipeline', `prd-review-${ct}.json`);
+    const outputFile = paths.stageOutputFile('prd-review', `prd-review-${ct}.json`);
 
     let perTargetPassed = false;
     if (fs.existsSync(outputFile)) {
@@ -1131,12 +1127,13 @@ async function main() {
   }
 
   // 写 prd-review-output.json
-  const pipelineDir    = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  const outputFilePath = path.join(pipelineDir, 'prd-review-output.json');
+  paths.ensureOutputStagesDir('prd-review');
+  const outputFilePath = paths.stageOutputFile('prd-review', 'prd-review-output.json');
   fs.writeFileSync(outputFilePath, JSON.stringify(mergedOutput, null, 2) + '\n', 'utf8');
 
-  const mergedFrom = clientTargets.map(ct => path.join(pipelineDir, `prd-review-${ct}.json`));
+  const mergedFrom = clientTargets.map(ct =>
+    paths.stageOutputFile('prd-review', `prd-review-${ct}.json`),
+  );
   log.info('file_created', '已写入 prd-review-output.json', {
     path:        outputFilePath,
     merged_from: mergedFrom,
@@ -1145,7 +1142,7 @@ async function main() {
   // 各端决策汇总
   const perTargetDecisions = {};
   for (const ct of clientTargets) {
-    const f = path.join(pipelineDir, `prd-review-${ct}.json`);
+    const f = paths.stageOutputFile('prd-review', `prd-review-${ct}.json`);
     if (fs.existsSync(f)) {
       try {
         const data = JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -1170,9 +1167,8 @@ async function main() {
   }
 
   // 生成 prd-implementation-summary.md
-  const reportsDir  = path.join(pipelineDir, 'reports');
-  fs.mkdirSync(reportsDir, { recursive: true });
-  const summaryPath = path.join(reportsDir, 'prd-implementation-summary.md');
+  paths.ensureOutputStagesDir('prd-review');
+  const summaryPath = paths.stageSummaryPath('prd-review', 'prd-implementation-summary.md');
   const summaryContent = generateImplementationSummary({ mergedOutput, clientTargets });
   fs.writeFileSync(summaryPath, summaryContent, 'utf8');
 
@@ -1188,7 +1184,7 @@ async function main() {
   // 构建 client_results
   const clientResults = {};
   for (const ct of clientTargets) {
-    const f = path.join(pipelineDir, `prd-review-${ct}.json`);
+    const f = paths.stageOutputFile('prd-review', `prd-review-${ct}.json`);
     let ctDecision   = 'unknown';
     let issuesCount  = 0;
     if (fs.existsSync(f)) {

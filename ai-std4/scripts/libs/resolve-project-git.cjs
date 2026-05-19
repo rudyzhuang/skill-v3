@@ -10,6 +10,7 @@ const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 
 const gitSync = require('../../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
 
 function git(projectRoot, args) {
   return spawnSync('git', ['-C', projectRoot, ...args], {
@@ -141,7 +142,8 @@ function ensureProjectGitRepo(projectRoot, opts = {}) {
  */
 function reconcileMisscopedWorktrees(projectRoot, opts = {}) {
   const log = opts.log;
-  const worktreesDir = path.join(projectRoot, '.pipeline', 'worktrees');
+  const paths = createPipelinePaths(projectRoot);
+  const worktreesDir = paths.worktreesDir;
   if (!fs.existsSync(worktreesDir)) return { removed: [] };
 
   const parentGitRoot = opts.parentGitRoot || (() => {

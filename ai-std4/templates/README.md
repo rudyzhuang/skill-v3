@@ -7,7 +7,7 @@
 | [req-template.md](req-template.md) | `<项目>/inputs/req.md` |
 | [config.env.template](config.env.template) | `<项目>/inputs/config.env` |
 | [config.json.template](config.json.template) | `<项目>/docs/config.dev.json`、`config.release.json` |
-| [stages.json.template](stages.json.template) | `<项目>/.pipeline/stages.json` |
+| [stages.json.template](stages.json.template) | `<项目>/output-stages/stages.json` |
 | [prd-spec.md.template](prd-spec.md.template) | `<项目>/docs/prd-spec.md` |
 | [prd-web.json.template](prd-web.json.template) | `<项目>/docs/prd-web.json` |
 | [prd-backend.json.template](prd-backend.json.template) | `<项目>/docs/prd-backend.json` |

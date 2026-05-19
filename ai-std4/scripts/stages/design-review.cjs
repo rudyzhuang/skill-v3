@@ -34,6 +34,7 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
@@ -53,6 +54,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -85,27 +87,21 @@ function fileSha256(filePath) {
 
 /** 读取 stages.json；不存在或解析失败返回 null */
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 /** 写 stages.json（原子覆盖） */
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 function getStopReason() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(projectRoot, '.pipeline', 'stop.signal'), 'utf8')).reason || 'unknown';
+    return JSON.parse(fs.readFileSync(paths.stopSignalPath, 'utf8')).reason || 'unknown';
   } catch (_) { return 'unknown'; }
 }
 
@@ -132,7 +128,7 @@ function gracefulStop(stagesObj) {
   }
 
   try {
-    const sig = path.join(projectRoot, '.pipeline', 'stop.signal');
+    const sig = paths.stopSignalPath;
     if (fs.existsSync(sig)) fs.unlinkSync(sig);
   } catch (_) { /* ignore */ }
 
@@ -545,9 +541,8 @@ async function invokeReviewAgent({ featureId, featureMeta, stagesObj, model, tim
 
   const designFile = path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`);
   const prdSpecPath = path.join(projectRoot, 'docs', 'prd-spec.md');
-  const outputFile  = path.join(projectRoot, '.pipeline', `design-review-${featureId}.json`);
-  const pipelineDir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
+  const outputFile  = paths.stageOutputFile('design-review', `design-review-${featureId}.json`);
+  paths.ensureOutputStagesDir('design-review');
 
   // 获取 deterministic_issues
   const drFeature  = stagesObj.stages && stagesObj.stages.design_review && stagesObj.stages.design_review.features && stagesObj.stages.design_review.features[featureId];
@@ -636,7 +631,7 @@ async function invokeReviewAgent({ featureId, featureMeta, stagesObj, model, tim
 // ── 单 feature Agent（带重试 + schema 校验）──────────────────────
 async function runReviewAgentForFeature({ featureId, featureMeta, stagesObj, model, timeoutMs, maxRetries }) {
   const agentId    = `design-review-agent-${featureId}`;
-  const outputFile = path.join(projectRoot, '.pipeline', `design-review-${featureId}.json`);
+  const outputFile = paths.stageOutputFile('design-review', `design-review-${featureId}.json`);
 
   let lastError = null;
   let timedOut  = false;
@@ -780,7 +775,7 @@ async function runAgentsConcurrent({ readyFeatureIds, featureMetaMap, stagesObj,
           await progress.patchFeature('design_review', fid, {
             status:            'completed',
             completed_at:      completedAtStr,
-            review_file:       path.join(projectRoot, '.pipeline', `design-review-${fid}.json`),
+            review_file:       paths.stageOutputFile('design-review', `design-review-${fid}.json`),
             review_hash:       result.reviewHash,
             design_hash:       result.designHash,
             decision:          result.decision,
@@ -1083,7 +1078,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     if (r.success) {
       fStatus.status           = 'completed';
       fStatus.completed_at     = completedAtStr;
-      fStatus.review_file      = path.join(projectRoot, '.pipeline', `design-review-${r.featureId}.json`);
+      fStatus.review_file      = paths.stageOutputFile('design-review', `design-review-${r.featureId}.json`);
       fStatus.review_hash      = r.reviewHash;
       fStatus.design_hash      = r.designHash;
       fStatus.decision         = r.decision;
@@ -1207,9 +1202,9 @@ async function doValidate(stagesObj, targetFeatureIds) {
   dr.outputs.duration_ms     = Date.now() - startedAt;
 
   // 生成摘要报告
-  const reportsDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportsDir = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportsDir, { recursive: true });
-  const summaryPath = path.join(reportsDir, 'design-review-summary.md');
+  const summaryPath = paths.stageSummaryPath('design-review', 'design-review-summary.md');
   const summaryLines = [
     '# design-review 阶段摘要',
     '',

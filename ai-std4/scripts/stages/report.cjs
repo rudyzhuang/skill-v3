@@ -32,6 +32,7 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 
 // ── 核心 stage 列表（与阶段链一致）────────────────────────────────
@@ -59,6 +60,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -82,18 +84,14 @@ const sessionId = args['session-id']  || crypto.randomBytes(4).toString('hex');
 const log = createLogger({ projectRoot, stage: 'report', runId });
 
 // ── stages.json 读写 ──────────────────────────────────────────────
-const stagesJsonPath = path.join(projectRoot, '.pipeline', 'stages.json');
+const stagesJsonPath = paths.stagesJsonPath;
 
 function readStagesJson() {
-  if (!fs.existsSync(stagesJsonPath)) return null;
-  try { return JSON.parse(fs.readFileSync(stagesJsonPath, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(stagesJsonPath, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return stagesJsonPath;
+  return paths.writeStagesJson(obj);
 }
 
 // ── 工具函数 ──────────────────────────────────────────────────────
@@ -235,8 +233,8 @@ function shouldIncludeLine(line) {
  * @returns {string} excerpt 文件路径（若无内容则为 null）
  */
 function extractErrorLogs(datetime) {
-  const logsRoot     = path.join(projectRoot, 'logs');
-  const excerptPath  = path.join(projectRoot, '.pipeline', 'reports', `.report-error-excerpt-${datetime}.txt`);
+  const logsRoot     = paths.logsRoot;
+  const excerptPath  = path.join(paths.stageOutputDir('report'), `.report-error-excerpt-${datetime}.txt`);
   ensureDir(excerptPath);
 
   const lines = [];
@@ -382,7 +380,7 @@ function buildCollect(stagesData, overall, features, summary, datetime) {
 // ── Agent 调用（report-author）─────────────────────────────────────
 async function invokeReportAgent(collectJsonPath, excerptPath, datetime) {
   const promptPath   = path.join(skillsRoot, 'ai-std4', 'prompts', 'report-author.md');
-  const agentOutPath = path.join(projectRoot, '.pipeline', 'reports', `.report-agent-${datetime}.md`);
+  const agentOutPath = path.join(paths.stageOutputDir('report'), `.report-agent-${datetime}.md`);
   const agentId      = `report-author-${sessionId}`;
   const timeoutMs    = 300_000; // 300s
 
@@ -726,7 +724,7 @@ function renderReport(opts) {
     : '（本次未涉及）';
 
   // UI E2E
-  const snapshotDir   = path.join(projectRoot, '.pipeline', 'logs', 'snapshots');
+  const snapshotDir   = path.join(paths.logsRoot, 'snapshots');
   const ui_e2eSection = ui_e2e_total > 0
     ? [
         `- 通过 ${ui_e2e_passed} / ${ui_e2e_total} 个场景`,
@@ -846,15 +844,15 @@ function computeSummary(stagesData, features) {
 
 // ── 子报告路径 ────────────────────────────────────────────────────
 function getSubReports() {
-  const reportsDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportsDir = path.join(paths.stageOutputDir('report'));
   return [
-    { stage: 'prd-review',          path: path.join(reportsDir, 'prd-implementation-summary.md') },
-    { stage: 'design-review',       path: path.join(reportsDir, 'design-review-summary.md') },
-    { stage: 'codegen',             path: path.join(reportsDir, 'codegen-summary.md') },
-    { stage: 'code-review',         path: path.join(reportsDir, 'code-review-summary.md') },
-    { stage: 'create-ui-scenarios', path: path.join(reportsDir, 'create-ui-scenarios-summary.md') },
-    { stage: 'build',               path: path.join(reportsDir, 'build-summary.md') },
-    { stage: 'deploy',              path: path.join(reportsDir, 'deploy-summary.md') },
+    { stage: 'prd-review',          path: paths.stageSummaryPath('prd-review', 'prd-implementation-summary.md') },
+    { stage: 'design-review',       path: paths.stageSummaryPath('design-review', 'design-review-summary.md') },
+    { stage: 'codegen',             path: paths.stageSummaryPath('codegen', 'codegen-summary.md') },
+    { stage: 'code-review',         path: paths.stageSummaryPath('code-review', 'code-review-summary.md') },
+    { stage: 'create-ui-scenarios', path: paths.stageSummaryPath('create-ui-scenarios', 'create-ui-scenarios-summary.md') },
+    { stage: 'build',               path: paths.stageSummaryPath('build', 'build-summary.md') },
+    { stage: 'deploy',              path: paths.stageSummaryPath('deploy', 'deploy-summary.md') },
   ].map(r => ({ ...r, exists: fs.existsSync(r.path) }));
 }
 
@@ -864,7 +862,7 @@ async function main() {
   const startedStr = formatLocalTimeShort(startedAt);
 
   // 0. 检测 stop.signal
-  const stopSignalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+  const stopSignalPath = paths.stopSignalPath;
   if (fs.existsSync(stopSignalPath)) {
     log.info('pipeline_stop', '检测到 stop.signal，report stage 退出', {
       stage:       'report',
@@ -925,7 +923,7 @@ async function main() {
   const has_errors = overall !== 'success';
 
   // 4. 错误日志摘录
-  const reportsDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportsDir = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportsDir, { recursive: true });
 
   let excerptPath = null;

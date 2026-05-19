@@ -24,6 +24,7 @@ const path    = require('path');
 const crypto  = require('crypto');
 const { spawnSync } = require('child_process');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 const {
@@ -49,6 +50,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const runId      = args['run-id'] || null;
 const forceRerun = args['force-rerun'] === true || args['force-rerun'] === 'true';
@@ -58,17 +60,11 @@ const log = createLogger({ projectRoot, stage: 'merge_push', runId });
 
 // ── stages.json 读写 ──────────────────────────────────────────────
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  const pipelineDir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(pipelineDir, { recursive: true });
-  const p = path.join(pipelineDir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 // ── Git 辅助 ──────────────────────────────────────────────────────
@@ -99,7 +95,7 @@ function getDiffStat(before, after) {
 }
 
 // ── PID 锁 ────────────────────────────────────────────────────────
-const locksDir   = path.join(projectRoot, '.pipeline', 'locks');
+const locksDir   = paths.locksDir;
 const pidLockPath = path.join(locksDir, 'merge_push.pid');
 
 function acquirePidLock() {
@@ -140,7 +136,7 @@ function computeMergeBundleHash(completedFeatures) {
 }
 
 // ── stop.signal 检查 ──────────────────────────────────────────────
-const stopSignalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+const stopSignalPath = paths.stopSignalPath;
 
 function getStopReason() {
   if (!fs.existsSync(stopSignalPath)) return null;

@@ -32,6 +32,7 @@ const path   = require('path');
 const crypto = require('crypto');
 const { execSync, spawn } = require('child_process');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const {
   ensureProjectGitRepo,
@@ -54,6 +55,7 @@ const projectRoot = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -125,26 +127,20 @@ function fileSha256(filePath) {
 }
 
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 function getStopReason() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(projectRoot, '.pipeline', 'stop.signal'), 'utf8')).reason || 'unknown';
+    return JSON.parse(fs.readFileSync(paths.stopSignalPath, 'utf8')).reason || 'unknown';
   } catch (_) { return 'unknown'; }
 }
 
@@ -170,7 +166,7 @@ function gracefulStop(stagesObj) {
   }
 
   try {
-    const sig = path.join(projectRoot, '.pipeline', 'stop.signal');
+    const sig = paths.stopSignalPath;
     if (fs.existsSync(sig)) fs.unlinkSync(sig);
   } catch (_) { /* ignore */ }
 
@@ -230,15 +226,15 @@ function readConfig() {
 
 // ── 路径工具 ──────────────────────────────────────────────────────
 function worktreeDir(featureId) {
-  return path.join(projectRoot, '.pipeline', 'worktrees', `v3-${featureId}`);
+  return path.join(paths.worktreesDir, `v3-${featureId}`);
 }
 
 function workerStateFile(featureId) {
-  return path.join(projectRoot, '.pipeline', 'workers', 'codegen', `${featureId}.state.json`);
+  return path.join(paths.codegenWorkersDir(), `${featureId}.state.json`);
 }
 
 function workerArchiveFile(featureId, attemptIndex) {
-  return path.join(projectRoot, '.pipeline', 'workers', 'codegen', 'archive', `${featureId}.${attemptIndex}.state.json`);
+  return path.join(paths.codegenWorkersDir(), 'archive', `${featureId}.${attemptIndex}.state.json`);
 }
 
 function readWorkerState(featureId) {
@@ -557,7 +553,7 @@ async function doBootstrap(stagesObj, config) {
   });
 
   // 扫描僵尸 worker state
-  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  const workerDir = path.join(paths.codegenWorkersDir());
   const zombieFeatures = [];
   if (fs.existsSync(workerDir)) {
     for (const fname of fs.readdirSync(workerDir)) {
@@ -839,7 +835,7 @@ function spawnInlineWorker(featureId, attemptIndex, stagesObj, config) {
     projectRoot, skillsRoot, runId,
   });
 
-  const tmpScript = path.join(projectRoot, '.pipeline', 'workers', 'codegen', `worker-${featureId}-${attemptIndex}.tmp.cjs`);
+  const tmpScript = path.join(paths.codegenWorkersDir(), `worker-${featureId}-${attemptIndex}.tmp.cjs`);
   fs.mkdirSync(path.dirname(tmpScript), { recursive: true });
   fs.writeFileSync(tmpScript, inlineWorkerCode, 'utf8');
 
@@ -924,7 +920,7 @@ module.paths.unshift(aiStd4NodeModules);
 const config       = ${cfgJson};
 const branch       = ${JSON.stringify(cgFeature.branch || '')};
 const baseCommit   = ${JSON.stringify(cgFeature.base_commit || null)};
-const logPath      = path.join(projectRoot, 'logs', 'stages', 'codegen');
+const logPath      = paths.stageLogsDir('codegen');
 fs.mkdirSync(logPath, { recursive: true });
 
 function formatLocalTimeShort(date = new Date()) {
@@ -952,7 +948,7 @@ function writeState(s) {
 }
 
 function checkStopSignal() {
-  return fs.existsSync(path.join(projectRoot, '.pipeline', 'stop.signal'));
+  return fs.existsSync(paths.stopSignalPath);
 }
 
 async function main() {
@@ -1413,7 +1409,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     ? Object.keys(features).filter(id => id === featureFilterId)
     : Object.keys(features);
 
-  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  const workerDir = path.join(paths.codegenWorkersDir());
   fs.mkdirSync(workerDir, { recursive: true });
 
   // ── 步骤1：收割终态 worker ──────────────────────────────────────
@@ -1780,9 +1776,9 @@ async function doValidate(stagesObj, targetFeatureIds) {
   cg.outputs.smoke_summary = { passed_count: smokePassed, failed_count: smokeFailed };
 
   // 生成报告
-  const reportsDir = path.join(projectRoot, '.pipeline', 'reports');
+  const reportsDir = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportsDir, { recursive: true });
-  const summaryPath = path.join(reportsDir, 'codegen-summary.md');
+  const summaryPath = paths.stageSummaryPath('codegen', 'codegen-summary.md');
   const lines = [
     '# codegen 阶段摘要',
     '',

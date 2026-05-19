@@ -222,7 +222,7 @@ sequenceDiagram
 
 ### 4. 状态图 — 单个阶段在进度文件里可能的状态
 
-进度记录在业务项目的 `.pipeline/stages.json`。每个阶段名称下有一个 `status` 字段，取值含义如下：
+进度记录在业务项目的 `output-stages/stages.json`（兼容旧路径 `.pipeline/stages.json`）。每个阶段名称下有一个 `status` 字段，取值含义如下：
 
 ```mermaid
 stateDiagram-v2
@@ -273,7 +273,7 @@ stateDiagram-v2
 | --- | --- |
 | 和 ai-prd3、ai-codegen2 等老技能的关系？ | ai-std4 **自包含**，不调用那些技能的脚本；思路相近但实现独立。 |
 | 代码写在哪？ | 多在 `worktrees/` 里写，**merge_push** 后再进你主分支的 `src/`。 |
-| 怎么知道卡在哪？ | 看 `run-dash`，或读 `.pipeline/stages.json` 与 `logs/`。 |
+| 怎么知道卡在哪？ | 看 `run-dash`，或读 `output-stages/stages.json` 与 `.pipeline/logs/`。 |
 | 必须开界面自动化吗？ | 否；在配置里关闭 `ui_e2e` 后，相关阶段会标记为跳过。 |
 
 ---

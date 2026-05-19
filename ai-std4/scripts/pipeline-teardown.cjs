@@ -23,6 +23,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const { createLogger, formatLocalTimeShort } = require('./libs/logger.cjs');
+const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
 
 // ── 参数解析 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -43,27 +44,22 @@ const projectRoot = args.project
 const sessionId = args['session-id'] ? String(args['session-id']) : null;
 
 // ── 路径常量 ──────────────────────────────────────────────────────
-const pipelineDir    = path.join(projectRoot, '.pipeline');
-const stagesJsonPath = path.join(pipelineDir, 'stages.json');
-const locksDir       = path.join(pipelineDir, 'locks');
+const paths          = createPipelinePaths(projectRoot);
+const pipelineDir    = paths.pipelineDir;
+const stagesJsonPath = paths.stagesJsonPath;
+const locksDir       = paths.locksDir;
 
 // ── Logger ────────────────────────────────────────────────────────
-fs.mkdirSync(pipelineDir, { recursive: true });
+paths.ensureRuntimeDirs();
 const log = createLogger({ projectRoot, stage: 'pipeline-teardown', runId: sessionId });
 
 // ── stages.json 读写 ──────────────────────────────────────────────
 function readStagesJson() {
-  if (!fs.existsSync(stagesJsonPath)) return null;
-  try { return JSON.parse(fs.readFileSync(stagesJsonPath, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  try {
-    fs.mkdirSync(pipelineDir, { recursive: true });
-    fs.writeFileSync(stagesJsonPath, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  } catch (err) {
-    log.warn('file_updated', `写 stages.json 失败: ${err.message}`, { error: err.message });
-  }
+  return paths.writeStagesJson(obj);
 }
 
 // ── PID 收集 ──────────────────────────────────────────────────────

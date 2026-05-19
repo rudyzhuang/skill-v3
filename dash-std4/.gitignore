@@ -8,6 +8,9 @@ docs/config.env
 .agent-sessions/
 .pipeline/worktrees/
 .pipeline/cache/
+.pipeline/logs/
+output-stages/**
+!output-stages/stages.json
 
 # --- 敏感与环境（默认不入库；团队若加密入库可删此行）---
 docs/config.env

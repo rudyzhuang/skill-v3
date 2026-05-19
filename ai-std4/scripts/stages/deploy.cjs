@@ -31,6 +31,7 @@ const http   = require('http');
 const https  = require('https');
 const { spawnSync } = require('child_process');
 
+const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const {
   loadProjectEnv,
@@ -67,6 +68,7 @@ const projectRoot    = args.project
   : process.env.AI_STD4_PROJECT
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
+const paths = createPipelinePaths(projectRoot);
 
 const runId          = args['run-id'] || null;
 const explicitConfirm = args['explicit-confirm'] === true || args['explicit-confirm'] === 'true';
@@ -78,17 +80,11 @@ const log = createLogger({ projectRoot, stage: 'deploy', runId });
 
 // ── stages.json 读写 ──────────────────────────────────────────────
 function readStagesJson() {
-  const p = path.join(projectRoot, '.pipeline', 'stages.json');
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
+  return paths.readStagesJson();
 }
 
 function writeStagesJson(obj) {
-  const dir = path.join(projectRoot, '.pipeline');
-  fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'stages.json');
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2) + '\n', 'utf8');
-  return p;
+  return paths.writeStagesJson(obj);
 }
 
 // ── config 读取 ───────────────────────────────────────────────────
@@ -112,7 +108,7 @@ function readConfigEnv() {
 }
 
 // ── PID 锁 ────────────────────────────────────────────────────────
-const locksDir    = path.join(projectRoot, '.pipeline', 'locks');
+const locksDir    = paths.locksDir;
 const pidLockPath = path.join(locksDir, 'deploy.pid');
 
 function acquirePidLock() {
@@ -140,7 +136,7 @@ function releasePidLock() {
 }
 
 // ── stop.signal 检查 ──────────────────────────────────────────────
-const stopSignalPath = path.join(projectRoot, '.pipeline', 'stop.signal');
+const stopSignalPath = paths.stopSignalPath;
 
 function getStopReason() {
   if (!fs.existsSync(stopSignalPath)) return null;
@@ -492,7 +488,7 @@ async function runSmokeChecks({ service, deployedUrl, smokeConfig, deployedUrls,
 
 // ── 写入错误包 ────────────────────────────────────────────────────
 function writeLastError({ service, provider, httpStatus, apiErrors, stderrTail, stageLogPath, config }) {
-  const errorPath = path.join(projectRoot, '.pipeline', 'deploy-last-error.json');
+  const errorPath = paths.stageOutputFile('deploy', 'deploy-last-error.json');
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || '';
   const redacted = {
     account_id: accountId ? accountId.slice(0, 4) + '***' : null,
@@ -515,8 +511,8 @@ function writeLastError({ service, provider, httpStatus, apiErrors, stderrTail, 
 // ── 失败分诊（SDK Agent）──────────────────────────────────────────
 async function runTriageAgent({ attempt }) {
   const skillsRoot   = getSkillsRoot();
-  const triageOutPath = path.join(projectRoot, '.pipeline', 'deploy-triage.json');
-  const lastErrPath   = path.join(projectRoot, '.pipeline', 'deploy-last-error.json');
+  const triageOutPath = paths.stageOutputFile('deploy', 'deploy-triage.json');
+  const lastErrPath   = paths.stageOutputFile('deploy', 'deploy-last-error.json');
 
   log.info('deploy_triage_start', `[deploy] 启动分诊 SDK Agent，attempt=${attempt}`, {
     agent_id: 'deploy-triage',
@@ -883,7 +879,7 @@ async function main() {
   let   lastError           = null;
   let   timedOut            = false;
 
-  const logDir  = path.join(projectRoot, 'logs', 'stages', 'deploy');
+  const logDir  = paths.stageLogsDir('deploy');
   fs.mkdirSync(logDir, { recursive: true });
   const datetime = log.datetime;
 
@@ -1349,9 +1345,9 @@ async function main() {
   stages.stages.deploy.outputs.timeout_reason        = timedOut ? `service timed out after ${deployTimeoutMs}ms` : null;
 
   // 生成报告
-  const reportDir  = path.join(projectRoot, '.pipeline', 'reports');
+  const reportDir  = path.join(paths.stageOutputDir('report'));
   fs.mkdirSync(reportDir, { recursive: true });
-  const reportPath = path.join(reportDir, 'deploy-summary.md');
+  const reportPath = paths.stageSummaryPath('deploy', 'deploy-summary.md');
   const reportContent = generateDeployReport({
     services:            stages.stages.deploy.outputs.services,
     inlineSmokeFailures,
