@@ -704,13 +704,25 @@ function renderReport(opts) {
   }
 
   // 部署与构建
-  const deploySection = deployServices.length > 0
-    ? deployServices.map(s => `- **${s.name || s.target}**：${s.url || '（URL 未知）'}`).join('\n')
-    : '（本次未涉及）';
+  const deployStatus     = safeGet(stages, 'deploy', 'status');
+  const deploySkipReason = safeGet(stages, 'deploy', 'outputs', 'skip_reason');
+  let deploySection;
+  if (deployServices.length > 0) {
+    deploySection = deployServices.map(s => `- **${s.name || s.target}**：${s.url || '（URL 未知）'}`).join('\n');
+  } else if (deployStatus === 'skipped' && deploySkipReason) {
+    deploySection = `（未执行部署：\`${deploySkipReason}\`，见 \`docs/config.dev.json\` → \`deploy.enabled\`）`;
+  } else {
+    deploySection = '（本次未涉及）';
+  }
 
   const buildArtifacts = safeGet(stages, 'build', 'outputs', 'artifacts') || [];
   const buildSection   = Array.isArray(buildArtifacts) && buildArtifacts.length > 0
-    ? buildArtifacts.map(a => `- ${a.name || a.target}：\`${a.path || '—'}\``).join('\n')
+    ? buildArtifacts.map(a => {
+        const label = a.client_target || a.name || a.target || 'unknown';
+        const sub   = a.sub_platform && a.sub_platform !== 'default' ? `/${a.sub_platform}` : '';
+        const path_ = a.artifact_path || a.path || '—';
+        return `- ${label}${sub}：\`${path_}\``;
+      }).join('\n')
     : '（本次未涉及）';
 
   // UI E2E
