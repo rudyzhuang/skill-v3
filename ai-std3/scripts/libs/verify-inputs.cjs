@@ -109,6 +109,19 @@ function checkCloudProvider(env) {
 }
 
 /**
+ * Cursor / 流水线环境变量（inputs/config.env）
+ * @param {Record<string, string>} env
+ * @returns {string[]}
+ */
+function checkCursorAgentEnv(env) {
+  const missing = [];
+  if (!env['CURSOR_API_KEY'] || !String(env['CURSOR_API_KEY']).trim()) {
+    missing.push('CURSOR_API_KEY');
+  }
+  return missing;
+}
+
+/**
  * @param {object} opts
  * @param {string} opts.projectRoot
  * @param {string} [opts.runId]
@@ -144,6 +157,16 @@ function verifyInputs({ projectRoot, runId, logger: externalLogger }) {
     for (const key of missingEnvKeys) {
       missing.push(`config.env 缺失字段: ${key}`);
     }
+    const missingCursor = checkCursorAgentEnv(env);
+    for (const key of missingCursor) {
+      missing.push(`config.env 缺失字段: ${key}`);
+    }
+    if (!env['CURSOR_SKILLS_ROOT'] || !String(env['CURSOR_SKILLS_ROOT']).trim()) {
+      warnings.push('CURSOR_SKILLS_ROOT 未设置，将使用默认 ~/.cursor/skills');
+    }
+    if (!env['PIPELINE_MODEL'] || !String(env['PIPELINE_MODEL']).trim()) {
+      warnings.push('PIPELINE_MODEL 未设置，将使用 config 默认 composer-2');
+    }
   }
 
   const passed = missing.length === 0;
@@ -153,7 +176,7 @@ function verifyInputs({ projectRoot, runId, logger: externalLogger }) {
 
   if (passed) {
     log.info('validation_pass', '输入校验通过', {
-      checks: ['req.md 必填节', 'config.env 云平台密钥'],
+      checks: ['req.md 必填节', 'config.env 云平台密钥', 'CURSOR_API_KEY'],
       warnings,
     });
   } else {
@@ -192,4 +215,11 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { verifyInputs, parseEnv, checkRequiredSections, checkCloudProvider, stripHtmlComments };
+module.exports = {
+  verifyInputs,
+  parseEnv,
+  checkRequiredSections,
+  checkCloudProvider,
+  checkCursorAgentEnv,
+  stripHtmlComments,
+};

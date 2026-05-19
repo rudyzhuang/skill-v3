@@ -11,6 +11,8 @@
 const fs   = require('fs');
 const path = require('path');
 const { createLogger } = require('./logger.cjs');
+const { parseEnv } = require('./verify-inputs.cjs');
+const { loadProjectEnv } = require('./pipeline-config.cjs');
 
 /**
  * 解析 req.md 获取项目名称（## 项目名称 * 节的第一行实质内容）
@@ -90,13 +92,16 @@ function syncConfigEnv({ projectRoot, skillsRoot, runId, logger: externalLogger 
   fs.mkdirSync(docsDir, { recursive: true });
 
   const destConfigEnv = path.join(docsDir, 'config.env');
-  const configEnvContent = fs.readFileSync(inputsConfigEnv);
+  const configEnvContent = fs.readFileSync(inputsConfigEnv, 'utf8');
   fs.writeFileSync(destConfigEnv, configEnvContent);
   const destStat = fs.statSync(destConfigEnv);
   log.info('file_updated', `已同步 inputs/config.env → docs/config.env`, {
     path: destConfigEnv,
     size_bytes: destStat.size,
   });
+
+  const envVars = parseEnv(configEnvContent);
+  loadProjectEnv(projectRoot, { source: 'inputs' });
 
   // ── 2. 更新 .gitignore ───────────────────────────────────────────
   const gitignorePath = path.join(projectRoot, '.gitignore');
@@ -125,11 +130,16 @@ function syncConfigEnv({ projectRoot, skillsRoot, runId, logger: externalLogger 
   }
 
   // 填入基础字段
+  const pipelineModel = envVars.PIPELINE_MODEL && envVars.PIPELINE_MODEL.trim();
   const baseConfig = Object.assign({}, templateObj, {
     project: {
       name: projectName,
     },
   });
+  if (pipelineModel) {
+    if (!baseConfig.pipeline) baseConfig.pipeline = {};
+    baseConfig.pipeline.model = pipelineModel;
+  }
 
   const configFiles = [
     { name: 'config.dev.json',     destPath: path.join(docsDir, 'config.dev.json') },
@@ -146,16 +156,27 @@ function syncConfigEnv({ projectRoot, skillsRoot, runId, logger: externalLogger 
         existing = {};
       }
       if (!existing.project) existing.project = {};
+      let updated = false;
       if (!existing.project.name) {
         existing.project.name = projectName;
+        updated = true;
+      }
+      if (pipelineModel) {
+        if (!existing.pipeline) existing.pipeline = {};
+        if (existing.pipeline.model !== pipelineModel) {
+          existing.pipeline.model = pipelineModel;
+          updated = true;
+        }
+      }
+      if (updated) {
         fs.writeFileSync(destPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
         const stat = fs.statSync(destPath);
-        log.info('file_updated', `已更新 ${name} project.name`, {
+        log.info('file_updated', `已更新 ${name}（project.name / pipeline.model）`, {
           path: destPath,
           size_bytes: stat.size,
         });
       } else {
-        log.info('file_skipped', `${name} 已存在且有 project.name，跳过覆盖`, {
+        log.info('file_skipped', `${name} 已存在且无变更，跳过覆盖`, {
           path: destPath,
         });
       }

@@ -32,6 +32,8 @@ const https  = require('https');
 const { spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const { loadProjectEnv, getSkillsRoot, readConfigJson, resolvePipelineModel } = require('../libs/pipeline-config.cjs');
+const { invokeSdkAgent } = require('../libs/invoke-sdk-agent.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -499,72 +501,48 @@ function writeLastError({ service, provider, httpStatus, apiErrors, stderrTail, 
   return errorPath;
 }
 
-// ── 失败分诊（Agent 调用） ────────────────────────────────────────
-function runTriageAgent({ attempt, stageLogPath }) {
-  const agentBin = process.env.AI_STD3_AGENT_BIN || null;
-  const promptPath = path.resolve(__dirname, '../../prompts/deploy-triage.md');
+// ── 失败分诊（SDK Agent）──────────────────────────────────────────
+async function runTriageAgent({ attempt }) {
+  const skillsRoot   = getSkillsRoot();
   const triageOutPath = path.join(projectRoot, '.pipeline', 'deploy-triage.json');
+  const lastErrPath   = path.join(projectRoot, '.pipeline', 'deploy-last-error.json');
 
-  log.info('deploy_triage_start', `[deploy] 启动分诊 Agent，attempt=${attempt}`, {
-    agent_id: agentBin || '(none)',
-    prompt:   promptPath,
+  log.info('deploy_triage_start', `[deploy] 启动分诊 SDK Agent，attempt=${attempt}`, {
+    agent_id: 'deploy-triage',
     attempt,
   });
 
-  if (!agentBin) {
-    // 无 Agent bin，写 fallback triage
-    log.warn('deploy_triage_start',
-      '[deploy] AI_STD3_AGENT_BIN 未设置，分诊退化为 blocked', { attempt });
-    const fallback = {
-      decision:     'blocked',
-      category:     'unknown',
-      reason:       'AI_STD3_AGENT_BIN 未设置，无法自动分诊，须人工介入',
-      evidence:     [],
-      patch_hints:  [],
-      user_actions: ['查看 .pipeline/deploy-last-error.json 并手动排查部署失败原因'],
-    };
-    fs.writeFileSync(triageOutPath, JSON.stringify(fallback, null, 2) + '\n', 'utf8');
-    return fallback;
-  }
+  const cfg   = readConfigJson(projectRoot, configName);
+  const model = resolvePipelineModel(cfg);
 
-  const agentResult = spawnSync(agentBin, [
-    `--prompt=${promptPath}`,
-    `--project=${projectRoot}`,
-    `--output=${triageOutPath}`,
-  ], {
-    cwd:     projectRoot,
-    encoding: 'utf8',
-    timeout: 120000,
-    stdio:   ['ignore', 'pipe', 'pipe'],
+  const result = await invokeSdkAgent({
+    skillsRoot,
+    projectRoot,
+    promptFile:   'deploy-triage.md',
+    agentId:      'deploy-triage',
+    cwd:          getSkillsRoot(),
+    model,
+    timeoutMs:    120000,
+    log,
+    artifactPath: triageOutPath,
+    inject: {
+      deploy_last_error: lastErrPath,
+      attempt:           String(attempt),
+    },
   });
 
-  if (!fs.existsSync(triageOutPath)) {
-    log.error('deploy_triage_complete', '[deploy] 分诊 Agent 未产出 deploy-triage.json，退化 blocked', {
-      agent_exit: agentResult.status,
+  let triage = result.artifact;
+  if (!triage) {
+    log.error('deploy_triage_complete', '[deploy] 分诊未产出有效 JSON，退化 blocked', {
+      error: result.error,
     });
-    const fallback = {
-      decision:     'blocked',
-      category:     'unknown',
-      reason:       '分诊 Agent 未产出 deploy-triage.json',
-      evidence:     [agentResult.stderr || ''],
-      patch_hints:  [],
-      user_actions: ['查看 logs/stages/deploy/ 并手动排查'],
-    };
-    fs.writeFileSync(triageOutPath, JSON.stringify(fallback, null, 2) + '\n', 'utf8');
-    return fallback;
-  }
-
-  let triage;
-  try {
-    triage = JSON.parse(fs.readFileSync(triageOutPath, 'utf8'));
-  } catch (e) {
     triage = {
       decision:     'blocked',
       category:     'unknown',
-      reason:       'deploy-triage.json 解析失败',
+      reason:       result.error || '分诊 Agent 未产出 deploy-triage.json',
       evidence:     [],
       patch_hints:  [],
-      user_actions: ['手动检查 .pipeline/deploy-triage.json'],
+      user_actions: ['查看 .pipeline/deploy-last-error.json 与 logs/stages/deploy/'],
     };
     fs.writeFileSync(triageOutPath, JSON.stringify(triage, null, 2) + '\n', 'utf8');
   }
@@ -628,6 +606,8 @@ async function main() {
     project:    projectRoot,
     started_at: startedAtStr,
   });
+
+  loadProjectEnv(projectRoot);
 
   // ── 1. 读 stages.json ─────────────────────────────────────────────
   let stages = readStagesJson();
@@ -1131,10 +1111,7 @@ async function main() {
           config,
         });
 
-        const triage = runTriageAgent({
-          attempt:      triageAttempt,
-          stageLogPath: path.join(logDir, `${datetime}.log`),
-        });
+        const triage = await runTriageAgent({ attempt: triageAttempt });
 
         if (triage.decision === 'blocked') {
           log.error('deploy_blocked', `[deploy] 分诊结果：blocked — ${triage.reason}`, {

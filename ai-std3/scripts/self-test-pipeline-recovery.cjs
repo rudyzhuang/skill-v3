@@ -47,8 +47,7 @@ const stages = {
   pipeline: { recovery_history: [] },
   stages: {},
 };
-const noAgent = process.env.AI_STD3_AGENT_BIN;
-delete process.env.AI_STD3_AGENT_BIN;
+delete process.env.CURSOR_API_KEY;
 const tmpProject = fs.mkdtempSync(path.join(require('os').tmpdir(), 'std3-recovery-'));
 fs.mkdirSync(path.join(tmpProject, 'docs'), { recursive: true });
 fs.writeFileSync(
@@ -58,9 +57,9 @@ fs.writeFileSync(
 );
 
 let r = shouldAttemptRecovery({ step: 'prd-review', exitCode: 4, projectRoot: tmpProject, stages, runId: 't' });
-assert(r.ok === false && r.reason === 'no_agent_bin', 'no agent → skip');
+assert(r.ok === false && r.reason === 'no_api_key', 'no api key → skip');
 
-process.env.AI_STD3_AGENT_BIN = '/bin/echo';
+process.env.CURSOR_API_KEY = 'test-key';
 r = shouldAttemptRecovery({ step: 'report', exitCode: 4, projectRoot: tmpProject, stages, runId: 't' });
 assert(r.ok === false && r.reason === 'step_excluded', 'report excluded');
 
@@ -78,8 +77,7 @@ assert(countRecoveryAttempts(stages, 'prd-review', 't') === 2, 'history count');
 r = shouldAttemptRecovery({ step: 'prd-review', exitCode: 4, projectRoot: tmpProject, stages, runId: 't' });
 assert(r.ok === false && r.reason === 'max_attempts_reached', 'max attempts');
 
-if (noAgent) process.env.AI_STD3_AGENT_BIN = noAgent;
-else delete process.env.AI_STD3_AGENT_BIN;
+delete process.env.CURSOR_API_KEY;
 
 // 3. assemble bundle
 const bundle = assembleErrorBundle({

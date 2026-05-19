@@ -1,5 +1,6 @@
 {
 "pipeline": {
+    "model": "composer-2",
     "recovery": {
     "enabled": true,
     "max_attempts_per_stage": 2,

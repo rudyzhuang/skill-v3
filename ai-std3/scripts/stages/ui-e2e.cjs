@@ -36,6 +36,8 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const { loadProjectEnv, getSkillsRoot, readConfigJson, resolvePipelineModel } = require('../libs/pipeline-config.cjs');
+const { invokeSdkAgent } = require('../libs/invoke-sdk-agent.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -342,73 +344,68 @@ async function runScenario({ sc, config, stages, datetime }) {
     };
   }
 
-  const agentBin = process.env.AI_STD3_AGENT_BIN || null;
+  const skillsRoot = getSkillsRoot();
   const snapshotPaths = [];
   let   fixAttempts   = 0;
   let   timedOut      = false;
 
-  // 执行（含即时重试）
+  // 执行（含即时重试）— SDK Agent + 结构化结果 JSON
   async function attemptExecution() {
-    if (!agentBin) {
-      // 无 Agent bin → 记录到日志并标记为 skipped（环境未就绪，不视为失败）
-      const msg = `AI_STD3_AGENT_BIN 未设置，跳过场景执行（scenario_id=${sc.scenario_id}）\n`;
-      fs.appendFileSync(scLogPath, msg);
-      fs.appendFileSync(path.join(featLogDir, `${datetime}.log`), `[skipped] ${sc.scenario_id}: no agent bin\n`);
-      return { passed: true, skipped: true, reason: 'no_agent_bin' };
-    }
-
-    const promptPath = path.resolve(__dirname, '../../prompts/ui-e2e-run-scenario.md');
-    const contextJson = JSON.stringify({
+    const contextPath = path.join(projectRoot, '.pipeline', `ui-e2e-scenario-ctx-${sc.scenario_id}.json`);
+    fs.writeFileSync(contextPath, JSON.stringify({
       scenario_id: sc.scenario_id,
       feature_id:  sc.feature_id,
       platform:    sc.platform,
       base_url:    sc.base_url,
       steps:       sc.steps,
       expect:      sc.expect,
-    });
-    const contextPath = path.join(projectRoot, '.pipeline', `ui-e2e-scenario-ctx-${sc.scenario_id}.json`);
-    fs.writeFileSync(contextPath, contextJson, 'utf8');
+    }, null, 2) + '\n', 'utf8');
 
     const scenarioResultPath = path.join(projectRoot, '.pipeline', `ui-e2e-scenario-result-${sc.scenario_id}.json`);
+    const cfg   = readConfigJson(projectRoot);
+    const model = resolvePipelineModel(cfg);
 
-    const agentResult = spawnSync(agentBin, [
-      `--prompt=${promptPath}`,
-      `--project=${projectRoot}`,
-      `--input=${contextPath}`,
-      `--output=${scenarioResultPath}`,
-    ], {
-      cwd:     projectRoot,
-      encoding: 'utf8',
-      timeout: scenarioTimeoutMs,
-      stdio:   ['ignore', 'pipe', 'pipe'],
+    const agentResult = await invokeSdkAgent({
+      skillsRoot,
+      projectRoot,
+      promptFile:   'ui-e2e-run-scenario.md',
+      agentId:      `ui-e2e-scenario-${sc.scenario_id}`,
+      cwd:          projectRoot,
+      model,
+      timeoutMs:    scenarioTimeoutMs,
+      log,
+      artifactPath: scenarioResultPath,
+      inject:       { scenario_context: contextPath },
     });
 
-    if (agentResult.error && agentResult.error.code === 'ETIMEDOUT') {
+    if (agentResult.timedOut) {
       timedOut = true;
       return { passed: false, timedOut: true, failure_summary: `场景超时（${scenarioTimeoutMs}ms）` };
     }
 
-    fs.appendFileSync(scLogPath, `[agent stdout]\n${agentResult.stdout || ''}\n[agent stderr]\n${agentResult.stderr || ''}\n`);
-    fs.appendFileSync(path.join(featLogDir, `${datetime}.log`), `[${sc.scenario_id}] exit=${agentResult.status}\n`);
+    fs.appendFileSync(scLogPath,
+      `[sdk agent] success=${agentResult.success} error=${agentResult.error || ''}\n`);
+    fs.appendFileSync(path.join(featLogDir, `${datetime}.log`),
+      `[${sc.scenario_id}] sdk success=${agentResult.success}\n`);
 
-    // 生成截图（从 agent 输出解析，或创建空截图占位）
-    if (fs.existsSync(scenarioResultPath)) {
-      try {
-        const result = JSON.parse(fs.readFileSync(scenarioResultPath, 'utf8'));
-        if (Array.isArray(result.snapshot_paths)) {
-          snapshotPaths.push(...result.snapshot_paths);
-        }
-        if (result.passed === true) {
-          return { passed: true };
-        }
-        return { passed: false, failure_summary: result.failure_summary || `Agent 返回失败（exit=${agentResult.status}）` };
-      } catch (_) {}
+    if (!agentResult.success && !agentResult.artifact) {
+      if (!process.env.CURSOR_API_KEY) {
+        const msg = `CURSOR_API_KEY 未设置，跳过场景（scenario_id=${sc.scenario_id}）\n`;
+        fs.appendFileSync(scLogPath, msg);
+        return { passed: true, skipped: true, reason: 'no_api_key' };
+      }
+      return { passed: false, failure_summary: agentResult.error || 'SDK Agent 失败' };
     }
 
-    if (agentResult.status !== 0) {
-      return { passed: false, failure_summary: `Agent 退出码 ${agentResult.status}` };
+    const result = agentResult.artifact || {};
+    if (Array.isArray(result.snapshot_paths)) {
+      snapshotPaths.push(...result.snapshot_paths);
     }
-    return { passed: true };
+    if (result.passed === true) return { passed: true };
+    return {
+      passed: false,
+      failure_summary: result.failure_summary || agentResult.error || '场景未通过',
+    };
   }
 
   // 超时包装 + 即时重试循环
@@ -544,12 +541,11 @@ async function runWithConcurrency(items, concurrency, fn, shouldStop) {
   return results;
 }
 
-// ── 分诊 Agent ────────────────────────────────────────────────────
-function runTriageAgent({ featureId, failedScenarioResults, stages, session, attempt }) {
-  const agentBin     = process.env.AI_STD3_AGENT_BIN || null;
-  const promptPath   = path.resolve(__dirname, '../../prompts/ui-e2e-triage.md');
-  const lastErrPath  = path.join(projectRoot, '.pipeline', `ui-e2e-last-error-${featureId}.json`);
-  const triagePath   = path.join(projectRoot, '.pipeline', `ui-e2e-triage-${featureId}.json`);
+// ── 分诊 Agent（SDK）──────────────────────────────────────────────
+async function runTriageAgent({ featureId, failedScenarioResults, stages, session, attempt }) {
+  const skillsRoot  = getSkillsRoot();
+  const lastErrPath = path.join(projectRoot, '.pipeline', `ui-e2e-last-error-${featureId}.json`);
+  const triagePath  = path.join(projectRoot, '.pipeline', `ui-e2e-triage-${featureId}.json`);
 
   // 组装错误包
   const lastErrorDoc = {
@@ -590,38 +586,32 @@ function runTriageAgent({ featureId, failedScenarioResults, stages, session, att
     return triage;
   };
 
-  if (!agentBin) {
-    log.warn('ui_e2e_triage_start', `[ui_e2e] AI_STD3_AGENT_BIN 未设置，分诊退化为 blocked`, {
-      feature_id: featureId, attempt,
-    });
-    return fallback('AI_STD3_AGENT_BIN 未设置，无法自动分诊');
-  }
+  const cfg   = readConfigJson(projectRoot);
+  const model = resolvePipelineModel(cfg);
 
-  const agentResult = spawnSync(agentBin, [
-    `--prompt=${promptPath}`,
-    `--project=${projectRoot}`,
-    `--input=${lastErrPath}`,
-    `--output=${triagePath}`,
-  ], {
-    cwd:     projectRoot,
-    encoding: 'utf8',
-    timeout: 180000,
-    stdio:   ['ignore', 'pipe', 'pipe'],
+  const agentResult = await invokeSdkAgent({
+    skillsRoot,
+    projectRoot,
+    promptFile:   'ui-e2e-triage.md',
+    agentId:      `ui-e2e-triage-${featureId}`,
+    cwd:          projectRoot,
+    model,
+    timeoutMs:    180000,
+    log,
+    artifactPath: triagePath,
+    inject: {
+      last_error: lastErrPath,
+      attempt:    String(attempt),
+    },
   });
 
-  if (!fs.existsSync(triagePath)) {
+  let triage = agentResult.artifact;
+  if (!triage) {
     log.error('ui_e2e_triage_complete', `[ui_e2e] 分诊 Agent 未产出 triage JSON`, {
       feature_id: featureId,
-      agent_exit: agentResult.status,
+      error:      agentResult.error,
     });
-    return fallback('分诊 Agent 未产出 JSON');
-  }
-
-  let triage;
-  try {
-    triage = JSON.parse(fs.readFileSync(triagePath, 'utf8'));
-  } catch (_) {
-    return fallback('triage JSON 解析失败');
+    return fallback(agentResult.error || '分诊 Agent 未产出 JSON');
   }
 
   log.info('ui_e2e_triage_complete', `[ui_e2e] feature=${featureId} 分诊完成：decision=${triage.decision}`, {
@@ -744,6 +734,8 @@ function generateReport({ scenarioResults, session, startedAt, completedAt }) {
 async function main() {
   const startedAt    = Date.now();
   const startedAtStr = formatLocalTimeShort(new Date(startedAt));
+
+  loadProjectEnv(projectRoot);
 
   log.info('stage_start', `ui_e2e stage 启动，项目: ${projectRoot}`, {
     run_id:     runId,
@@ -1136,7 +1128,7 @@ async function main() {
           process.exit(5);
         }
 
-        const triage = runTriageAgent({
+        const triage = await runTriageAgent({
           featureId,
           failedScenarioResults: failedScenarios,
           stages,

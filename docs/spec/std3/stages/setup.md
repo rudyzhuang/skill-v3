@@ -51,8 +51,8 @@ node ai-std3/scripts/stages/setup.cjs --project=<业务项目根绝对路径>
    - 若 `.pipeline/stages.json` **不存在**：先创建 `.pipeline/` 目录（若不存在）；从 skill 安装目录 `templates/stages.json.template` 拷贝；探测 Git（`git remote get-url origin`、`git symbolic-ref --short HEAD`）填写 `pipeline.project.git` 字段（探测失败时对应字段写 `null`，不报错）。
    - 若已存在：仅更新 `stages.setup` 部分（**不重置其它 stage 的状态**）。
    - 无论哪种情况：将 `stages.setup.status` 置为 `"started"`，更新 `started_at`（本地时间），写入 `inputs.source_prd_spec`、`inputs.req_hash`（`req.md` SHA-256）、`inputs.config_env_hash`（`config.env` SHA-256，文件不存在时为 `null`）。
-3. **`verify-inputs.cjs`**：检查 `inputs/req.md` 所有带 `*` 的 H2 节非空；检查 `inputs/config.env` 的 `CLOUD_PROVIDER` 与对应提供商密钥变量非空（规则见模板注释）。**未通过 → 将 `stages.setup.status` 置为 `"pending_user_input"`，退出码 2**，`validation_fail`，列出 `missing[]`（用户补全后重跑 `--from-stage=setup` 即可；`pending_user_input` 状态下 hash 门控同样不命中，确保重跑执行全流程）。
-4. **`sync-config-env.cjs`**：将 `inputs/config.env` **覆盖**写入 `docs/config.env`；按 `CLOUD_PROVIDER` 与 req 中的部署意图合并/创建 `docs/config.dev.json`、`docs/config.release.json`（不存在则从 `config.json.template` 拷贝）。**配置/模板错误 → 退出码 1**。
+3. **`verify-inputs.cjs`**：检查 `inputs/req.md` 所有带 `*` 的 H2 节非空；检查 `inputs/config.env` 的 **`CURSOR_API_KEY`**、`CLOUD_PROVIDER` 与对应云密钥非空（规则见 [`config.env.template`](../templates/config.env.template)）。**未通过 → 将 `stages.setup.status` 置为 `"pending_user_input"`，退出码 2**，`validation_fail`，列出 `missing[]`（用户补全后重跑 `--from-stage=setup` 即可；`pending_user_input` 状态下 hash 门控同样不命中，确保重跑执行全流程）。
+4. **`sync-config-env.cjs`**：将 `inputs/config.env` **覆盖**写入 `docs/config.env` 并注入 `process.env`；将 `PIPELINE_MODEL` 写入 `docs/config.*.json` → `pipeline.model`；按 `CLOUD_PROVIDER` 与 req 合并/创建 `docs/config.dev.json`、`docs/config.release.json`（不存在则从 `config.json.template` 拷贝）。**配置/模板错误 → 退出码 1**。
 5. **`register-project.cjs`**：注册或更新 `<skills_root>/_projects/<project.name>/runtime.json`（`project.name` 必须已在 `config.dev.json` 中）。**路径/权限错误 → 退出码 1**。
 6. **写 setup 完成态**：更新 `pipeline.current_stage`、`pipeline.last_completed_stage`、`pipeline.updated_at`；`stages.setup.status=completed`，`validation.passed=true`，`outputs` 写入 config 路径与 `client_targets: []`（端列表由 **prd** 阶段填充）。
 

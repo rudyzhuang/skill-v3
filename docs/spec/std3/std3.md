@@ -132,6 +132,19 @@ setup
 - 所有脚本调用形态：`node ai-std3/scripts/stages/<stage>.cjs --project=<业务项目根绝对路径> [选项]`
 - 脚本不复制进业务仓
 
+**Agent 与环境（统一 `CURSOR_API_KEY` + `@cursor/sdk`）**：
+
+| 项 | 说明 |
+| --- | --- |
+| **凭证真源** | `<项目>/inputs/config.env`（setup 从 [`config.env.template`](templates/config.env.template) 拷贝）→ `sync-config-env` 同步到 `docs/config.env` |
+| **运行时加载** | `run-pipeline.cjs` 与各 stage 启动时调用 `libs/pipeline-config.cjs` → `loadProjectEnv(projectRoot)` 注入 `process.env` |
+| **调用封装** | `libs/invoke-sdk-agent.cjs`：`Agent.create` + `send` + 可选 `artifactPath`（Ajv 校验 JSON 产出） |
+| **模型** | `PIPELINE_MODEL`（env）优先 → `docs/config.*.json` → `pipeline.model`；默认 **`composer-2`** |
+| **Skill 路径** | `CURSOR_SKILLS_ROOT`（env，可选）→ 默认 `~/.cursor/skills` |
+| **已废弃** | ~~`AI_STD3_AGENT_BIN`~~（CLI 子进程派发）；deploy / ui_e2e 分诊、pipeline-recovery、场景执行均已改 SDK |
+
+`inputs/config.env` 必填项（`verify-inputs.cjs`）：`CURSOR_API_KEY`、`CLOUD_PROVIDER` 及对应云密钥；`CURSOR_SKILLS_ROOT` / `PIPELINE_MODEL` 可空（有默认/警告）。
+
 **真源分层（Single Source of Truth）**：
 
 | 层 | 文件 / 字段 | 角色 | 谁读 |
@@ -491,7 +504,7 @@ after report.cjs exit 0:
 | step 退出码 ∈ **可恢复集** | 默认 **`3`**（超时）、**`4`**（质量门/可修失败）；可配置扩展 |
 | 非 **不可恢复** | **`5`** stopped、**`9`** blocked、**`2`** pending_user_input → **不**触发 |
 | `pipeline.recovery.enabled=true` | 默认 **true**；`false` 时仅记日志，行为与现网一致（继续后续 step） |
-| `AI_STD3_AGENT_BIN` 已设置 | 未设置 → 写 `recovery_skipped`（WARN），不派发 Agent |
+| `CURSOR_API_KEY` 已设置（`loadProjectEnv` 后） | 未设置 → 写 `recovery_skipped`（WARN），不派发 Agent |
 | 未超 `max_attempts_per_stage` | 默认每 step 每 session **2** 次 recovery |
 
 **不触发 recovery 的 step**：`report`（终点）；`setup` 退出码 **2**（等用户填表）。
@@ -573,12 +586,14 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | 路径 | 职责 |
 | --- | --- |
 | `scripts/run-pipeline.cjs` | step 失败后调用 recovery；按 `decision` 重跑或中止 |
-| `scripts/libs/pipeline-recovery.cjs` | 组装错误包、spawn Agent、Ajv、git commit/push 封装 |
+| `scripts/libs/pipeline-config.cjs` | `loadProjectEnv`、模型/skills 根解析 |
+| `scripts/libs/invoke-sdk-agent.cjs` | 统一 SDK Agent 调用 + artifact JSON |
+| `scripts/libs/pipeline-recovery.cjs` | 组装错误包、SDK Agent、Ajv、git commit/push 封装 |
 | `scripts/self-test-pipeline-recovery.cjs` | 无 Agent 确定性自测（门闸、Ajv、bundle） |
 | `prompts/pipeline-recovery.md` | 修复 Agent 提示词 |
 | `schemas/pipeline-recovery-output.schema.json` | recovery JSON |
 
-> **实现状态**：上述脚本已在 `ai-std3` 落地；需配置 `AI_STD3_AGENT_BIN` 才会派发修复 Agent，否则打 `recovery_skipped` 并沿用原「非零继续下游」行为。
+> **实现状态**：上述脚本已在 `ai-std3` 落地；需 `inputs/config.env` 中配置 `CURSOR_API_KEY` 并经 setup 同步后，才会派发修复 SDK Agent，否则打 `recovery_skipped`。
 
 ---
 

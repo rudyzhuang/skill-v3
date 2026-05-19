@@ -30,9 +30,17 @@ node ai-std3/scripts/run-pipeline.cjs --project=<路径> --from-stage=setup
 node ai-std3/scripts/run-dash.cjs --project=<路径>
 ```
 
-## 技能根目录
+## 环境与 Agent
 
-`CURSOR_SKILLS_ROOT` 环境变量优先，默认 `~/.cursor/skills`。
+在业务项目 **`inputs/config.env`**（setup 从 `ai-std3/templates/config.env.template` 拷贝）中配置：
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `CURSOR_API_KEY` | 是 | 所有 Agent stage（`@cursor/sdk`） |
+| `CURSOR_SKILLS_ROOT` | 否 | Skill 根目录，默认 `~/.cursor/skills` |
+| `PIPELINE_MODEL` | 否 | 默认 `composer-2`，同步到 `docs/config.*.json` |
+
+`run-pipeline` 与各 stage 启动时会 `loadProjectEnv` 加载 `docs/config.env`。**不再使用** `AI_STD3_AGENT_BIN`。
 
 ## 规范文档
 

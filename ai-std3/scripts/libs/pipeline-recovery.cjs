@@ -9,6 +9,8 @@
 const fs   = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { getCursorApiKey, getSkillsRoot, readConfigJson, resolvePipelineModel, loadProjectEnv } = require('./pipeline-config.cjs');
+const { invokeSdkAgent } = require('./invoke-sdk-agent.cjs');
 
 const NON_RECOVERABLE_EXIT = new Set([0, 2, 5, 9]);
 const NO_RECOVERY_STEPS    = new Set(['report']);
@@ -39,15 +41,6 @@ function getRecoveryValidator(skillsRoot) {
 }
 
 // ── 配置 ──────────────────────────────────────────────────────────
-function readConfigJson(projectRoot) {
-  for (const name of ['config.dev.json', 'config.release.json']) {
-    const p = path.join(projectRoot, 'docs', name);
-    if (!fs.existsSync(p)) continue;
-    try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { /* */ }
-  }
-  return {};
-}
-
 function readRecoveryConfig(projectRoot) {
   const cfg     = readConfigJson(projectRoot);
   const rec     = (cfg.pipeline && cfg.pipeline.recovery) || {};
@@ -161,11 +154,10 @@ function shouldAttemptRecovery({ step, exitCode, projectRoot, stages, runId }) {
   if (countRecoveryAttempts(stages, step, runId) >= cfg.maxAttemptsPerStage) {
     return { ok: false, reason: 'max_attempts_reached' };
   }
-  const agentBin = process.env.AI_STD3_AGENT_BIN || null;
-  if (!agentBin) {
-    return { ok: false, reason: 'no_agent_bin' };
+  if (!getCursorApiKey()) {
+    return { ok: false, reason: 'no_api_key' };
   }
-  return { ok: true, cfg, agentBin };
+  return { ok: true, cfg };
 }
 
 // ── 错误包 ────────────────────────────────────────────────────────
@@ -217,51 +209,35 @@ function assembleErrorBundle({
 }
 
 // ── Agent ─────────────────────────────────────────────────────────
-function runRecoveryAgent({ agentBin, projectRoot, skillsRoot, bundlePath, log }) {
-  const promptPath = path.join(skillsRoot, 'ai-std3', 'prompts', 'pipeline-recovery.md');
+async function runRecoveryAgent({ projectRoot, skillsRoot, bundlePath, step, log }) {
+  loadProjectEnv(projectRoot);
+  const cfg   = readConfigJson(projectRoot);
+  const model = resolvePipelineModel(cfg);
 
-  log.info('recovery_start', `启动 pipeline-recovery Agent，bundle=${path.basename(bundlePath)}`, {
-    failed_stage: path.basename(bundlePath).replace(/^pipeline-recovery-|\.json$/g, ''),
-    prompt:       promptPath,
-  });
-
-  const agentResult = spawnSync(agentBin, [
-    `--prompt=${promptPath}`,
-    `--project=${projectRoot}`,
-    `--input=${bundlePath}`,
-    `--output=${bundlePath}`,
-    `--skills-root=${skillsRoot}`,
-  ], {
-    cwd:     projectRoot,
-    encoding: 'utf8',
-    timeout: 600000,
-    stdio:   ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      CURSOR_SKILLS_ROOT: skillsRoot,
-      AI_STD3_RECOVERY:     '1',
+  const result = await invokeSdkAgent({
+    skillsRoot,
+    projectRoot,
+    promptFile:   'pipeline-recovery.md',
+    agentId:      `pipeline-recovery-${step}`,
+    cwd:          projectRoot,
+    model,
+    timeoutMs:    600000,
+    log,
+    artifactPath: bundlePath,
+    inject: {
+      recovery_bundle: bundlePath,
+      failed_stage:    step,
     },
+    extraPrompt: '读取 recovery_bundle 中的 input 字段，将 recovery 对象写回同一 JSON 文件。',
   });
 
-  if (!fs.existsSync(bundlePath)) {
-    log.error('recovery_complete', 'Agent 未产出 recovery bundle', {
-      agent_exit: agentResult.status,
-      stderr:     (agentResult.stderr || '').slice(0, 500),
+  if (!result.artifact) {
+    log.error('recovery_complete', 'recovery Agent 未产出有效 recovery 字段', {
+      error: result.error,
     });
     return null;
   }
-
-  let doc;
-  try {
-    doc = JSON.parse(fs.readFileSync(bundlePath, 'utf8'));
-  } catch (e) {
-    log.error('recovery_complete', `recovery bundle 解析失败: ${e.message}`, {});
-    return null;
-  }
-
-  if (doc.recovery && doc.recovery.decision) return doc.recovery;
-  if (doc.decision) return doc;
-  return null;
+  return result.artifact;
 }
 
 function validateRecovery(recovery, skillsRoot) {
@@ -457,7 +433,7 @@ function appendRecoveryHistory(stages, entry) {
 }
 
 // ── 单次 recovery ─────────────────────────────────────────────────
-function runOneRecoveryAttempt({
+async function runOneRecoveryAttempt({
   projectRoot, skillsRoot, runId, step, exitCode, attempt,
   stages, log, writeStagesJson, readStagesJson,
 }) {
@@ -470,9 +446,8 @@ function runOneRecoveryAttempt({
   fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
   fs.writeFileSync(bundlePath, JSON.stringify(bundle, null, 2) + '\n', 'utf8');
 
-  const agentBin = process.env.AI_STD3_AGENT_BIN;
-  let recovery = runRecoveryAgent({
-    agentBin, projectRoot, skillsRoot, bundlePath, log,
+  let recovery = await runRecoveryAgent({
+    projectRoot, skillsRoot, bundlePath, step, log,
   });
 
   if (!recovery) {
@@ -577,10 +552,10 @@ async function handleStepFailure({
     });
 
     if (!check.ok) {
-      if (check.reason === 'no_agent_bin' && readRecoveryConfig(projectRoot).enabled) {
+      if (check.reason === 'no_api_key' && readRecoveryConfig(projectRoot).enabled) {
         const rec = readRecoveryConfig(projectRoot);
         if (rec.recoverableExitCodes.includes(currentExit) && !NO_RECOVERY_STEPS.has(step)) {
-          log.warn('recovery_skipped', 'AI_STD3_AGENT_BIN 未设置，跳过编排级修复', {
+          log.warn('recovery_skipped', 'CURSOR_API_KEY 未设置，跳过编排级修复', {
             failed_stage: step,
             exit_code:    currentExit,
             reason:       check.reason,
@@ -598,7 +573,7 @@ async function handleStepFailure({
       attempt,
     });
 
-    const result = runOneRecoveryAttempt({
+    const result = await runOneRecoveryAttempt({
       projectRoot,
       skillsRoot,
       runId,

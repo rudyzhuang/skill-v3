@@ -904,60 +904,25 @@ async function main() {
   ].filter(Boolean).join('\\n');
   const finalPrompt = promptContent + '\\n\\n' + ctx;
 
-  let agentPid = null;
-  const agentBin = process.env.AI_STD3_AGENT_BIN;
+  // @cursor/sdk（CURSOR_API_KEY，见 inputs/config.env）
+  try {
+    const { Agent } = require('@cursor/sdk');
+    const { getCursorApiKey, resolvePipelineModel, loadProjectEnv } = require('../libs/pipeline-config.cjs');
+    loadProjectEnv(projectRoot);
+    const apiKey = getCursorApiKey();
+    if (!apiKey) {
+      const s = readState();
+      s.status = 'failed';
+      s.error = 'CURSOR_API_KEY not set（请在 inputs/config.env 填写并运行 setup）';
+      writeState(s);
+      process.exit(1);
+    }
 
-  if (agentBin) {
-    // 外部 Agent 二进制
-    const agentProc = spawn(agentBin, ['--prompt', finalPrompt, '--cwd', wtPath], {
-      cwd: wtPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: Object.assign({}, process.env),
-    });
-    agentPid = agentProc.pid;
-    agentProcess = agentProc;
-
-    let stdoutBuf = '';
-    agentProc.stdout.on('data', (chunk) => {
-      lastStdoutAt = Date.now();
-      stdoutBuf += chunk.toString();
-      // 解析 JSON Lines
-      const lines = stdoutBuf.split('\\n');
-      stdoutBuf = lines.pop();
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (parsed.type === 'heartbeat') {
-            lastHeartbeatAt = Date.now();
-            lastHeartbeatData = parsed;
-          } else if (parsed.type === 'final') {
-            finalData = parsed;
-          }
-        } catch(_) {}
-      }
-    });
-    agentProc.stderr.on('data', () => { lastStdoutAt = Date.now(); });
-    agentProc.on('exit', (code) => {
-      agentExited = true;
-      agentExitCode = code;
-    });
-  } else {
-    // 无 Agent binary：使用 @cursor/sdk
-    try {
-      const { Agent } = require('@cursor/sdk');
-      const apiKey = process.env.CURSOR_API_KEY;
-      if (!apiKey) {
-        const s = readState();
-        s.status = 'failed';
-        s.error = 'CURSOR_API_KEY not set';
-        writeState(s);
-        process.exit(1);
-      }
-
-      const agentObj = await Agent.create({ apiKey, model: { id: config.model || 'composer-2' }, local: { cwd: wtPath } });
-      let sdkHangDetected = false;
+    const modelId = process.env.PIPELINE_MODEL && String(process.env.PIPELINE_MODEL).trim()
+      ? String(process.env.PIPELINE_MODEL).trim()
+      : (config.model || 'composer-2');
+    const agentObj = await Agent.create({ apiKey, model: { id: modelId }, local: { cwd: wtPath } });
+    let sdkHangDetected = false;
       const runPromise = (async () => {
         const run = await agentObj.send(finalPrompt);
         if (run.supports && run.supports('stream')) {
@@ -1030,23 +995,8 @@ async function main() {
       writeState(s);
       process.exit(1);
     }
-    // SDK 模式：直接写 completed
-    await handleAgentComplete();
-    return;
-  }
-
-  // 看门狗循环（for spawn 模式）
-  const watchdogInterval = setInterval(checkWatchdog, 10000);
-
-  // 等待 Agent 退出
-  await new Promise((resolve) => {
-    const poll = setInterval(() => {
-      if (agentExited) { clearInterval(poll); resolve(); }
-    }, 1000);
-  });
-  clearInterval(watchdogInterval);
-
   await handleAgentComplete();
+  return;
 
   async function checkWatchdog() {
     if (checkStopSignal()) {

@@ -99,7 +99,7 @@ pipeline.autorun.feature_max_parallel
 | 各端 PRD 内容文件 | 仅加载该 feature 涉及的端；路径见 [prd § 映射](prd.md#client_target--文件与模板映射) |
 | `<业务项目根绝对路径>/docs/feature_list-<client_target>.md` | 各端特性表 |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 并发上限、`timeouts.stages.design_s` |
-| 环境变量 `AI_STD3_AGENT_BIN` | 外部 Agent 可执行路径（可选） |
+| `inputs/config.env` → `CURSOR_API_KEY` | `@cursor/sdk`；模型见 `PIPELINE_MODEL` / `pipeline.model` |
 
 **CLI 过滤**：`--feature=<feature_id>` 仅处理单个 feature（用于重跑失败项）；仍遵守依赖门闸（依赖 feature 须已有 `design.json` 或同次运行中先完成）。
 

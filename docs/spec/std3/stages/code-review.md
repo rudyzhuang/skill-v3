@@ -75,7 +75,7 @@ effective_parallel = min(
 | `<业务项目根绝对路径>/docs/designs/<feature_id>.design.json` | 对齐基准（`file_plan` / `api_outline` / `acceptance` / `constraints` / `dependencies`） |
 | `<业务项目根绝对路径>/docs/ui-scenarios/<feature_id>.scenarios.yaml` | 可选（若已就绪）：核对验收点是否能映射到代码路径 |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 并发上限、`timeouts.stages.code_review_s`、`max_retries` |
-| 环境变量 `AI_STD3_AGENT_BIN` | 外部 Agent 可执行路径 |
+| `inputs/config.env` → `CURSOR_API_KEY` | `@cursor/sdk` |
 
 **CLI 过滤**：`--feature=<feature_id>` 仅重评单个 feature（用于失败重跑）；仍遵守上游门闸。
 

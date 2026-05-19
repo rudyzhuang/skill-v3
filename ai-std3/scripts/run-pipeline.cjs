@@ -28,10 +28,7 @@ const { spawnSync, spawn } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('./libs/logger.cjs');
 const { handleStepFailure } = require('./libs/pipeline-recovery.cjs');
-
-const skillsRoot = process.env.CURSOR_SKILLS_ROOT
-  ? path.resolve(process.env.CURSOR_SKILLS_ROOT)
-  : path.resolve(SCRIPTS_DIR, '../..');
+const { loadProjectEnv, getSkillsRoot } = require('./libs/pipeline-config.cjs');
 
 // ── 参数解析 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -418,10 +415,19 @@ async function main() {
     writeStagesJson(initStages);
   }
 
+  const skillsRoot = getSkillsRoot();
+  const envLoad    = loadProjectEnv(projectRoot);
+  if (envLoad.loaded) {
+    log.info('file_updated', `已加载项目环境: ${envLoad.path}`, {
+      path: envLoad.path,
+    });
+  }
+
   log.info('stage_start', `run-pipeline 启动，项目: ${projectRoot}`, {
     run_id:       runId,
     stage:        'pipeline',
     project:      projectRoot,
+    skills_root:  skillsRoot,
     started_at:   startedAtStr,
     from_stage:   fromStage,
     to_stage:     toStage,

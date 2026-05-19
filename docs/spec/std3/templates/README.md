@@ -5,7 +5,7 @@
 | 模板 | 拷贝目标 |
 | --- | --- |
 | [req-template.md](req-template.md) | `<项目>/inputs/req.md` |
-| [config.env.template](config.env.template) | `<项目>/inputs/config.env` |
+| [config.env.template](config.env.template) | `<项目>/inputs/config.env`（含 `CURSOR_API_KEY`、`PIPELINE_MODEL`、云凭证） |
 | [config.json.template](config.json.template) | `<项目>/docs/config.dev.json`、`config.release.json` |
 | [stages.json.template](stages.json.template) | `<项目>/.pipeline/stages.json` |
 | [prd-spec.md.template](prd-spec.md.template) | `<项目>/docs/prd-spec.md` |

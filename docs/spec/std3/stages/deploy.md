@@ -171,7 +171,7 @@ node ai-std3/scripts/stages/deploy.cjs --project=<业务项目根绝对路径> [
 任一步骤失败且未跳过时：
 
 1. 打 `deploy_failed`（ERROR），附 `deploy_log_path`、`http_status`。
-2. **`deploy-triage.cjs`** 派发 Agent（`AI_STD3_AGENT_BIN`），提示词 **`ai-std3/prompts/deploy-triage.md`**，只读输入：
+2. **SDK 分诊 Agent**（`CURSOR_API_KEY` + `invoke-sdk-agent.cjs`），提示词 **`ai-std3/prompts/deploy-triage.md`**，只读输入：
    - `.pipeline/deploy-last-error.json`
    - `logs/stages/deploy/<datetime>*.log`（失败 service 相关）
    - `docs/config.{dev|release}.json` 的 `deploy` 子树（无密钥）
