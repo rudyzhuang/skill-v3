@@ -63,6 +63,39 @@ const STAGE_ORDER = [
   'code-review', 'merge_push', 'build', 'deploy', 'ui_e2e', 'report',
 ];
 
+const FEATURE_STAGES = [
+  'design', 'design-review', 'create-ui-scenarios', 'codegen', 'code-review', 'ui_e2e',
+];
+
+const PARALLEL_TRACKS = [
+  ['design', 'design-review'],
+  ['codegen', 'create-ui-scenarios'],
+];
+
+const ROLLUP_COLUMNS = [
+  { stage: 'design', abbrev: 'D' },
+  { stage: 'codegen', abbrev: 'C' },
+  { stage: 'ui_e2e', abbrev: 'E' },
+];
+
+const FEATURE_STATUS_ORDER = {
+  running: 0,
+  started: 0,
+  pending_dep: 1,
+  pending: 2,
+  failed: 3,
+  stopped: 4,
+  crashed: 5,
+  completed: 6,
+  skipped: 7,
+};
+
+const PRIORITY_ORDER = { P0: 0, P1: 1, P2: 2, P3: 3 };
+
+const STAGES_PANEL_WIDTH  = 28;
+const FEATURES_PANEL_WIDTH = 36;
+const LOG_PANEL_LEFT      = STAGES_PANEL_WIDTH + FEATURES_PANEL_WIDTH;
+
 // ── 辅助函数 ──────────────────────────────────────────────────────
 
 /** 读取 stages.json，失败时返回 null */
@@ -70,6 +103,11 @@ function readStagesJson() {
   try {
     return JSON.parse(fs.readFileSync(stagesJsonPath, 'utf8'));
   } catch (_) { return null; }
+}
+
+function getStageRecord(stages, stageName) {
+  if (!stages) return {};
+  return stages[stageName] || stages[stageName.replace(/-/g, '_')] || {};
 }
 
 /** 格式化毫秒为 MM:SS 或 HH:MM:SS */
@@ -98,6 +136,44 @@ function getStageIcon(status) {
   }
 }
 
+function getFeatureIcon(status) {
+  switch (status) {
+    case 'completed':   return '✓';
+    case 'running':
+    case 'started':     return '⟳';
+    case 'failed':      return '✗';
+    case 'skipped':     return '↷';
+    case 'stopped':     return '◈';
+    case 'pending_dep': return '⏳';
+    case 'crashed':     return '⚡';
+    default:            return '○';
+  }
+}
+
+function abbrevFeatureStatus(status) {
+  if (!status || status === 'pending') return '○';
+  return getFeatureIcon(status);
+}
+
+function shortGroupId(groupId) {
+  if (!groupId) return '';
+  const m = String(groupId).match(/(\d+)$/);
+  return m ? `G${m[1]}` : String(groupId).slice(0, 4);
+}
+
+function getPipelineDatetime(stagesData) {
+  const runId = stagesData && stagesData.pipeline && stagesData.pipeline.run_id;
+  if (runId && /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/.test(runId)) {
+    return runId.replace(/-[0-9a-f]{8}$/, '');
+  }
+  const startedAt = stagesData && stagesData.pipeline && stagesData.pipeline.started_at;
+  if (startedAt) {
+    const m = String(startedAt).match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+    if (m) return `${m[1]}_${m[2]}-${m[3]}-${m[4]}`;
+  }
+  return null;
+}
+
 /**
  * 从 stages.json 识别当前正在运行的 stage
  * 优先找 status=running，否则用 pipeline.current_stage
@@ -105,43 +181,178 @@ function getStageIcon(status) {
 function getCurrentStage(stagesData) {
   if (!stagesData) return null;
   const stages = stagesData.stages || {};
-  const running = Object.entries(stages).find(([, s]) => s && s.status === 'running');
+  const running = Object.entries(stages).find(([, s]) => s && (s.status === 'running' || s.status === 'started'));
   if (running) return running[0];
   return stagesData.pipeline && stagesData.pipeline.current_stage
     ? String(stagesData.pipeline.current_stage)
     : null;
 }
 
-/**
- * 从 stages.json 推导当前 stage 的日志文件路径
- * datetime = 流水线启动时间，格式 YYYY-MM-DD_HH-mm-ss
- */
-function getLogFilePath(stagesData, stageName) {
-  if (!stageName) return null;
+function getPrdFeatures(stagesData) {
+  const prd = getStageRecord(stagesData && stagesData.stages, 'prd');
+  return (prd.outputs && prd.outputs.features) || [];
+}
 
-  let datetime = null;
+function getRunningFeatureStages(stagesData) {
+  const stages = (stagesData && stagesData.stages) || {};
+  return FEATURE_STAGES.filter((name) => {
+    const st = getStageRecord(stages, name).status;
+    return st === 'running' || st === 'started';
+  });
+}
 
-  // 优先从 run_id 提取（格式：YYYY-MM-DD_HH-mm-ss-<8hex>）
-  const runId = stagesData && stagesData.pipeline && stagesData.pipeline.run_id;
-  if (runId && /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/.test(runId)) {
-    datetime = runId.replace(/-[0-9a-f]{8}$/, '');
+function getParallelTrackGroup(stageName) {
+  for (const group of PARALLEL_TRACKS) {
+    if (group.includes(stageName)) return group;
   }
+  return [stageName];
+}
 
-  // 从 pipeline.started_at 推导（格式：YYYY-MM-DD HH:mm:ss 或带时区）
-  if (!datetime) {
-    const startedAt = stagesData && stagesData.pipeline && stagesData.pipeline.started_at;
-    if (startedAt) {
-      const m = String(startedAt).match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
-      if (m) datetime = `${m[1]}_${m[2]}-${m[3]}-${m[4]}`;
+function pickDefaultTrackStage(stagesData) {
+  const running = getRunningFeatureStages(stagesData);
+  const prefer = ['codegen', 'create-ui-scenarios', 'design', 'design-review', 'code-review', 'ui_e2e'];
+  for (const name of prefer) {
+    if (running.includes(name)) return name;
+  }
+  const current = getCurrentStage(stagesData);
+  if (current && FEATURE_STAGES.includes(current)) return current;
+  const stages = (stagesData && stagesData.stages) || {};
+  for (let i = FEATURE_STAGES.length - 1; i >= 0; i--) {
+    const name = FEATURE_STAGES[i];
+    const s = getStageRecord(stages, name);
+    if (s.features && Object.keys(s.features).length > 0) return name;
+  }
+  return 'codegen';
+}
+
+function useFeatureDetailView(stagesData) {
+  if (getRunningFeatureStages(stagesData).length > 0) return true;
+  const current = getCurrentStage(stagesData);
+  if (current && FEATURE_STAGES.includes(current)) return true;
+  const stages = (stagesData && stagesData.stages) || {};
+  return FEATURE_STAGES.some((name) => {
+    const s = getStageRecord(stages, name);
+    return s.features && Object.keys(s.features).length > 0;
+  });
+}
+
+function sortPrdFeatures(prdFeatures, stageFeatures) {
+  return [...prdFeatures].sort((a, b) => {
+    const sa = (stageFeatures[a.feature_id] || {}).status || 'pending';
+    const sb = (stageFeatures[b.feature_id] || {}).status || 'pending';
+    const pa = FEATURE_STATUS_ORDER[sa] ?? 99;
+    const pb = FEATURE_STATUS_ORDER[sb] ?? 99;
+    if (pa !== pb) return pa - pb;
+    const pra = PRIORITY_ORDER[a.priority] ?? 9;
+    const prb = PRIORITY_ORDER[b.priority] ?? 9;
+    if (pra !== prb) return pra - prb;
+    return a.feature_id.localeCompare(b.feature_id);
+  });
+}
+
+function countFeatureStatuses(prdFeatures, stageFeatures) {
+  const counts = {
+    completed: 0, running: 0, pending: 0, failed: 0,
+    skipped: 0, pending_dep: 0, crashed: 0, stopped: 0,
+  };
+  for (const f of prdFeatures) {
+    let st = (stageFeatures[f.feature_id] || {}).status || 'pending';
+    if (st === 'started') st = 'running';
+    if (counts[st] !== undefined) counts[st]++;
+    else counts.pending++;
+  }
+  return counts;
+}
+
+function computeHeaderFeatureStats(stagesData, trackStage) {
+  const prdFeatures = getPrdFeatures(stagesData);
+  const total = prdFeatures.length;
+  if (total === 0) return { completed: 0, total: 0, inflight: 0 };
+  const stageFeatures = getStageRecord(stagesData.stages, trackStage).features || {};
+  let completed = 0;
+  let inflight = 0;
+  for (const f of prdFeatures) {
+    const st = (stageFeatures[f.feature_id] || {}).status;
+    if (st === 'completed') completed++;
+    if (st === 'running' || st === 'started' || st === 'pending_dep' || st === 'crashed') inflight++;
+  }
+  return { completed, total, inflight };
+}
+
+function featureElapsedMs(feat, now) {
+  if (!feat || !feat.started_at) return null;
+  const startMs = new Date(feat.started_at).getTime();
+  if (isNaN(startMs)) return null;
+  if (feat.completed_at) {
+    const endMs = new Date(feat.completed_at).getTime();
+    if (!isNaN(endMs)) return endMs - startMs;
+  }
+  if (feat.status === 'running' || feat.status === 'started') return now - startMs;
+  return null;
+}
+
+function buildFeatureSuffix(stagesData, trackStage, featureId, feat) {
+  const parts = [];
+  const gid = feat.group_id || feat.groupId;
+  if (gid) parts.push(shortGroupId(gid));
+  if (feat.status === 'skipped' && feat.skip_reason) {
+    parts.push(String(feat.skip_reason).slice(0, 8));
+  } else if (feat.status === 'skipped') {
+    parts.push('skip');
+  }
+  if (trackStage === 'design-review' || trackStage === 'design_review') {
+    if (feat.can_enter_codegen) {
+      const codegenFeat = (getStageRecord(stagesData.stages, 'codegen').features || {})[featureId];
+      const cgSt = codegenFeat && codegenFeat.status;
+      if (!cgSt || cgSt === 'pending') parts.push('→codegen');
     }
   }
+  return parts.length ? ` ${parts.join(' ')}` : '';
+}
 
+/**
+ * 日志路径：stage 或 feature
+ */
+function getLogFilePath(stagesData, { stageName, featureId } = {}) {
+  const datetime = getPipelineDatetime(stagesData);
   if (!datetime) return null;
+  if (featureId) {
+    return path.join(projectRoot, 'logs', 'features', featureId, `${datetime}.log`);
+  }
+  if (!stageName) return null;
   return path.join(projectRoot, 'logs', 'stages', stageName, `${datetime}.log`);
 }
 
+function findNewestLogInDir(dir) {
+  if (!dir || !fs.existsSync(dir)) return null;
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.log'));
+    if (files.length === 0) return null;
+    files.sort();
+    return path.join(dir, files[files.length - 1]);
+  } catch (_) {
+    return null;
+  }
+}
+
+function resolveLogFilePath(stagesData, { trackStage, selectedFeatureId } = {}) {
+  if (selectedFeatureId) {
+    const exact = getLogFilePath(stagesData, { featureId: selectedFeatureId });
+    if (exact && fs.existsSync(exact)) return exact;
+    const dir = path.join(projectRoot, 'logs', 'features', selectedFeatureId);
+    return findNewestLogInDir(dir) || exact;
+  }
+  const stageName = trackStage || getCurrentStage(stagesData);
+  const exact = getLogFilePath(stagesData, { stageName });
+  if (exact && fs.existsSync(exact)) return exact;
+  if (stageName) {
+    const dir = path.join(projectRoot, 'logs', 'stages', stageName);
+    return findNewestLogInDir(dir) || exact;
+  }
+  return null;
+}
+
 // ── TTY / CI fallback 判断 ────────────────────────────────────────
-// 非 TTY 或 CI 环境降级为纯文本输出
 const useTUI = (
   process.stdout.isTTY === true &&
   !process.env.CI &&
@@ -162,19 +373,26 @@ function runFallbackMode() {
     const now         = new Date();
     const projectName = (data.pipeline && data.pipeline.project && data.pipeline.project.name)
       || path.basename(projectRoot);
+    const trackStage  = pickDefaultTrackStage(data);
+    const stats       = computeHeaderFeatureStats(data, trackStage);
+
     process.stdout.write(
       `\n=== ai-std4 流水线状态 [${now.toLocaleString('zh-CN')}] 项目: ${projectName} ===\n`
     );
+    if (stats.total > 0) {
+      process.stdout.write(
+        `  Feature [${trackStage}]: ${stats.completed}/${stats.total} 完成 · 在途 ${stats.inflight}\n`
+      );
+    }
 
     const stages = data.stages || {};
     for (const stageName of STAGE_ORDER) {
-      const stageKey = stageName.replace(/-/g, '_');
-      const s        = stages[stageName] || stages[stageKey] || {};
+      const s        = getStageRecord(stages, stageName);
       const status   = s.status || 'pending';
       const icon     = getStageIcon(status);
 
       let elapsed = '';
-      if (status === 'running' && s.started_at) {
+      if ((status === 'running' || status === 'started') && s.started_at) {
         const startMs = new Date(s.started_at).getTime();
         if (!isNaN(startMs)) elapsed = ` [${formatElapsed(now - startMs)}]`;
       } else if (s.completed_at && s.started_at) {
@@ -186,6 +404,24 @@ function runFallbackMode() {
       }
 
       process.stdout.write(`  ${icon} ${stageName.padEnd(22)} ${status}${elapsed}\n`);
+    }
+
+    if (useFeatureDetailView(data)) {
+      const prdFeatures = getPrdFeatures(data);
+      const stageFeatures = getStageRecord(stages, trackStage).features || {};
+      const sorted = sortPrdFeatures(prdFeatures, stageFeatures).slice(0, 12);
+      if (sorted.length > 0) {
+        process.stdout.write(`\n  --- features [${trackStage}] ---\n`);
+        for (const f of sorted) {
+          const feat = stageFeatures[f.feature_id] || {};
+          const st = feat.status || '—';
+          const icon = st === '—' ? '—' : getFeatureIcon(st);
+          process.stdout.write(`  ${icon} ${f.feature_id} ${st}\n`);
+        }
+        if (prdFeatures.length > 12) {
+          process.stdout.write(`  ... +${prdFeatures.length - 12} more\n`);
+        }
+      }
     }
 
     if (fs.existsSync(stopSignalPath)) {
@@ -211,7 +447,6 @@ function runFallbackMode() {
 // ── TUI 模式（blessed）────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 function runTUIMode() {
-  // 动态加载 blessed（安装失败则降级）
   let blessed;
   try {
     blessed = require('blessed');
@@ -223,23 +458,25 @@ function runTUIMode() {
     return;
   }
 
-  // ── 运行时状态 ─────────────────────────────────────────────────
-  let stagesData      = readStagesJson();
-  let logLines        = [];
-  let logFileOffset   = 0;
-  let currentLogFile  = null;
-  let stopping        = false;
-  let dialogOpen      = false;
-  const dashStartedAt = new Date();
+  let stagesData         = readStagesJson();
+  let logLines           = [];
+  let logFileOffset      = 0;
+  let currentLogFile     = null;
+  let stopping           = false;
+  let dialogOpen         = false;
+  let trackStage         = pickDefaultTrackStage(stagesData);
+  let selectedFeatureId  = null;
+  let featureHighlight   = 0;
+  let focusPanel         = 'features';
+  let displayFeatureIds  = [];
+  const dashStartedAt    = new Date();
 
-  // 定时器 & watcher 句柄（提前声明供 cleanup() 引用）
   let logInterval    = null;
   let timerInterval  = null;
   let stagesDebounce = null;
   let stagesWatcher  = null;
   let pipelineDirWatch = null;
 
-  // ── blessed screen ─────────────────────────────────────────────
   let screen;
   try {
     screen = blessed.screen({
@@ -257,7 +494,6 @@ function runTUIMode() {
     return;
   }
 
-  // ── Header（顶部信息栏）────────────────────────────────────────
   const headerBox = blessed.box({
     parent: screen,
     top:    0,
@@ -265,56 +501,56 @@ function runTUIMode() {
     width:  '100%',
     height: 3,
     border: { type: 'line' },
-    style:  {
-      fg:     'white',
-      bg:     'blue',
-      border: { fg: 'cyan' },
-    },
-    tags: true,
+    style:  { fg: 'white', bg: 'blue', border: { fg: 'cyan' } },
+    tags:   true,
   });
 
-  // ── 阶段状态面板（左侧）───────────────────────────────────────
   const stagesBox = blessed.box({
     parent:       screen,
     top:          3,
     left:         0,
-    width:        32,
+    width:        STAGES_PANEL_WIDTH,
     height:       '100%-6',
     border:       { type: 'line' },
     label:        ' 阶段状态 ',
     scrollable:   true,
     alwaysScroll: true,
-    style:        {
-      fg:     'white',
-      border: { fg: 'cyan' },
-      label:  { fg: 'cyan' },
-    },
-    tags: true,
+    style:        { fg: 'white', border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+    tags:         true,
   });
 
-  // ── 日志面板（右侧）───────────────────────────────────────────
+  const featuresBox = blessed.box({
+    parent:       screen,
+    top:          3,
+    left:         STAGES_PANEL_WIDTH,
+    width:        FEATURES_PANEL_WIDTH,
+    height:       '100%-6',
+    border:       { type: 'line' },
+    label:        ' Feature 状态 ',
+    scrollable:   true,
+    alwaysScroll: true,
+    scrollbar:    { ch: ' ', track: { bg: 'black' }, style: { inverse: true } },
+    style:        { fg: 'white', border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+    tags:         true,
+  });
+
   const logBox = blessed.box({
     parent:       screen,
     top:          3,
-    left:         32,
-    width:        '100%-32',
+    left:         LOG_PANEL_LEFT,
+    width:        `100%-${LOG_PANEL_LEFT}`,
     height:       '100%-6',
     border:       { type: 'line' },
-    label:        ` 当前阶段日志（末 ${tailLines} 行） `,
+    label:        ` 日志（末 ${tailLines} 行） `,
     scrollable:   true,
     alwaysScroll: true,
     scrollbar:    { ch: ' ', track: { bg: 'black' }, style: { inverse: true } },
     mouse:        true,
-    style:        {
-      fg:     'green',
-      border: { fg: 'cyan' },
-      label:  { fg: 'cyan' },
-    },
-    tags:    false,
-    wrap:    true,
+    style:        { fg: 'green', border: { fg: 'cyan' }, label: { fg: 'cyan' } },
+    tags:         false,
+    wrap:         true,
   });
 
-  // ── Footer（底部按键提示）─────────────────────────────────────
   const footerBox = blessed.box({
     parent: screen,
     bottom: 0,
@@ -322,17 +558,18 @@ function runTUIMode() {
     width:  '100%',
     height: 3,
     border: { type: 'line' },
-    style:  {
-      fg:     'white',
-      border: { fg: 'cyan' },
-    },
-    tags: true,
+    style:  { fg: 'white', border: { fg: 'cyan' } },
+    tags:   true,
   });
 
-  // ── 内部辅助：读取新日志行 ─────────────────────────────────────
+  function resetLogBuffer() {
+    logFileOffset = 0;
+    logLines      = [];
+    currentLogFile = null;
+  }
+
   function refreshLogFile() {
-    const cs         = getCurrentStage(stagesData);
-    const newLogFile = getLogFilePath(stagesData, cs);
+    const newLogFile = resolveLogFilePath(stagesData, { trackStage, selectedFeatureId });
 
     if (newLogFile !== currentLogFile) {
       currentLogFile = newLogFile;
@@ -356,14 +593,29 @@ function runTUIMode() {
       const newLines = buf.toString('utf8').split('\n').filter(l => l.trim());
       logLines.push(...newLines);
 
-      // 防止内存无限增长，保留 tailLines * 3 行
       if (logLines.length > tailLines * 3) {
         logLines = logLines.slice(-tailLines * 2);
       }
     } catch (_) { /* ignore */ }
   }
 
-  // ── 渲染：标题栏 ──────────────────────────────────────────────
+  function updateFeaturesLabel() {
+    const detail = useFeatureDetailView(stagesData);
+    const suffix = detail ? `[${trackStage}]` : '[汇总]';
+    featuresBox.setLabel(` Feature 状态 ${suffix} `);
+  }
+
+  function updateLogLabel() {
+    let src;
+    if (selectedFeatureId) {
+      src = `feature/${selectedFeatureId}`;
+    } else {
+      const st = trackStage || getCurrentStage(stagesData) || '?';
+      src = `stage/${st}`;
+    }
+    logBox.setLabel(` 日志（末 ${tailLines} 行） 源: ${src} `);
+  }
+
   function renderHeader() {
     const projectName = (
       stagesData && stagesData.pipeline &&
@@ -372,14 +624,19 @@ function runTUIMode() {
     ) || path.basename(projectRoot);
 
     const startStr = dashStartedAt.toLocaleString('zh-CN');
+    const stats    = computeHeaderFeatureStats(stagesData, trackStage);
+    let featPart   = '';
+    if (stats.total > 0) {
+      featPart = `   Feature: {cyan-fg}${stats.completed}/${stats.total}{/cyan-fg} · 在途 ${stats.inflight}`;
+    }
+
     headerBox.setContent(
       `  {bold}ai-std4 流水线看板{/bold}` +
       `  项目: {cyan-fg}${projectName}{/cyan-fg}` +
-      `  启动: ${startStr}`
+      `  启动: ${startStr}${featPart}`
     );
   }
 
-  // ── 渲染：阶段状态列表 ────────────────────────────────────────
   function renderStages() {
     const stages    = (stagesData && stagesData.stages) || {};
     const currentSt = getCurrentStage(stagesData);
@@ -387,8 +644,7 @@ function runTUIMode() {
     const lines     = [];
 
     for (const stageName of STAGE_ORDER) {
-      const stageKey = stageName.replace(/-/g, '_');
-      const s        = stages[stageName] || stages[stageKey] || {};
+      const s        = getStageRecord(stages, stageName);
       const status   = s.status || 'pending';
       const icon     = getStageIcon(status);
       const isActive = (stageName === currentSt);
@@ -407,33 +663,116 @@ function runTUIMode() {
 
       let iconColor;
       switch (status) {
-        case 'completed': iconColor = '{green-fg}';   break;
+        case 'completed': iconColor = '{green-fg}'; break;
         case 'running':
-        case 'started':   iconColor = '{yellow-fg}';  break;
-        case 'failed':    iconColor = '{red-fg}';     break;
-        case 'skipped':   iconColor = '{cyan-fg}';    break;
+        case 'started':   iconColor = '{yellow-fg}'; break;
+        case 'failed':    iconColor = '{red-fg}'; break;
+        case 'skipped':   iconColor = '{cyan-fg}'; break;
         case 'stopped':   iconColor = '{magenta-fg}'; break;
-        default:          iconColor = '{gray-fg}';    break;
+        default:          iconColor = '{gray-fg}'; break;
       }
 
-      const namePart    = stageName.padEnd(18);
+      const namePart    = stageName.length > 16 ? `${stageName.slice(0, 14)}…` : stageName.padEnd(16);
       const elapsedPart = elapsed ? ` ${elapsed}` : '';
       const activeMark  = isActive ? ' {yellow-fg}←{/yellow-fg}' : '';
-      // {/} 关闭所有颜色标签，兼容性更好
       lines.push(`${iconColor}${icon}{/} ${namePart}${elapsedPart}${activeMark}`);
     }
 
     stagesBox.setContent(lines.join('\n'));
   }
 
-  // ── 渲染：日志面板 ────────────────────────────────────────────
+  function renderFeatures() {
+    updateFeaturesLabel();
+    const prdFeatures = getPrdFeatures(stagesData);
+    const now         = Date.now();
+    const lines       = [];
+
+    if (prdFeatures.length === 0) {
+      lines.push('{gray-fg}(无 prd.outputs.features){/gray-fg}');
+      displayFeatureIds = [];
+      featuresBox.setContent(lines.join('\n'));
+      return;
+    }
+
+    if (!useFeatureDetailView(stagesData)) {
+      lines.push('{gray-fg}跨阶段汇总 D=design C=codegen E=ui_e2e{/gray-fg}');
+      displayFeatureIds = [];
+      const stages = stagesData.stages || {};
+      for (const f of prdFeatures) {
+        const cols = ROLLUP_COLUMNS.map(({ stage, abbrev }) => {
+          const feat = (getStageRecord(stages, stage).features || {})[f.feature_id];
+          const st = feat ? feat.status : null;
+          return `${abbrev}${abbrevFeatureStatus(st)}`;
+        }).join(' ');
+        const fid = f.feature_id.length > 22 ? `${f.feature_id.slice(0, 20)}…` : f.feature_id;
+        lines.push(`${fid.padEnd(22)} ${cols}`);
+      }
+      featuresBox.setContent(lines.join('\n'));
+      return;
+    }
+
+    const stageFeatures = getStageRecord(stagesData.stages, trackStage).features || {};
+    const sorted        = sortPrdFeatures(prdFeatures, stageFeatures);
+    displayFeatureIds   = sorted.map(f => f.feature_id);
+
+    if (featureHighlight >= displayFeatureIds.length) {
+      featureHighlight = Math.max(0, displayFeatureIds.length - 1);
+    }
+
+    const counts = countFeatureStatuses(prdFeatures, stageFeatures);
+    lines.push(
+      `{gray-fg}✓${counts.completed} ⟳${counts.running} ○${counts.pending} ` +
+      `✗${counts.failed} ↷${counts.skipped} ⏳${counts.pending_dep}{/gray-fg}`
+    );
+    lines.push('');
+
+    sorted.forEach((f, idx) => {
+      const fid  = f.feature_id;
+      const feat = stageFeatures[fid] || {};
+      const st   = feat.status || '—';
+      const icon = st === '—' ? '—' : getFeatureIcon(st);
+
+      let iconColor = '{gray-fg}';
+      if (st === 'completed') iconColor = '{green-fg}';
+      else if (st === 'running' || st === 'started') iconColor = '{yellow-fg}';
+      else if (st === 'failed') iconColor = '{red-fg}';
+      else if (st === 'skipped') iconColor = '{cyan-fg}';
+      else if (st === 'pending_dep') iconColor = '{blue-fg}';
+      else if (st === 'crashed') iconColor = '{red-fg}';
+
+      const elapsedMs = featureElapsedMs(feat, now);
+      const elapsed   = elapsedMs != null ? ` ${formatElapsed(elapsedMs)}` : '';
+      const suffix    = buildFeatureSuffix(stagesData, trackStage, fid, feat);
+
+      const idDisplay = fid.length > 20 ? `${fid.slice(0, 18)}…` : fid;
+      const isSelected = selectedFeatureId === fid;
+      const isHighlight = idx === featureHighlight && focusPanel === 'features';
+
+      let prefix = '  ';
+      if (isSelected) prefix = '{cyan-fg}▸{/cyan-fg} ';
+      else if (isHighlight) prefix = '{bold}>{/bold} ';
+
+      let row = `${prefix}${iconColor}${icon}{/} ${idDisplay}${elapsed}${suffix}`;
+      if (isHighlight && focusPanel === 'features') row = `{inverse}${row}{/inverse}`;
+      lines.push(row);
+    });
+
+    if (sorted.length > 0) {
+      lines.push('');
+      lines.push('{gray-fg}(↑/↓ 滚动 · Enter 选中日志){/gray-fg}');
+    }
+
+    featuresBox.setContent(lines.join('\n'));
+    if (focusPanel === 'features') featuresBox.focus();
+  }
+
   function renderLog() {
+    updateLogLabel();
     const tail = logLines.slice(-tailLines);
     logBox.setContent(tail.join('\n'));
     logBox.setScrollPerc(100);
   }
 
-  // ── 渲染：底部状态栏 ──────────────────────────────────────────
   function renderFooter() {
     const stopExists = fs.existsSync(stopSignalPath);
     if (stopExists || stopping) {
@@ -445,23 +784,22 @@ function runTUIMode() {
     } else {
       footerBox.style.bg = undefined;
       footerBox.setContent(
-        '  {bold}[S]{/bold} 停止流水线   {bold}[R]{/bold} 刷新   ' +
-        '{bold}[↑/↓]{/bold} 滚动日志   {bold}[PgUp/PgDn]{/bold} 翻页   ' +
-        '{bold}[Q]{/bold} 退出看板'
+        '  {bold}[S]{/bold} 停止  {bold}[R]{/bold} 刷新  {bold}[F]{/bold} 切换 track  ' +
+        '{bold}[Tab]{/bold} 焦点  {bold}[↑/↓]{/bold} 滚动  {bold}[Enter]{/bold} 选中 feature  ' +
+        '{bold}[Q]{/bold} 退出'
       );
     }
   }
 
-  // ── 主渲染入口 ────────────────────────────────────────────────
   function render() {
     renderHeader();
     renderStages();
+    renderFeatures();
     renderLog();
     renderFooter();
     screen.render();
   }
 
-  // ── 清理函数（关闭所有句柄，防止进程挂起）────────────────────
   let cleanupCalled = false;
   function cleanup() {
     if (cleanupCalled) return;
@@ -471,17 +809,15 @@ function runTUIMode() {
     clearInterval(timerInterval);
     clearTimeout(stagesDebounce);
 
-    if (stagesWatcher)    { try { stagesWatcher.close();    } catch (_) {} }
+    if (stagesWatcher) { try { stagesWatcher.close(); } catch (_) {} }
     if (pipelineDirWatch) { try { pipelineDirWatch.close(); } catch (_) {} }
 
     try { screen.destroy(); } catch (_) {}
     process.exit(0);
   }
 
-  // SIGTERM → 安静退出（run-pipeline teardown 会发此信号）
   process.once('SIGTERM', cleanup);
 
-  // ── 停止流水线（写 stop.signal）──────────────────────────────
   function triggerStop() {
     if (fs.existsSync(stopPipelineScript)) {
       try {
@@ -494,7 +830,6 @@ function runTUIMode() {
       } catch (_) { /* fall through */ }
     }
 
-    // Fallback：直接写 stop.signal
     try {
       const signal = {
         requested_at: new Date().toLocaleString('zh-CN'),
@@ -505,7 +840,6 @@ function runTUIMode() {
     } catch (_) { /* ignore */ }
   }
 
-  // ── 停止确认对话框 ────────────────────────────────────────────
   function showStopConfirmDialog() {
     if (dialogOpen || stopping) return;
     dialogOpen = true;
@@ -513,22 +847,17 @@ function runTUIMode() {
     const currentSt = getCurrentStage(stagesData) || '(未知)';
 
     const dialog = blessed.box({
-      parent: screen,
-      top:    'center',
-      left:   'center',
-      width:  52,
-      height: 10,
-      border: { type: 'line' },
-      label:  ' 确认停止流水线 ',
-      style:  {
-        fg:     'white',
-        bg:     'black',
-        border: { fg: 'yellow' },
-        label:  { fg: 'yellow' },
-      },
-      tags:  true,
-      keys:  true,
-      mouse: true,
+      parent:  screen,
+      top:     'center',
+      left:    'center',
+      width:   52,
+      height:  10,
+      border:  { type: 'line' },
+      label:   ' 确认停止流水线 ',
+      style:   { fg: 'white', bg: 'black', border: { fg: 'yellow' }, label: { fg: 'yellow' } },
+      tags:    true,
+      keys:    true,
+      mouse:   true,
       content: [
         '',
         '  {bold}确认停止流水线？{/bold}',
@@ -562,9 +891,54 @@ function runTUIMode() {
     screen.render();
   }
 
-  // ── 键盘事件绑定 ──────────────────────────────────────────────
+  function cycleTrack() {
+    const group = getParallelTrackGroup(trackStage);
+    if (group.length <= 1) return;
+    const idx = group.indexOf(trackStage);
+    trackStage = group[(idx + 1) % group.length];
+    resetLogBuffer();
+    if (!selectedFeatureId) refreshLogFile();
+  }
+
+  function cycleFocus() {
+    const order = ['stages', 'features', 'log'];
+    const idx = order.indexOf(focusPanel);
+    focusPanel = order[(idx + 1) % order.length];
+    if (focusPanel === 'features') featuresBox.focus();
+    else if (focusPanel === 'log') logBox.focus();
+    else stagesBox.focus();
+    renderFeatures();
+    screen.render();
+  }
+
+  function scrollFocused(delta) {
+    if (focusPanel === 'log') {
+      logBox.scroll(delta);
+    } else if (focusPanel === 'features') {
+      if (displayFeatureIds.length === 0) return;
+      featureHighlight = Math.max(0, Math.min(displayFeatureIds.length - 1, featureHighlight + delta));
+      featuresBox.scroll(delta);
+      renderFeatures();
+    } else {
+      stagesBox.scroll(delta);
+    }
+    screen.render();
+  }
+
+  function toggleFeatureLogSelection() {
+    if (displayFeatureIds.length === 0) return;
+    const fid = displayFeatureIds[featureHighlight];
+    if (selectedFeatureId === fid) {
+      selectedFeatureId = null;
+    } else {
+      selectedFeatureId = fid;
+    }
+    resetLogBuffer();
+    refreshLogFile();
+    render();
+  }
+
   screen.key(['q', 'Q', 'C-c'], () => {
-    // 退出看板但不停止流水线
     cleanup();
   });
 
@@ -577,39 +951,55 @@ function runTUIMode() {
     if (dialogOpen) return;
     const newData = readStagesJson();
     if (newData) {
-      stagesData    = newData;
-      logFileOffset = 0;
-      logLines      = [];
+      stagesData = newData;
+      trackStage = pickDefaultTrackStage(stagesData);
+      resetLogBuffer();
     }
     refreshLogFile();
     render();
   });
 
+  screen.key(['f', 'F'], () => {
+    if (dialogOpen) return;
+    cycleTrack();
+    render();
+  });
+
+  screen.key(['tab'], () => {
+    if (dialogOpen) return;
+    cycleFocus();
+  });
+
+  screen.key(['enter'], () => {
+    if (dialogOpen) return;
+    if (focusPanel === 'features' || displayFeatureIds.length > 0) {
+      focusPanel = 'features';
+      toggleFeatureLogSelection();
+    }
+  });
+
   screen.key(['up'], () => {
     if (dialogOpen) return;
-    logBox.scroll(-1);
-    screen.render();
+    scrollFocused(-1);
   });
 
   screen.key(['down'], () => {
     if (dialogOpen) return;
-    logBox.scroll(1);
-    screen.render();
+    scrollFocused(1);
   });
 
   screen.key(['pageup'], () => {
     if (dialogOpen) return;
-    logBox.scroll(-Math.max(1, logBox.height - 1));
-    screen.render();
+    const step = Math.max(1, (focusPanel === 'log' ? logBox.height : featuresBox.height) - 1);
+    scrollFocused(-step);
   });
 
   screen.key(['pagedown'], () => {
     if (dialogOpen) return;
-    logBox.scroll(Math.max(1, logBox.height - 1));
-    screen.render();
+    const step = Math.max(1, (focusPanel === 'log' ? logBox.height : featuresBox.height) - 1);
+    scrollFocused(step);
   });
 
-  // ── fs.watch：监听 stages.json 变更（100ms 防抖）──────────────
   try {
     stagesWatcher = fs.watch(stagesJsonPath, () => {
       clearTimeout(stagesDebounce);
@@ -617,14 +1007,18 @@ function runTUIMode() {
         const newData = readStagesJson();
         if (newData) {
           stagesData = newData;
+          const autoTrack = pickDefaultTrackStage(stagesData);
+          const group = getParallelTrackGroup(trackStage);
+          if (!group.includes(autoTrack) && getParallelTrackGroup(autoTrack).length > 1) {
+            trackStage = autoTrack;
+          }
           refreshLogFile();
           render();
         }
       }, 100);
     });
-  } catch (_) { /* 文件暂不可 watch，忽略 */ }
+  } catch (_) { /* ignore */ }
 
-  // ── fs.watch：监听 .pipeline 目录（检测 stop.signal 创建/删除）
   try {
     pipelineDirWatch = fs.watch(pipelineDir, (eventType, filename) => {
       if (filename === 'stop.signal') {
@@ -632,27 +1026,26 @@ function runTUIMode() {
         screen.render();
       }
     });
-  } catch (_) { /* 忽略 */ }
+  } catch (_) { /* ignore */ }
 
-  // ── setInterval：每 500ms 追读日志 ───────────────────────────
   logInterval = setInterval(() => {
     refreshLogFile();
     renderLog();
     screen.render();
   }, 500);
 
-  // ── setInterval：每秒刷新 running stage 耗时 ─────────────────
   timerInterval = setInterval(() => {
+    renderHeader();
     renderStages();
+    renderFeatures();
     screen.render();
   }, 1000);
 
-  // ── 初始渲染 ─────────────────────────────────────────────────
+  featuresBox.focus();
   refreshLogFile();
   render();
 }
 
-// ── 入口分发 ──────────────────────────────────────────────────────
 if (useTUI) {
   runTUIMode();
 } else {

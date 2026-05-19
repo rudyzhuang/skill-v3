@@ -751,7 +751,7 @@ node ai-std4/scripts/run-dash.cjs --project=<绝对路径> --auto-launched
 
 ### 功能定位
 
-`run-dash` 是一个**只读 TUI（终端 UI）看板**，实时监视流水线状态，提供停止按钮。
+`run-dash` 是一个**只读 TUI（终端 UI）看板**，实时监视**阶段**与**逐 feature**执行态（读 `stages.json` 的 `stages.*.features`），提供停止按钮与 feature 级日志切换。
 它不参与流水线执行逻辑，任何时候退出看板都不影响正在运行的流水线。
 
 ### 实现依赖
@@ -764,47 +764,85 @@ node ai-std4/scripts/run-dash.cjs --project=<绝对路径> --auto-launched
 
 ### TUI 布局
 
+三栏：**阶段状态**（左）· **Feature 状态**（中）· **日志**（右）。中间栏在 feature 并行 stage 运行时展示逐 feature 进度；其余 stage 显示跨阶段汇总条。
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  ai-std4 流水线看板  项目: RealNotes  启动: 2026-05-18 08:30:15 │
-├───────────────────────────┬─────────────────────────────────────┤
-│  阶段状态                 │  当前阶段日志（末 50 行）            │
-│                           │                                     │
-│  ✓ setup      00:12       │  [08:32:01] [INFO] [prd] agent_start│
-│  ⟳ prd    ←当前 03:45    │  agent_id: prd-agent-a              │
-│  ○ prd-review             │  prompt: prd-spec-author.md         │
-│  ○ design                 │  [08:32:04] [INFO] [prd] file_update│
-│  ○ design-review          │  path: docs/prd-spec.md             │
-│  ○ create-ui-scenarios    │  size_bytes: 4821                   │
-│  ○ codegen                │  ...                                │
-│  ○ code-review            │                                     │
-│  ○ merge_push             │                                     │
-│  ○ build                  │                                     │
-│  ○ deploy                 │                                     │
-│  ○ ui_e2e                 │                                     │
-│  ○ report                 │                                     │
-├───────────────────────────┴─────────────────────────────────────┤
-│  [S] 停止流水线   [R] 刷新   [↑/↓] 滚动日志   [Q] 退出看板     │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│  ai-std4 流水线看板  项目: RealNotes  启动: 2026-05-18 08:30:15   Feature: 3/12 · 在途 2 │
+├─────────────────┬──────────────────────────────┬─────────────────────────────────────────┤
+│  阶段状态       │  Feature 状态 [codegen]      │  日志（末 50 行）                        │
+│                 │  ✓3  ⟳2  ○5  ✗1  ↷1  ⏳0    │  源: stage/codegen  · AUTH-LOGIN-001     │
+│                 │                              │                                         │
+│  ✓ setup   00:12│  ⟳ AUTH-LOGIN-001    02:15  │  [08:45:01] [INFO] worker_start        │
+│  ✓ prd     08:20│  ⟳ PROJECT-CREATE-001 01:02 │  feature_id: AUTH-LOGIN-001           │
+│  ✓ prd-review   │  ✓ AUTH-USER-001             │  attempt: 1 / max_resume: 2           │
+│  ✓ design       │  ○ PROJECT-LIST-001      G1  │  [08:45:04] [INFO] agent_heartbeat      │
+│  ✓ design-review│  ○ PROJECT-DASH-001      G1  │  ...                                    │
+│  ⟳ codegen ←当前│  ⏳ BACKEND-API-QUERY-001  G2 │                                         │
+│  ⟳ create-ui-… │  ✗ CLI-MODE-QUERY-001    G2  │                                         │
+│  ○ code-review  │  ↷ FEISHU-BIDIR-001  skip    │                                         │
+│  ○ merge_push   │  （↑/↓ 滚动 · Enter 选中）   │                                         │
+│  ○ build        │                              │                                         │
+│  ○ deploy       │                              │                                         │
+│  ○ ui_e2e       │                              │                                         │
+│  ○ report       │                              │                                         │
+├─────────────────┴──────────────────────────────┴─────────────────────────────────────────┤
+│  [S] 停止  [R] 刷新  [F] 切换 track  [↑/↓] 滚动  [Enter] 选中 feature  [Q] 退出看板      │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+#### 阶段状态图标（左栏）
 
 | 状态图标 | 含义 |
 | --- | --- |
 | `✓` | completed |
-| `⟳` | running（Agent 处理中），显示已用时长 |
+| `⟳` | running / started（Agent 处理中），显示已用时长 |
 | `✗` | failed |
 | `↷` | skipped |
 | `◈` | stopped |
 | `○` | pending（未开始） |
+| `⚠` | pending_user_input（仅 setup） |
+
+#### Feature 状态面板（中栏）
+
+| 项 | 说明 |
+| --- | --- |
+| **适用 stage** | `design`、`design-review`、`create-ui-scenarios`、`codegen`、`code-review`、`ui_e2e`（凡在 `stages.<stage>.features.<feature_id>` 维护执行态的 stage） |
+| **全集** | `stages.prd.outputs.features[]` 的 `feature_id`（索引真源，见 [prd § 真源分层](stages/prd.md#真源分层重要)） |
+| **单行状态** | 当前 **track** 对应 stage 的 `stages.<stage>.features.<id>.status`；该 stage 尚无条目时显示 `—`（未到达） |
+| **标题 `[codegen]`** | 当前 track 的 stage 名；复合阶段（design+design-review、codegen+create-ui-scenarios）下用 `[F]` 在并行 track 间切换 |
+| **汇总行** | 对当前 track 统计各 status 数量（`✓3 ⟳2 ○5 …`），与顶栏 `Feature: 已完成/总数 · 在途 N` 一致 |
+| **行尾 `G1`** | 可选显示 `features.<id>.group_id` 短写（依赖组，便于对照 `dependency_groups[]`） |
+| **行尾 `skip`** | `status=skipped` 时附原因缩写（如 `no_ui`、`no_codegen`，取自 stage 字段 `skip_reason` 若存在） |
+| **design-review 附加** | `can_enter_codegen=true` 且尚未进入 codegen 时，行尾可加 `→codegen` 标记 |
+
+| Feature 状态图标 | `features.<id>.status` | 含义 |
+| --- | --- | --- |
+| `○` | `pending` | 未开始 |
+| `⏳` | `pending_dep` | 等待同组依赖 feature 完成（codegen 等） |
+| `⟳` | `running` | Agent / worker 处理中，显示已用时长 |
+| `✓` | `completed` | 本 stage 该 feature 已完成 |
+| `✗` | `failed` | 失败（可看 feature 日志或 `last_error`） |
+| `↷` | `skipped` | 本 stage 跳过（非失败） |
+| `◈` | `stopped` | 响应 `stop.signal` 后停止 |
+| `⚡` | `crashed` | worker 进程异常退出（codegen 等；编排器下轮可 resume） |
+
+**排序**：`running` → `pending_dep` → `pending` → `failed` → `stopped` → `crashed` → `completed` → `skipped`；同优先级按 `priority`（P0 在前）再按 `feature_id` 字典序。
+
+**非 feature 并行 stage**（如 `prd`、`build`、`deploy`）：中栏不列逐行，改为**跨 stage 汇总表**（每 feature 一行，列显示 design / codegen / ui_e2e 等关键节点的末态缩写，如 `D✓ C⟳ E○`），数据同样只读 `stages.*.features`。
 
 ### 数据来源与刷新机制
 
-| 数据 | 来源文件 | 刷新触发 |
+| 数据 | 来源文件 / 字段 | 刷新触发 |
 | --- | --- | --- |
-| 阶段状态列表 | `<项目根>/.pipeline/stages.json` | `fs.watch` 文件变更事件，变更后 100ms 防抖重读 |
-| 阶段耗时 | `stages.json` 中各 stage 的 `started_at` / `completed_at`；running 状态时取当前本地时间动态计算 | 每秒刷新一次计时器 |
-| 日志追读 | `<项目根>/logs/stages/<当前 stage>/<datetime>.log` | `chokidar` 或 `setInterval` 每 500ms 读新增行，追加到日志面板 |
-| 流水线停止状态 | `<项目根>/.pipeline/stop.signal`（是否存在）| `fs.watch` 监听，存在时底部状态栏变红提示"停止中…" |
+| 阶段状态列表 | `stages.json` → `stages.<stage>.status` | `fs.watch` 变更后 100ms 防抖重读 |
+| 阶段耗时 | 各 stage 的 `started_at` / `completed_at`；running 时动态计算 | 每秒刷新计时器 |
+| Feature 全集 | `stages.prd.outputs.features[]` | 随 `stages.json` 重读 |
+| Feature 单行状态 | `stages.<当前 track>.features.<feature_id>.status`（及 `group_id`、`skip_reason`、`can_enter_codegen` 等） | 随 `stages.json` 重读；`running` 行每秒刷新耗时 |
+| Feature 汇总 / 顶栏进度 | 对当前 track 的 `features` 做 status 计数；顶栏 `已完成/总数` 可取 codegen 或「最靠后已启动的 feature stage」 | 随 `stages.json` 重读 + 每秒刷新在途数 |
+| 日志追读（默认） | `logs/stages/<当前 stage>/<datetime>.log` | 每 500ms 读新增行 |
+| 日志追读（选中 feature） | `logs/features/<feature_id>/<datetime>.log`（与 stage 日志共用 `pipeline.run_id` / `started_at` 推导的 `datetime`） | 选中后切换路径；每 500ms 追读 |
+| 流水线停止状态 | `.pipeline/stop.signal` | `fs.watch`；存在时底栏变红 |
 
 ### 键盘操作
 
@@ -812,9 +850,12 @@ node ai-std4/scripts/run-dash.cjs --project=<绝对路径> --auto-launched
 | --- | --- |
 | `S` / `s` | 弹出确认框："确认停止流水线？[Y/N]"；确认后调用 `stop-pipeline.cjs`，写入 `stop.signal` |
 | `Q` / `q` / `Ctrl+C` | 退出看板（**不停止**流水线） |
-| `R` / `r` | 强制重新读取 `stages.json`，刷新所有状态 |
-| `↑` / `↓` | 滚动日志面板 |
-| `PgUp` / `PgDn` | 日志面板翻页 |
+| `R` / `r` | 强制重新读取 `stages.json`，刷新阶段与 Feature 面板 |
+| `F` / `f` | 在复合阶段的并行 track 间切换（如 `codegen` ↔ `create-ui-scenarios`）；无并行 track 时无操作 |
+| `Enter` | 在中栏选中当前高亮 feature：日志源切至 `logs/features/<feature_id>/`；再次 `Enter` 取消选中，回到 stage 日志 |
+| `↑` / `↓` | 焦点在中栏时滚动 Feature 列表；焦点在日志栏时滚动日志 |
+| `Tab` | 在「阶段 / Feature / 日志」焦点间循环（可选实现；至少支持 ↑↓ 分栏滚动） |
+| `PgUp` / `PgDn` | 当前焦点面板翻页 |
 
 ### 停止确认交互
 
