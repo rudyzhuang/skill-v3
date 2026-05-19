@@ -42,7 +42,7 @@ node ai-std3/scripts/run-dash.cjs --project=<路径>
 
 `run-pipeline` 与各 stage 启动时会 `loadProjectEnv` 加载 `docs/config.env`。**不再使用** `AI_STD3_AGENT_BIN`。
 
-**ui_e2e 场景执行**：默认 `libs/ui-e2e-runner.cjs`（Playwright/HTTP 确定性驱动）；失败分诊仍用 SDK。回退：`--use-sdk-scenarios`。
+**ui_e2e 场景执行**：默认 `ui-e2e-runner.cjs`（web：Playwright/HTTP；mobile：`ui-e2e-dart-runner.cjs` + Flutter/integration_test）。失败分诊仍用 SDK。回退：`--use-sdk-scenarios`。
 
 ## 规范文档
 

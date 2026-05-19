@@ -142,7 +142,7 @@ setup
 | **模型** | `PIPELINE_MODEL`（env）优先 → `docs/config.*.json` → `pipeline.model`；默认 **`composer-2`** |
 | **Skill 路径** | `CURSOR_SKILLS_ROOT`（env，可选）→ 默认 `~/.cursor/skills` |
 | **已废弃** | ~~`AI_STD3_AGENT_BIN`~~（CLI 子进程派发） |
-| **ui_e2e 场景执行** | 默认 **`libs/ui-e2e-runner.cjs`**（确定性步骤 + `expect[]`）；驱动链：`playwright` → `http`（仅 navigate）→ 可选 `AI_STD3_BROWSER_MCP_CMD` stdio；`--use-sdk-scenarios` 回退 SDK |
+| **ui_e2e 场景执行** | **web**：`ui-e2e-runner`（`playwright` → `http`）；**mobile**：`ui-e2e-dart-runner`（Flutter CLI + 单场景 `integration_test`）；`--use-sdk-scenarios` 回退 SDK |
 | **ui_e2e 分诊** | 仍用 `invoke-sdk-agent.cjs` + `ui-e2e-triage.md` |
 
 `inputs/config.env` 必填项（`verify-inputs.cjs`）：`CURSOR_API_KEY`、`CLOUD_PROVIDER` 及对应云密钥；`CURSOR_SKILLS_ROOT` / `PIPELINE_MODEL` 可空（有默认/警告）。

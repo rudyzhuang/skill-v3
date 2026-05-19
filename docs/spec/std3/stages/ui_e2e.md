@@ -4,7 +4,7 @@
 
 > 在 **`create-ui-scenarios`** 与 **`deploy`** 均就绪后，按 **`docs/ui-scenarios/<feature_id>.scenarios.yaml`** 中的场景定义，用 **MCP** 驱动各端 UI 验收。
 >
-> **执行器**：`website` / `admin`（`platform=web`）→ **`ui-e2e-runner.cjs`** 确定性驱动（默认 **Playwright** 实现 Browser MCP 同构步骤；无 Playwright 时 **HTTP** 仅支持 `navigate`+`expect`；可选 `AI_STD3_BROWSER_MCP_CMD` 外置 stdio MCP）。`mobile` → Dart MCP（runner 未完整实现时 `skipped`）。**`desktop` 本期不实现**。
+> **执行器**：`website` / `admin`（`platform=web`）→ **`ui-e2e-runner.cjs`** + Playwright/HTTP；`android` / `ios` → **`ui-e2e-dart-runner.cjs`**（Flutter CLI：`prepareMobileSession` + 单场景 `integration_test/<scenario_id>_test.dart` 或深链 `navigate` + 脚本 `expect[]`；失败时 `adb`/`simctl` 截图）。**`desktop` 本期不实现**。
 >
 > **过渡**：`--use-sdk-scenarios` 或 `AI_STD3_UI_E2E_SDK_SCENARIOS=1` 回退 SDK Agent + `ui-e2e-run-scenario.md`。**分诊**始终用 SDK + `ui-e2e-triage.md`。
 >
@@ -18,7 +18,9 @@
 | --- | --- |
 | `stages/ui-e2e.cjs` | 编排：bootstrap → 场景并行执行 → validate；失败时触发分诊与子链 |
 | `libs/ui-e2e-bootstrap.cjs` | 门闸、展开场景队列、MCP/设备预检、写 `running` |
-| `libs/ui-e2e-runner.cjs` | **单场景**执行：解析 YAML 步骤、调 MCP、写日志与截图、判定 `expect[]` |
+| `libs/ui-e2e-runner.cjs` | **单场景**编排：web（Browser 驱动）/ mobile 分派、重试、日志 |
+| `libs/ui-e2e-dart-runner.cjs` | **mobile** 单场景：Flutter 会话、`integration_test`、深链、expect、截图 |
+| `libs/ui-e2e-mobile-device.cjs` | 模拟器/真机、构建、安装、设备预检 |
 | `libs/ui-e2e-triage.cjs` | 失败时派发 Agent，产出 `ui-e2e-triage-<feature_id>.json`，驱动修复 |
 | `libs/ui-e2e-repair-chain.cjs` | 对单 feature 顺序 spawn：`code-review` → `merge_push` → `build` → `deploy` → `ui-e2e` |
 | `libs/skill-prompt-publish.cjs` | **仅**在 `fix_prompt` 路径：于 **ai-std3 skill 目录** git commit + push 提示词变更（**不**动业务仓） |
@@ -41,6 +43,15 @@ node ai-std3/scripts/stages/ui-e2e.cjs --project=<路径> --use-sdk-scenarios
 | `mcp` | `AI_STD3_BROWSER_MCP_CMD='{"command":"...","args":[]}'` | stdio 桥接（步骤映射扩展中） |
 
 环境变量：`UI_E2E_BROWSER_DRIVER`（强制驱动）、`UI_E2E_TEST_USER` / `UI_E2E_TEST_PASSWORD`（占位符）。
+
+### Mobile（Dart runner）
+
+| 能力 | 说明 |
+| --- | --- |
+| 预检 | `flutter` + `src/mobile/pubspec.yaml`；stage 启动时对 android/ios 做 `ensureDevicesForScenarios` |
+| 单场景测试 | `integration_test/<scenario_id>_test.dart`（或 `.dart` / `scenarios/` 子目录） |
+| 无测试文件 | 仅 `wait` / `navigate`（深链）；含 `expect[]` 或 `click` 须补 integration_test |
+| 环境变量 | `UI_E2E_DART_MCP_READY=1` 跳过 Flutter 路径检查；`strict_mobile=true` 时预检失败阻断 stage |
 
 自测：`node ai-std3/scripts/self-test-ui-e2e-runner.cjs`
 

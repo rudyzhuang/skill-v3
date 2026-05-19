@@ -15,6 +15,7 @@ const { selectBrowserDriver, preflightBrowser, preflightDart } = require('./ui-e
 const { runWebScenarioHttp } = require('./ui-e2e-browser-http.cjs');
 const { runWebScenarioPlaywright } = require('./ui-e2e-browser-playwright.cjs');
 const { runWebScenarioMcp } = require('./ui-e2e-browser-mcp.cjs');
+const { runMobileScenarioWithRunner, resetMobileSessions } = require('./ui-e2e-dart-runner.cjs');
 
 /**
  * @param {object} opts
@@ -85,7 +86,7 @@ async function runScenarioWithRunner(opts) {
   }
 
   if (sc.mcp === 'dart' || sc.platform === 'android' || sc.platform === 'ios') {
-    const dartPf = preflightDart(config);
+    const dartPf = await preflightDart(config, projectRoot);
     if (!dartPf.ok) {
       return finishSkipped({
         sc,
@@ -97,15 +98,149 @@ async function runScenarioWithRunner(opts) {
         log,
       });
     }
-    appendLog('[runner] mobile: Dart MCP 未实现完整 runner，跳过\n');
-    return finishSkipped({
-      sc,
-      startedStr,
-      scLogPath,
-      projectRoot,
-      startedAt,
-      skip_reason: 'mobile_runner_not_implemented',
+
+    const vars = buildScenarioVars(config, sc.base_url || '');
+    const snapshotPaths = [];
+    let fixAttempts = 0;
+    let timedOut = false;
+    let lastResult = { passed: false, failure_summary: 'unknown' };
+
+    const onStep = ({ step_index, action, duration_ms }) => {
+      log.debug('ui_scenario_step', `[ui_e2e] scenario=${sc.scenario_id} step=${step_index} ${action}`, {
+        scenario_id: sc.scenario_id,
+        step_index,
+        action,
+        duration_ms,
+      });
+    };
+
+    while (fixAttempts <= maxFixAttempts) {
+      if (fixAttempts > 0) {
+        log.warn('ui_scenario_retry', `[ui_e2e] scenario=${sc.scenario_id} 即时重试 #${fixAttempts}`, {
+          scenario_id: sc.scenario_id,
+          attempt: fixAttempts,
+          reason: lastResult.failure_summary || 'retry',
+        });
+      }
+
+      const execPromise = runMobileScenarioWithRunner({
+        projectRoot,
+        sc,
+        config,
+        vars,
+        appendLog,
+        onStep,
+        snapDir,
+        scenarioTimeoutMs,
+      });
+      const timeoutPromise = new Promise((resolve) =>
+        setTimeout(() => {
+          timedOut = true;
+          resolve({
+            passed: false,
+            timedOut: true,
+            failure_summary: `场景超时（${scenarioTimeoutMs}ms）`,
+          });
+        }, scenarioTimeoutMs + 500)
+      );
+
+      lastResult = await Promise.race([execPromise, timeoutPromise]);
+
+      if (Array.isArray(lastResult.snapshot_paths)) {
+        for (const p of lastResult.snapshot_paths) {
+          if (!snapshotPaths.includes(p)) snapshotPaths.push(p);
+        }
+      }
+
+      appendLog(
+        `[dart-runner] attempt=${fixAttempts} passed=${lastResult.passed} executor=${lastResult.executor || 'dart'}\n`
+      );
+      fs.appendFileSync(
+        path.join(featLogDir, `${datetime}.log`),
+        `[${sc.scenario_id}] dart passed=${lastResult.passed}\n`,
+        'utf8'
+      );
+
+      if (lastResult.skipped) {
+        return finishSkipped({
+          sc,
+          startedStr,
+          scLogPath,
+          projectRoot,
+          startedAt,
+          skip_reason: lastResult.skip_reason || 'mobile_prep_failed',
+        });
+      }
+
+      if (lastResult.passed || lastResult.timedOut) break;
+      if (lastResult.unresolvable) break;
+
+      const transient = /timeout|device|emulator|install|build/i.test(
+        String(lastResult.failure_summary || '')
+      );
+      if (!transient || fixAttempts >= maxFixAttempts) break;
+      fixAttempts++;
+    }
+
+    const durationMs = Date.now() - startedAt;
+    if (lastResult.passed) {
+      log.info('ui_scenario_complete', `[ui_e2e] scenario=${sc.scenario_id} 通过（dart）`, {
+        scenario_id: sc.scenario_id,
+        duration_ms: durationMs,
+        snapshot_paths: snapshotPaths,
+      });
+      return {
+        scenario_id: sc.scenario_id,
+        feature_id: sc.feature_id,
+        platform: sc.platform,
+        status: 'completed',
+        passed: true,
+        started_at: startedStr,
+        completed_at: completedStr(),
+        duration_ms: durationMs,
+        log_path: path.relative(projectRoot, scLogPath),
+        snapshot_paths: snapshotPaths,
+        failure_summary: null,
+        fix_attempts: fixAttempts,
+        executor: lastResult.executor || 'dart',
+      };
+    }
+
+    if (snapshotPaths.length === 0 && !timedOut) {
+      const snapName = `fail_${Date.now()}.jpg`;
+      const snapPath = path.join(snapDir, snapName);
+      try {
+        fs.writeFileSync(snapPath, Buffer.alloc(0));
+        snapshotPaths.push(path.relative(projectRoot, snapPath));
+      } catch (_) {}
+    }
+
+    const failureSummary =
+      lastResult.failure_summary || lastResult.error || `mobile 场景失败（重试 ${fixAttempts} 次）`;
+    log.error('ui_scenario_failed', failureSummary, {
+      scenario_id: sc.scenario_id,
+      feature_id: sc.feature_id,
+      failure_summary: failureSummary,
+      log_path: path.relative(projectRoot, scLogPath),
+      snapshot_paths: snapshotPaths,
     });
+
+    return {
+      scenario_id: sc.scenario_id,
+      feature_id: sc.feature_id,
+      platform: sc.platform,
+      status: timedOut ? 'timed_out' : 'failed',
+      passed: false,
+      started_at: startedStr,
+      completed_at: completedStr(),
+      duration_ms: durationMs,
+      log_path: path.relative(projectRoot, scLogPath),
+      snapshot_paths: snapshotPaths,
+      failure_summary: failureSummary,
+      timed_out: timedOut,
+      fix_attempts: fixAttempts,
+      executor: lastResult.executor || 'dart',
+    };
   }
 
   if (!sc.base_url) {
@@ -372,4 +507,5 @@ module.exports = {
   preflightBrowser,
   preflightDart,
   selectBrowserDriver,
+  resetMobileSessions,
 };

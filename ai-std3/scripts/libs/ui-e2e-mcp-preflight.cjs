@@ -1,13 +1,15 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { loadPlaywright } = require('./ui-e2e-browser-playwright.cjs');
 const { isMcpBridgeConfigured, probeMcpBridge } = require('./ui-e2e-browser-mcp.cjs');
 const { scenarioNeedsInteractiveSteps } = require('./ui-e2e-expect.cjs');
+const { runWithTimeout } = require('./run-with-timeout.cjs');
+const { mobileRoot } = require('./ui-e2e-mobile-device.cjs');
 
 /**
  * 选择 web 浏览器驱动：mcp | playwright | http
- * @param {object} config
- * @param {object} [sampleScenario] 用于判断是否需要交互步骤
  */
 function selectBrowserDriver(config, sampleScenario) {
   const runnerCfg = (config.ui_e2e && config.ui_e2e.runner) || {};
@@ -21,7 +23,6 @@ function selectBrowserDriver(config, sampleScenario) {
     return forced;
   }
 
-  // stdio MCP 步骤映射尚未完整实现，暂不参与自动选择
   if (loadPlaywright()) return 'playwright';
 
   const needsInteractive = sampleScenario && scenarioNeedsInteractiveSteps(sampleScenario);
@@ -30,9 +31,6 @@ function selectBrowserDriver(config, sampleScenario) {
   return 'http';
 }
 
-/**
- * @returns {Promise<{ mcp: string, ok: boolean, driver?: string, reason: string }>}
- */
 async function preflightBrowser(config, sampleScenario) {
   const driver = selectBrowserDriver(config, sampleScenario);
 
@@ -64,22 +62,55 @@ async function preflightBrowser(config, sampleScenario) {
   };
 }
 
-function preflightDart(config) {
-  const strict = config.ui_e2e?.strict_mobile === true;
-  const dartOk =
-    process.env.AI_STD3_DART_MCP_READY === '1' ||
-    process.env.UI_E2E_DART_MCP_READY === '1';
+/**
+ * Dart / Flutter mobile 预检
+ * @param {object} config
+ * @param {string} [projectRoot]
+ */
+async function preflightDart(config, projectRoot) {
+  const strict = config?.ui_e2e?.strict_mobile === true;
 
-  if (dartOk) {
-    return { mcp: 'dart', ok: true, reason: 'Dart MCP 已标记就绪' };
+  if (
+    process.env.AI_STD3_DART_MCP_READY === '1' ||
+    process.env.UI_E2E_DART_MCP_READY === '1'
+  ) {
+    return { mcp: 'dart', ok: true, driver: 'flutter_cli', reason: 'Dart 环境已标记就绪' };
+  }
+
+  if (!projectRoot) {
+    return {
+      mcp: 'dart',
+      ok: !strict,
+      driver: null,
+      reason: '未提供 projectRoot，无法校验 src/mobile',
+    };
+  }
+
+  const root = mobileRoot(projectRoot);
+  if (!fs.existsSync(path.join(root, 'pubspec.yaml'))) {
+    return {
+      mcp: 'dart',
+      ok: !strict,
+      driver: null,
+      reason: '缺少 src/mobile/pubspec.yaml',
+    };
+  }
+
+  const ver = await runWithTimeout('flutter', ['--version'], { timeoutMs: 30000 });
+  if (ver.timedOut || ver.code !== 0) {
+    return {
+      mcp: 'dart',
+      ok: !strict,
+      driver: null,
+      reason: 'Flutter SDK 不可用（flutter 不在 PATH）',
+    };
   }
 
   return {
     mcp: 'dart',
-    ok: !strict,
-    reason: strict
-      ? 'Dart MCP / 模拟器未就绪（strict_mobile=true）'
-      : 'Dart MCP 未配置，mobile 场景将 skipped',
+    ok: true,
+    driver: 'flutter_cli',
+    reason: 'Flutter SDK + src/mobile 就绪',
   };
 }
 

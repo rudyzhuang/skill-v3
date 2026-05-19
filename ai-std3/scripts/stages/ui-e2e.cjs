@@ -44,7 +44,13 @@ const {
   resolvePipelineModel,
 } = require('../libs/pipeline-config.cjs');
 const { invokeSdkAgent } = require('../libs/invoke-sdk-agent.cjs');
-const { runScenarioWithRunner, preflightBrowser, preflightDart } = require('../libs/ui-e2e-runner.cjs');
+const {
+  runScenarioWithRunner,
+  preflightBrowser,
+  preflightDart,
+  resetMobileSessions,
+} = require('../libs/ui-e2e-runner.cjs');
+const { ensureDevicesForScenarios } = require('../libs/ui-e2e-mobile-device.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -1020,16 +1026,50 @@ async function main() {
   writeStagesJson(stages);
 
   // ── 11. MCP / 驱动预检 ────────────────────────────────────────────
+  resetMobileSessions();
+
   const sampleWeb = scenarioQueue.find((s) => s.mcp === 'browser');
+  const mobileScenarios = scenarioQueue.filter((s) => s.mcp === 'dart');
   const browserPf = await preflightBrowser(config, sampleWeb || null);
-  const dartPf    = preflightDart(config);
+  const dartPf = await preflightDart(config, projectRoot);
   log.info('mcp_preflight', `[ui_e2e] Browser 预检 driver=${browserPf.driver || 'n/a'}`, browserPf);
-  log.info('mcp_preflight', '[ui_e2e] Dart MCP 预检', dartPf);
+  log.info('mcp_preflight', `[ui_e2e] Dart 预检 driver=${dartPf.driver || 'n/a'}`, dartPf);
+
+  if (mobileScenarios.length > 0 && dartPf.ok) {
+    const devCheck = await ensureDevicesForScenarios(projectRoot, config, mobileScenarios);
+    for (const [plat, dev] of Object.entries(devCheck)) {
+      log.info('mcp_preflight', `[ui_e2e] ${plat} 设备预检 ok=${dev.ok}`, {
+        mcp: 'dart',
+        platform: plat,
+        ok: dev.ok,
+        reason: dev.error || dev.deviceId || 'ok',
+      });
+    }
+  }
+
   if (!browserPf.ok && !useSdkScenarios) {
     log.error('stage_failed', `Browser 驱动不可用：${browserPf.reason}`, {
       stage: 'ui_e2e',
       exit_code: 1,
       reason: browserPf.reason,
+    });
+    stages.stages.ui_e2e.status = 'failed';
+    stages.pipeline.updated_at = formatLocalTimeShort();
+    writeStagesJson(stages);
+    releasePidLock();
+    process.exit(1);
+  }
+
+  if (
+    mobileScenarios.length > 0 &&
+    !dartPf.ok &&
+    !useSdkScenarios &&
+    getUiE2eCfg(config).strict_mobile === true
+  ) {
+    log.error('stage_failed', `Dart/mobile 预检失败：${dartPf.reason}`, {
+      stage: 'ui_e2e',
+      exit_code: 1,
+      reason: dartPf.reason,
     });
     stages.stages.ui_e2e.status = 'failed';
     stages.pipeline.updated_at = formatLocalTimeShort();

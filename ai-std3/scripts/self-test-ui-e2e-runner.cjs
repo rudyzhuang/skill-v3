@@ -7,8 +7,12 @@
 const assert = require('assert');
 const { substitutePlaceholders, buildScenarioVars } = require('./libs/ui-e2e-placeholders.cjs');
 const { evaluateWebExpects, scenarioNeedsInteractiveSteps } = require('./libs/ui-e2e-expect.cjs');
-const { selectBrowserDriver, preflightBrowser } = require('./libs/ui-e2e-mcp-preflight.cjs');
+const { selectBrowserDriver, preflightBrowser, preflightDart } = require('./libs/ui-e2e-mcp-preflight.cjs');
 const { runWebScenarioHttp } = require('./libs/ui-e2e-browser-http.cjs');
+const { findIntegrationTestRel } = require('./libs/ui-e2e-dart-runner.cjs');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 let passed = 0;
 let failed = 0;
@@ -89,6 +93,23 @@ test('selectBrowserDriver http for navigate-only', () => {
     const pf = await preflightBrowser({}, { steps: [{ action: 'navigate' }] });
     assert.strictEqual(pf.ok, true);
     assert.strictEqual(pf.driver, 'http');
+  });
+
+  await testAsync('findIntegrationTestRel discovers scenario test file', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-e2e-'));
+    const mobileDir = path.join(tmp, 'src', 'mobile');
+    fs.mkdirSync(path.join(mobileDir, 'integration_test'), { recursive: true });
+    fs.writeFileSync(path.join(mobileDir, 'integration_test', 'FEAT-001-smoke-001_test.dart'), '// t');
+    const rel = findIntegrationTestRel(mobileDir, 'FEAT-001-smoke-001');
+    assert.strictEqual(rel, 'integration_test/FEAT-001-smoke-001_test.dart');
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  await testAsync('preflightDart without mobile dir is ok when not strict', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-e2e-'));
+    const pf = await preflightDart({ ui_e2e: { strict_mobile: false } }, tmp);
+    assert.strictEqual(pf.ok, true);
+    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   await testAsync('runWebScenarioHttp rejects click without playwright', async () => {
