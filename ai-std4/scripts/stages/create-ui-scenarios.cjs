@@ -164,6 +164,9 @@ function readConfig() {
 
 // ── Ajv 校验 ──────────────────────────────────────────────────────
 let _ajv = null;
+/** @type {import('ajv').ValidateFunction | null} */
+let _uiScenariosValidate = null;
+
 function getAjv() {
   if (_ajv) return _ajv;
   try {
@@ -172,6 +175,23 @@ function getAjv() {
     try { require('ajv-formats')(_ajv); } catch (_) { /* optional */ }
   } catch (_) { return null; }
   return _ajv;
+}
+
+/** 缓存 compile 结果，避免同一 $id schema 重复 ajv.compile 抛 already exists */
+function getUiScenariosValidator() {
+  if (_uiScenariosValidate) return _uiScenariosValidate;
+  const schema = loadSchema('ui-scenarios.yaml.schema.json');
+  if (!schema) return null;
+  const ajv = getAjv();
+  if (!ajv) return null;
+  const schemaId = schema.$id || 'ui-scenarios.yaml.schema.json';
+  const existing = ajv.getSchema(schemaId);
+  if (existing) {
+    _uiScenariosValidate = existing;
+    return _uiScenariosValidate;
+  }
+  _uiScenariosValidate = ajv.compile(schema);
+  return _uiScenariosValidate;
 }
 
 function loadSchema(schemaName) {
@@ -201,11 +221,8 @@ function validateScenariosYaml(filePath) {
 
   // Step 2: Ajv schema 校验
   try {
-    const schema = loadSchema('ui-scenarios.yaml.schema.json');
-    if (!schema) return { valid: true, errors: [], parsedData };
-    const ajv = getAjv();
-    if (!ajv) return { valid: true, errors: [], parsedData };
-    const validate = ajv.compile(schema);
+    const validate = getUiScenariosValidator();
+    if (!validate) return { valid: true, errors: [], parsedData };
     const valid    = validate(parsedData);
     return {
       valid,

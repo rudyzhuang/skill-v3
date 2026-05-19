@@ -127,9 +127,13 @@ function isStageInternallyBlocked(stages, step) {
   return false;
 }
 
-function countRecoveryAttempts(stages, step, runId) {
+function countRecoveryAttempts(stages, step, runId, exitCode) {
   const hist = (stages && stages.pipeline && stages.pipeline.recovery_history) || [];
-  return hist.filter(h => h.stage === step && (!runId || h.run_id === runId)).length;
+  return hist.filter(h =>
+    h.stage === step &&
+    (!runId || h.run_id === runId) &&
+    (exitCode == null || h.exit_code == null || h.exit_code === exitCode)
+  ).length;
 }
 
 function shouldAttemptRecovery({ step, exitCode, projectRoot, stages, runId }) {
@@ -152,7 +156,7 @@ function shouldAttemptRecovery({ step, exitCode, projectRoot, stages, runId }) {
   if (isStageInternallyBlocked(stages, step)) {
     return { ok: false, reason: 'stage_internal_blocked' };
   }
-  if (countRecoveryAttempts(stages, step, runId) >= cfg.maxAttemptsPerStage) {
+  if (countRecoveryAttempts(stages, step, runId, exitCode) >= cfg.maxAttemptsPerStage) {
     return { ok: false, reason: 'max_attempts_reached' };
   }
   if (!getCursorApiKey()) {
@@ -576,7 +580,7 @@ async function handleStepFailure({
       return { exitCode: currentExit, stopPipeline: false };
     }
 
-    const attempt = countRecoveryAttempts(stages, step, runId) + 1;
+    const attempt = countRecoveryAttempts(stages, step, runId, currentExit) + 1;
 
     log.info('recovery_start', `step=${step} exit=${currentExit} recovery attempt ${attempt}`, {
       failed_stage: step,

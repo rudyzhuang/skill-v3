@@ -70,12 +70,20 @@ r = shouldAttemptRecovery({ step: 'prd-review', exitCode: 4, projectRoot: tmpPro
 assert(r.ok === true, 'exit 4 recoverable with agent');
 
 stages.pipeline.recovery_history = [
-  { stage: 'prd-review', run_id: 't', attempt: 1 },
-  { stage: 'prd-review', run_id: 't', attempt: 2 },
+  { stage: 'prd-review', run_id: 't', exit_code: 4, attempt: 1 },
+  { stage: 'prd-review', run_id: 't', exit_code: 4, attempt: 2 },
 ];
-assert(countRecoveryAttempts(stages, 'prd-review', 't') === 2, 'history count');
+assert(countRecoveryAttempts(stages, 'prd-review', 't', 4) === 2, 'history count per exit_code');
 r = shouldAttemptRecovery({ step: 'prd-review', exitCode: 4, projectRoot: tmpProject, stages, runId: 't' });
-assert(r.ok === false && r.reason === 'max_attempts_reached', 'max attempts');
+assert(r.ok === false && r.reason === 'max_attempts_reached', 'max attempts same exit_code');
+
+stages.pipeline.recovery_history.push(
+  { stage: 'build_phase', run_id: 't', exit_code: 3, attempt: 1 },
+  { stage: 'build_phase', run_id: 't', exit_code: 3, attempt: 2 },
+);
+assert(countRecoveryAttempts(stages, 'build_phase', 't', 3) === 2, 'build_phase exit 3 attempts');
+r = shouldAttemptRecovery({ step: 'build_phase', exitCode: 4, projectRoot: tmpProject, stages, runId: 't' });
+assert(r.ok === true, 'exit 4 recoverable after exit 3 attempts exhausted');
 
 delete process.env.CURSOR_API_KEY;
 

@@ -947,10 +947,12 @@ async function main() {
   ].filter(Boolean).join('\\n');
   const finalPrompt = promptContent + '\\n\\n' + ctx;
 
-  // @cursor/sdk（CURSOR_API_KEY，见 inputs/config.env；绝对路径避免 worktree cwd 下解析失败）
+  // @cursor/sdk（CURSOR_API_KEY；createRequire 避免 worktree cwd / NODE_PATH 下解析失败）
   try {
-    const { Agent } = require(path.join(skillsRoot, 'ai-std4', 'node_modules', '@cursor', 'sdk'));
-    const { getCursorApiKey, resolvePipelineModel, loadProjectEnv } = require(path.join(skillsRoot, 'ai-std4', 'scripts', 'libs', 'pipeline-config.cjs'));
+    const { createRequire } = require('module');
+    const aiStd4Require = createRequire(path.join(skillsRoot, 'ai-std4', 'package.json'));
+    const { Agent } = aiStd4Require('@cursor/sdk');
+    const { getCursorApiKey, resolvePipelineModel, loadProjectEnv } = aiStd4Require('./scripts/libs/pipeline-config.cjs');
     loadProjectEnv(projectRoot);
     const apiKey = getCursorApiKey();
     if (!apiKey) {
@@ -1770,15 +1772,16 @@ async function main() {
       }
     }
 
+    const tickExit = allDone && hasFailed ? 4 : 0;
     log.info('stage_complete', `codegen tick 完成，耗时 ${dms}ms`, {
       stage:       'codegen',
       duration_ms: dms,
-      exit_code:   0,
+      exit_code:   tickExit,
       mode:        'tick',
       all_done:    allDone,
       has_failed:  hasFailed,
     });
-    process.exit(0);
+    process.exit(tickExit);
   }
 
   // ── 批量模式（默认）────────────────────────────────────────────
