@@ -253,13 +253,21 @@ function runAsync(scriptFile, argv = []) {
  * recovery 后在子进程重跑复合 step，避免父进程 require 缓存旧版 run-pipeline.cjs
  *（例如 build_phase 轮询间隔修复后须重新加载编排逻辑）。
  */
+/** 复合 step 名 → STAGE_ORDER 中的续跑锚点（from/to 过滤仅识别扁平 stage） */
+function compositeStepResumeAnchor(step) {
+  if (step === 'design_phase') return 'design';
+  if (step === 'build_phase') return 'codegen';
+  return step;
+}
+
 function spawnCompositeStepSubprocess(step) {
   const scriptPath = path.join(SCRIPTS_DIR, 'run-pipeline.cjs');
+  const anchor = compositeStepResumeAnchor(step);
   const argv = [
     `--project=${projectRoot}`,
     `--run-id=${runId}`,
-    `--from-stage=${step}`,
-    `--to-stage=${step}`,
+    `--from-stage=${anchor}`,
+    `--to-stage=${anchor}`,
     '--no-dash',
     '--no-teardown',
   ];

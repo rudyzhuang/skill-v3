@@ -230,6 +230,8 @@ function buildCommitHashes(features) {
 
 // ── Ajv 校验 ──────────────────────────────────────────────────────
 let _ajv = null;
+const _validators = new Map();
+
 function getAjv() {
   if (_ajv) return _ajv;
   const Ajv        = require('ajv');
@@ -245,12 +247,31 @@ function loadSchema(schemaName) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
 }
 
-function validateJson(data, schemaName) {
+function getValidator(schemaName) {
+  let validate = _validators.get(schemaName);
+  if (validate) return validate;
   const schema = loadSchema(schemaName);
-  if (!schema) return { valid: true, errors: [] };
+  if (!schema) return null;
   const ajv      = getAjv();
-  const validate = ajv.compile(schema);
-  const valid    = validate(data);
+  const schemaId = schema.$id || schemaName;
+  validate       = ajv.getSchema(schemaId);
+  if (!validate) {
+    try {
+      validate = ajv.compile(schema);
+    } catch (err) {
+      if (!String(err.message || '').includes('already exists')) throw err;
+      validate = ajv.getSchema(schemaId);
+      if (!validate) throw err;
+    }
+  }
+  _validators.set(schemaName, validate);
+  return validate;
+}
+
+function validateJson(data, schemaName) {
+  const validate = getValidator(schemaName);
+  if (!validate) return { valid: true, errors: [] };
+  const valid = validate(data);
   return { valid, errors: validate.errors || [] };
 }
 
@@ -1400,6 +1421,9 @@ async function main() {
   if (checkStopSignal()) {
     gracefulStop(readStagesJson());
   }
+
+  // 预热 schema validator，避免并行 worker 竞态触发 ajv duplicate schema
+  getValidator('code-review-feature-output.schema.json');
 
   // 6. 并发 Agent 池
   const featureProgress = createStagesJsonWriteQueue(projectRoot, {

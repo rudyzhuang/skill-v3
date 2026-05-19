@@ -270,24 +270,131 @@ function shouldAdvanceTrackStage(trackStage, autoTrack) {
   return !group.some(s => sameStage(s, autoTrack));
 }
 
-function pickDefaultTrackStage(stagesData) {
+function getStageStatus(stagesData, stageName) {
+  return getStageRecord(stagesData && stagesData.stages, stageName).status || 'pending';
+}
+
+function isFeatureTrackStage(stageName) {
+  return FEATURE_STAGES.some(s => sameStage(s, stageName));
+}
+
+/** feature 阶段是否已全部结束（completed/skipped），或尚未开始 */
+function isFeatureStageAllSettled(stagesData, stageName) {
+  if (!isFeatureTrackStage(stageName)) return true;
+  const record  = getStageRecord(stagesData && stagesData.stages, stageName);
+  const stageSt = record.status || 'pending';
+  if (stageSt === 'completed' || stageSt === 'skipped' || stageSt === 'failed') return true;
+
+  const prdFeatures   = getPrdFeatures(stagesData);
+  const stageFeatures = getStageFeaturesForDash(stagesData, stageName);
+  if (prdFeatures.length === 0) return true;
+
+  const hasActivity = prdFeatures.some((f) => {
+    const st = (stageFeatures[f.feature_id] || {}).status || 'pending';
+    return st !== 'pending';
+  });
+  if ((stageSt === 'pending' || stageSt === 'started') && !hasActivity) return true;
+
+  return prdFeatures.every((f) => {
+    const st = (stageFeatures[f.feature_id] || {}).status || 'pending';
+    return st === 'completed' || st === 'skipped';
+  });
+}
+
+/** 仍有在途/失败 feature 的 feature 阶段 */
+function featureStageNeedsAttention(stagesData, stageName) {
+  if (!isFeatureTrackStage(stageName)) return false;
+  const record  = getStageRecord(stagesData && stagesData.stages, stageName);
+  const stageSt = record.status || 'pending';
+  if (stageSt === 'running' || stageSt === 'started') {
+    return !isFeatureStageAllSettled(stagesData, stageName);
+  }
+  if (stageSt === 'completed' || stageSt === 'skipped' || stageSt === 'failed') return false;
+
+  const stageFeatures = getStageFeaturesForDash(stagesData, stageName);
+  const prdFeatures   = getPrdFeatures(stagesData);
+  return prdFeatures.some((f) => {
+    const st = (stageFeatures[f.feature_id] || {}).status || 'pending';
+    return st === 'running' || st === 'started' || st === 'pending_dep' || st === 'failed' || st === 'crashed';
+  });
+}
+
+/**
+ * 看板应聚焦的阶段：运行中 → 失败 → 仍有 feature 在途 → 下一个待执行 → current_stage
+ */
+function pickAttentionStage(stagesData) {
+  if (!stagesData) return 'codegen';
+
   const running = getRunningFeatureStages(stagesData);
-  const prefer = ['codegen', 'create-ui-scenarios', 'design', 'design-review', 'code-review', 'ui_e2e'];
-  for (const name of prefer) {
-    if (running.includes(name)) return name;
+  const preferFeature = [
+    'codegen', 'create-ui-scenarios', 'design', 'design-review', 'code-review', 'ui_e2e',
+  ];
+  for (const name of preferFeature) {
+    if (running.includes(name)) return canonicalFeatureStage(name);
   }
-  const current = getCurrentStage(stagesData);
-  if (current) {
-    const canon = canonicalFeatureStage(current);
-    if (FEATURE_STAGES.includes(canon)) return canon;
+
+  for (const stageName of STAGE_ORDER) {
+    const st = getStageStatus(stagesData, stageName);
+    if (st === 'running' || st === 'started') return stageName;
   }
-  const stages = (stagesData && stagesData.stages) || {};
+
+  for (const stageName of STAGE_ORDER) {
+    if (getStageStatus(stagesData, stageName) === 'failed') return stageName;
+  }
+
   for (let i = FEATURE_STAGES.length - 1; i >= 0; i--) {
     const name = FEATURE_STAGES[i];
-    const s = getStageRecord(stages, name);
-    if (s.features && Object.keys(s.features).length > 0) return name;
+    if (featureStageNeedsAttention(stagesData, name)) return canonicalFeatureStage(name);
+  }
+
+  for (const stageName of STAGE_ORDER) {
+    const st = getStageStatus(stagesData, stageName);
+    if (st !== 'pending') continue;
+    const idx = STAGE_ORDER.indexOf(stageName);
+    const priorOk = STAGE_ORDER.slice(0, idx).every((s) => {
+      const ps = getStageStatus(stagesData, s);
+      return ps === 'completed' || ps === 'skipped';
+    });
+    if (priorOk) return stageName;
+  }
+
+  const current = getCurrentStage(stagesData);
+  if (current) {
+    const norm = normalizeStageKey(current);
+    const hit  = STAGE_ORDER.find(s => normalizeStageKey(s) === norm);
+    if (hit) return hit;
+  }
+
+  const stages = stagesData.stages || {};
+  for (let i = FEATURE_STAGES.length - 1; i >= 0; i--) {
+    const name = FEATURE_STAGES[i];
+    const s    = getStageRecord(stages, name);
+    if (s.features && Object.keys(s.features).length > 0) return canonicalFeatureStage(name);
   }
   return 'codegen';
+}
+
+function pickDefaultTrackStage(stagesData) {
+  return pickAttentionStage(stagesData);
+}
+
+/**
+ * 将 track 对齐到 pickAttentionStage；若发生切换则返回新 stage，否则返回原值。
+ * @returns {{ trackStage: string, advanced: boolean }}
+ */
+function syncTrackStageFromPipeline(stagesData, trackStage) {
+  const attention = pickAttentionStage(stagesData);
+  if (shouldAdvanceTrackStage(trackStage, attention)) {
+    return { trackStage: attention, advanced: true };
+  }
+  if (
+    isFeatureTrackStage(trackStage) &&
+    isFeatureStageAllSettled(stagesData, trackStage) &&
+    !sameStage(trackStage, attention)
+  ) {
+    return { trackStage: attention, advanced: true };
+  }
+  return { trackStage, advanced: false };
 }
 
 function useFeatureDetailView(stagesData) {
@@ -749,6 +856,42 @@ function runTUIMode() {
     stagesBox.setContent(lines.join('\n'));
   }
 
+  function renderStageAttentionPanel(stageName) {
+    const s      = getStageRecord(stagesData && stagesData.stages, stageName);
+    const status = s.status || 'pending';
+    const lines  = [
+      `{bold}${stageName}{/bold}  ${getStageIcon(status)} {white-fg}${status}{/white-fg}`,
+    ];
+    if (s.validation && s.validation.summary) {
+      lines.push('');
+      lines.push(`{yellow-fg}${s.validation.summary}{/yellow-fg}`);
+    }
+    if (Array.isArray(s.blocking_issues) && s.blocking_issues.length > 0) {
+      lines.push('');
+      for (const issue of s.blocking_issues.slice(0, 6)) {
+        lines.push(`{red-fg}• ${issue}{/red-fg}`);
+      }
+    }
+    const outputs = s.outputs || {};
+    const outputKeys = ['final_commit', 'overall', 'passed_scenarios', 'failed_scenarios', 'duration_ms'];
+    const outputLines = outputKeys
+      .filter(k => outputs[k] != null && outputs[k] !== '')
+      .map(k => `{gray-fg}${k}:{/gray-fg} ${outputs[k]}`);
+    if (outputLines.length > 0) {
+      lines.push('');
+      lines.push(...outputLines);
+    }
+    lines.push('');
+    lines.push('{gray-fg}(阶段级步骤，无 per-feature 列表){/gray-fg}');
+    displayFeatureIds = [];
+    featuresBox.setContent(lines.join('\n'));
+    if (focusPanel === 'features' && !dialogOpen) featuresBox.focus();
+  }
+
+  function applyTrackSync(advanced) {
+    if (advanced && !selectedFeatureId) resetLogBuffer();
+  }
+
   function renderFeatures() {
     updateFeaturesLabel();
     const prdFeatures = getPrdFeatures(stagesData);
@@ -759,6 +902,11 @@ function runTUIMode() {
       lines.push('{gray-fg}(无 prd.outputs.features){/gray-fg}');
       displayFeatureIds = [];
       featuresBox.setContent(lines.join('\n'));
+      return;
+    }
+
+    if (!isFeatureTrackStage(trackStage)) {
+      renderStageAttentionPanel(trackStage);
       return;
     }
 
@@ -860,6 +1008,10 @@ function runTUIMode() {
   }
 
   function render() {
+    const synced = syncTrackStageFromPipeline(stagesData, trackStage);
+    trackStage = synced.trackStage;
+    applyTrackSync(synced.advanced);
+    refreshLogFile();
     renderHeader();
     renderStages();
     renderFeatures();
@@ -1033,8 +1185,9 @@ function runTUIMode() {
     const newData = readStagesJson();
     if (newData) {
       stagesData = newData;
-      trackStage = pickDefaultTrackStage(stagesData);
-      resetLogBuffer();
+      const synced = syncTrackStageFromPipeline(stagesData, trackStage);
+      trackStage = synced.trackStage;
+      if (synced.advanced || !selectedFeatureId) resetLogBuffer();
     }
     refreshLogFile();
     render();
@@ -1088,11 +1241,9 @@ function runTUIMode() {
         const newData = readStagesJson();
         if (newData) {
           stagesData = newData;
-          const autoTrack = pickDefaultTrackStage(stagesData);
-          if (shouldAdvanceTrackStage(trackStage, autoTrack)) {
-            trackStage = autoTrack;
-            if (!selectedFeatureId) resetLogBuffer();
-          }
+          const synced = syncTrackStageFromPipeline(stagesData, trackStage);
+          trackStage = synced.trackStage;
+          applyTrackSync(synced.advanced);
           refreshLogFile();
           render();
         }
@@ -1116,9 +1267,14 @@ function runTUIMode() {
   }, 500);
 
   timerInterval = setInterval(() => {
+    const synced = syncTrackStageFromPipeline(stagesData, trackStage);
+    trackStage = synced.trackStage;
+    applyTrackSync(synced.advanced);
+    refreshLogFile();
     renderHeader();
     renderStages();
     renderFeatures();
+    renderLog();
     screen.render();
   }, 1000);
 
