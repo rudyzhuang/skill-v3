@@ -888,6 +888,21 @@ async function doTick(stagesObj, config, featureFilterId) {
     ? targetFeatureIds.filter(id => id === featureFilterId)
     : targetFeatureIds;
 
+  // 上轮 tick 被中断时，遗留的 running 无对应 Agent，须重置为 pending 才能再次调度（与 design.cjs 一致）
+  const zombieResetList = [];
+  for (const fid of scopeIds) {
+    if (featureStatuses[fid] && featureStatuses[fid].status === 'running') {
+      featureStatuses[fid].status = 'pending';
+      zombieResetList.push(fid);
+    }
+  }
+  if (zombieResetList.length > 0) {
+    writeStagesJson(stagesObj);
+    log.warn('zombie_reset', `design-review tick 重置 ${zombieResetList.length} 个僵尸 running feature`, {
+      feature_ids: zombieResetList,
+    });
+  }
+
   // 找就绪 feature：design.features.<id>.status=completed 且 review 未完成/失败
   // 且无 blocking 确定性 gap
   const readyFeatureIds = [];
