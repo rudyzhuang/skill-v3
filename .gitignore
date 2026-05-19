@@ -11,3 +11,8 @@ skills-lock.json
 .agents/
 .cursor/
 */node_modules/
+
+dash-std4/.pipeline/
+dash-std4/logs/
+dash-std4/node_modules/
+dash-std4/.agent-sessions/

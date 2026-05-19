@@ -1,0 +1,145 @@
+{
+  "client_target": "backend",
+  "project_name": "DashStd4",
+  "tech_stack": {
+    "language": "TypeScript",
+    "framework": "Cloudflare Workers (Hono)",
+    "db": "D1"
+  },
+  "features": [
+    {
+      "feature_id": "AUTH-LOGIN-001",
+      "name": "管理员登录与会话",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "提供管理端登录、登出与会话校验 REST 接口；默认管理员凭据仅从环境变量引导初始化，禁止在响应或日志中返回明文密码。",
+      "acceptance": [
+        "POST /api/auth/login 接受邮箱与密码，成功时设置 HttpOnly Session Cookie 并返回当前用户摘要（不含密码）",
+        "POST /api/auth/logout 清除会话；未登录调用受保护接口返回 401",
+        "GET /api/auth/me 在有效会话下返回当前用户 id、邮箱、角色",
+        "默认管理员账号由部署时 config.env 引导创建，不落库明文到 PRD 或接口响应"
+      ],
+      "endpoints": [
+        "POST /api/auth/login",
+        "POST /api/auth/logout",
+        "GET /api/auth/me"
+      ],
+      "db_tables": ["users", "sessions"]
+    },
+    {
+      "feature_id": "AUTH-USER-001",
+      "name": "用户管理（管理员创建账号）",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "管理员可为后台创建其他登录用户；仅已登录且具有管理员权限的会话可调用写接口。",
+      "acceptance": [
+        "GET /api/users 分页或列表返回用户 id、邮箱、角色、创建时间（不含密码哈希）",
+        "POST /api/users 创建用户并校验邮箱唯一；密码以安全方式存储",
+        "PATCH /api/users/:id 支持禁用/启用或更新角色；禁止通过 API 回显明文密码",
+        "非管理员或未登录访问返回 403/401"
+      ],
+      "endpoints": [
+        "GET /api/users",
+        "POST /api/users",
+        "PATCH /api/users/:id"
+      ],
+      "db_tables": ["users"]
+    },
+    {
+      "feature_id": "PROJECT-LIST-001",
+      "name": "项目列表与状态",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "为管理端提供已登记项目列表及聚合状态（如进行中/阻塞/完成），数据与项目元数据及流水线快照一致。",
+      "acceptance": [
+        "GET /api/projects 返回项目 id、中英文名称、状态、更新时间等字段",
+        "列表支持按状态或名称筛选（至少一种筛选或排序）",
+        "无项目时返回空数组而非 5xx",
+        "接口需管理端 Session 鉴权"
+      ],
+      "endpoints": ["GET /api/projects"],
+      "db_tables": ["projects"]
+    },
+    {
+      "feature_id": "PROJECT-DASH-001",
+      "name": "项目流水线看板",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "按项目 id 返回 ai-std4 流水线看板所需数据：阶段表、feature 流水线、当前 stage、阻塞摘要、日志 tail；兼容 `.pipeline/stages.json` 暂缺或字段不完整。",
+      "acceptance": [
+        "GET /api/projects/:id/pipeline 返回 stages、features、blocking_issues、log_tail 等结构化字段",
+        "当 stages.json 缺失或解析失败时返回 200 与明确空态/错误摘要，不泄露服务器路径或密钥",
+        "日志 tail 长度可配置上限，避免超大响应",
+        "接口需管理端 Session 鉴权"
+      ],
+      "endpoints": ["GET /api/projects/:id/pipeline"],
+      "db_tables": ["projects", "pipeline_snapshots"]
+    },
+    {
+      "feature_id": "PROJECT-CREATE-001",
+      "name": "新建项目（req 表单字段）",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "管理端提交新建项目；请求体字段对齐 ai-std4 `inputs/req.md` 用户填写项（中英文名称、简介、客户端目标多选等），并包含标识「新增」状态的字段。",
+      "acceptance": [
+        "POST /api/projects 校验必填项（项目名称中/英、简介、client_targets 等）",
+        "client_targets 仅允许 prd-spec 声明的合法端名（如 admin、backend）",
+        "成功创建后返回项目 id 与初始状态，并可在列表接口中查询",
+        "请求体含 is_new 或等价字段标识新增来源；接口需管理端 Session 鉴权"
+      ],
+      "endpoints": ["POST /api/projects"],
+      "db_tables": ["projects"]
+    },
+    {
+      "feature_id": "BACKEND-API-QUERY-001",
+      "name": "项目查询 Open API",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "供 ai-std4 或集成方通过 Bearer Token / API Key 查询已登记项目，支撑基于 std4 的远程项目开发与状态拉取。",
+      "acceptance": [
+        "GET /api/v1/projects 在有效 API Key 下返回项目列表摘要",
+        "GET /api/v1/projects/:id 返回单项目详情及可开发所需元数据",
+        "缺少或无效 API Key 返回 401；不在响应中暴露密钥配置",
+        "与 POST /api/v1/projects 创建的项目在查询结果中一致可见"
+      ],
+      "endpoints": [
+        "GET /api/v1/projects",
+        "GET /api/v1/projects/:id"
+      ],
+      "db_tables": ["projects", "api_keys"]
+    },
+    {
+      "feature_id": "BACKEND-API-PIPELINE-001",
+      "name": "流水线运行数据上报 API",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "集成方通过 Open API 新建项目并上报 `.pipeline/stages.json` 及关联运行数据，供看板与管理端只读展示。",
+      "acceptance": [
+        "POST /api/v1/projects 在 API Key 鉴权下创建项目（字段与 req 规范对齐）",
+        "PUT 或 PATCH /api/v1/projects/:id/pipeline 接受 stages/features/blocking/log 等上报载荷并持久化",
+        "上报后管理端看板接口可读到最新快照",
+        "写接口均需 API Key；载荷校验失败返回 4xx 与可读错误信息"
+      ],
+      "endpoints": [
+        "POST /api/v1/projects",
+        "PUT /api/v1/projects/:id/pipeline"
+      ],
+      "db_tables": ["projects", "pipeline_snapshots", "api_keys"]
+    }
+  ],
+  "deploy": {
+    "platform": "cloudflare",
+    "domain": "api.dash.ai-ww.com",
+    "service_type": "workers"
+  },
+  "auth": {
+    "type": "session",
+    "notes": "管理端 REST 使用 Session/Cookie；集成 Open API（/api/v1/*）使用 Bearer Token 或 API Key，凭据仅配置于 inputs/config.env 与 docs/config.env，禁止写入本 JSON"
+  },
+  "constraints": [
+    "须兼容 ai-std4 流水线目录约定（inputs/req.md、.pipeline/stages.json）",
+    "客户端目标仅 admin、backend；Open API 与内部管理 API 路径分离",
+    "所有写接口必须鉴权；日志与响应不得泄露 config.env 中的密钥与默认密码",
+    "容忍 pipeline 数据暂缺，返回明确空态而非未处理异常"
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "client_target": "admin",
+  "project_name": "DashStd4",
+  "tech_stack": {
+    "framework": "React",
+    "css": "Tailwind CSS"
+  },
+  "features": [
+    {
+      "feature_id": "AUTH-LOGIN-001",
+      "name": "管理员登录与会话",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "管理后台受 Session/Cookie 保护；提供登录页，校验凭据后建立会话；未登录访问受保护路由时跳转登录；支持登出。默认管理员凭据仅由部署环境配置，不在 PRD 或前端代码中硬编码。",
+      "acceptance": [
+        "提供登录页（邮箱/用户名 + 密码），提交后调用后端会话接口；成功则跳转项目列表，失败展示明确错误提示且不泄露凭据来源",
+        "未携带有效会话访问受保护页面时，统一重定向至登录页，并保留登录后回跳目标（若实现简单可固定回项目列表）",
+        "顶栏或账户菜单提供「退出登录」，调用后端登出并清除本地会话状态后回到登录页",
+        "登录态在浏览器刷新后仍有效（直至会话过期或主动登出），与 backend Session 行为一致"
+      ],
+      "pages": ["/login"],
+      "roles": ["guest"]
+    },
+    {
+      "feature_id": "AUTH-USER-001",
+      "name": "用户管理（管理员创建账号）",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "已登录的管理员可在后台创建、查看与管理其他用户账号（非环境引导的默认管理员账号本身不可通过界面删除）。用于满足 req 中「其他用户由管理员创建」的要求。",
+      "acceptance": [
+        "登录管理员可进入用户管理页，查看用户列表（至少含标识、角色/状态、创建时间等摘要字段）",
+        "支持创建新用户：必填登录标识与初始密码（或邀请重置流程二选一，MVP 至少支持管理员设置初始密码），创建成功后可在列表中看到该用户",
+        "禁止在界面或网络响应中展示环境变量中的默认管理员明文密码；默认账号仅用于首次登录引导",
+        "非管理员角色用户不可访问用户管理页（前端路由守卫 + 后端鉴权双重校验）"
+      ],
+      "pages": ["/users"],
+      "roles": ["admin", "super_admin"],
+      "dependencies": ["AUTH-LOGIN-001"]
+    },
+    {
+      "feature_id": "PROJECT-LIST-001",
+      "name": "项目列表与状态",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "登录后默认进入项目列表，展示已登记项目的名称与流水线/登记状态摘要；点击行或操作可在新标签页打开该项目流水线看板。",
+      "acceptance": [
+        "项目列表页展示项目名称、状态（与 backend 登记及 stages 摘要一致），支持空列表空态文案",
+        "每条记录提供「查看看板」或等效操作，在新浏览器标签页打开对应项目看板 URL",
+        "列表数据来自 backend 管理 API；加载中与接口失败时有明确反馈，不白屏",
+        "列表页提供入口跳转「新建项目」表单页"
+      ],
+      "pages": ["/", "/projects"],
+      "roles": ["admin", "super_admin", "operator"],
+      "dependencies": ["AUTH-LOGIN-001"]
+    },
+    {
+      "feature_id": "PROJECT-DASH-001",
+      "name": "项目流水线看板",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "只读看板页展示指定项目的 ai-std4 流水线详情：阶段表、feature 流水线、当前 stage、阻塞摘要、日志 tail；数据来源于项目 `.pipeline/stages.json` 及关联日志，经 backend 聚合返回。",
+      "acceptance": [
+        "看板页展示阶段表（stage 名称、状态、时间等列）与 feature 流水线进度区",
+        "突出展示当前 stage 与阻塞摘要（无阻塞时显示明确「无阻塞」或空态）",
+        "展示最近日志 tail（条数上限由 backend 约定，前端完整呈现返回内容）",
+        "当 stages 数据缺失或字段不完整时，各区块展示友好空态而非报错堆栈；不暴露服务器路径中的密钥",
+        "看板可在项目列表新标签页打开，URL 含可识别的项目 ID 或 slug"
+      ],
+      "pages": ["/projects/:projectId/dashboard"],
+      "roles": ["admin", "super_admin", "operator"],
+      "dependencies": ["PROJECT-LIST-001"]
+    },
+    {
+      "feature_id": "PROJECT-CREATE-001",
+      "name": "新建项目（req 表单字段）",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "提供新建项目表单，字段对齐 ai-std4 `inputs/req.md` 用户填写项：项目中/英文名称、项目简介、客户端目标多选等；提交后在系统中登记为新增项目并可在列表中查看。",
+      "acceptance": [
+        "表单包含项目名称（中文）、项目名称（英文）、项目简介、客户端目标（多选，选项与 req 模板注释一致，至少含 admin、backend）",
+        "包含标识「新增」状态的字段（如 status=new 或等效 UI 标签），创建提交时随请求传给 backend",
+        "前端校验必填项；提交成功跳转项目列表或看板，失败展示字段级/全局错误",
+        "新建成功后列表可见新项目；禁止在表单或前端配置中写入 API 密钥"
+      ],
+      "pages": ["/projects/new"],
+      "roles": ["admin", "super_admin"],
+      "dependencies": ["AUTH-LOGIN-001", "PROJECT-LIST-001"]
+    }
+  ],
+  "auth": {
+    "type": "session",
+    "notes": "Cookie 会话；受保护路由需登录。与 prd-spec 一致，凭据与 API Key 仅配置于 config.env，禁止写入本 JSON。"
+  },
+  "constraints": [
+    "仅实现 admin 端 UI，业务数据与写操作经 backend API",
+    "须兼容 ai-std4 目录约定（inputs/req.md、.pipeline/stages.json）",
+    "客户端目标仅 admin、backend；不实现 website/mobile 除非后续 req 变更",
+    "部署目标域名为 admin.dash.ai-ww.com（dev/release 一致）",
+    "禁止在仓库 PRD、前端代码或日志中硬编码 config.env 中的密码与 API Token"
+  ]
+}
