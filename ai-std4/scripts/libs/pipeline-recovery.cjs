@@ -214,9 +214,12 @@ function clearStaleCodegenWorkers(projectRoot, log) {
 }
 
 const SDK_RECOVERABLE_RE = /Cannot find module '@cursor\/sdk'/i;
+// no_heartbeat / stdout_idle / fs_idle 均属可重试的 agent 挂起，不是业务逻辑失败
+const AGENT_HANG_RE = /^(no_heartbeat|stdout_idle|fs_idle|wall_timeout)$/i;
 
 function isSdkRecoverableCodegenError(err) {
-  return SDK_RECOVERABLE_RE.test(String(err || ''));
+  const s = String(err || '');
+  return SDK_RECOVERABLE_RE.test(s) || AGENT_HANG_RE.test(s.trim());
 }
 
 function shouldResetCodegenSdkFailures({ recovery, step, bundle, cfg }) {

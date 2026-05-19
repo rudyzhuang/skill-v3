@@ -866,6 +866,7 @@ async function main() {
   let lastHeartbeatAt  = Date.now();
   let lastFsMtimeAt    = Date.now();
   let lastStdoutAt     = Date.now();
+  let lastActivityAt   = Date.now();   // 任意 stream 事件（含工具调用）均更新
   let lastHeartbeatData = null;
   let agentProcess     = null;
   let agentExited      = false;
@@ -972,7 +973,8 @@ async function main() {
         const run = await agentObj.send(finalPrompt);
         if (run.supports && run.supports('stream')) {
           for await (const event of run.stream()) {
-            lastStdoutAt = Date.now();
+            lastStdoutAt   = Date.now();
+            lastActivityAt = Date.now();  // 任意 SDK 事件（含工具调用）均视为活跃
             if (event.type === 'assistant') {
               for (const block of (event.message && event.message.content) || []) {
                 if (block.type === 'text') {
@@ -1004,18 +1006,20 @@ async function main() {
           const latestMtime2 = getLatestMtime(wtPath);
           if (latestMtime2 > lastFsMtimeAt) lastFsMtimeAt = latestMtime2;
           const now2 = Date.now();
-          const hbAge = (now2 - lastHeartbeatAt) / 1000;
-          const soIdle = (now2 - lastStdoutAt) / 1000;
+          const hbAge     = (now2 - lastHeartbeatAt) / 1000;
+          const actIdle   = (now2 - lastActivityAt)  / 1000;  // 任意 stream 事件空闲时间
+          const soIdle    = (now2 - lastStdoutAt)    / 1000;
           const elAttempt = (now2 - attemptStartedAt) / 1000;
-          const elTotal = (now2 - totalStartedAt) / 1000;
+          const elTotal   = (now2 - totalStartedAt)   / 1000;
           let hk = null;
           if (elTotal > config.timeoutS) hk = 'total_timeout';
           else if (elAttempt > config.attemptMaxS) hk = 'wall_timeout';
-          else if (hbAge > config.agentHangThresholdS) hk = 'no_heartbeat';
+          // no_heartbeat 仅在 agent 确实不活跃时才触发（actIdle 也超阈值）
+          else if (hbAge > config.agentHangThresholdS && actIdle > config.agentHangThresholdS) hk = 'no_heartbeat';
           else if (soIdle > config.stdoutIdleThresholdS) hk = 'stdout_idle';
           if (hk) {
             sdkHangDetected = true;
-            await handleHang({ hangKind: hk, heartbeatAge: hbAge, fsIdle: (now2 - lastFsMtimeAt)/1000, stdoutIdle: soIdle, elapsedAttempt: elAttempt, elapsedTotal: elTotal });
+            await handleHang({ hangKind: hk, heartbeatAge: hbAge, activityIdle: actIdle, fsIdle: (now2 - lastFsMtimeAt)/1000, stdoutIdle: soIdle, elapsedAttempt: elAttempt, elapsedTotal: elTotal });
             break;
           }
           if (checkStopSignal()) { await handleStop(); break; }
@@ -1055,24 +1059,25 @@ async function main() {
 
     const now = Date.now();
     const heartbeatAge   = (now - lastHeartbeatAt) / 1000;
-    const fsIdle         = (now - lastFsMtimeAt) / 1000;
-    const stdoutIdle     = (now - lastStdoutAt) / 1000;
+    const activityIdle   = (now - lastActivityAt)  / 1000;
+    const fsIdle         = (now - lastFsMtimeAt)   / 1000;
+    const stdoutIdle     = (now - lastStdoutAt)    / 1000;
     const elapsedAttempt = (now - attemptStartedAt) / 1000;
-    const elapsedTotal   = (now - totalStartedAt) / 1000;
+    const elapsedTotal   = (now - totalStartedAt)   / 1000;
 
     let hangKind = null;
     if (elapsedTotal > config.timeoutS) {
       hangKind = 'total_timeout';
     } else if (elapsedAttempt > config.attemptMaxS) {
       hangKind = 'wall_timeout';
-    } else if (heartbeatAge > config.agentHangThresholdS) {
+    } else if (heartbeatAge > config.agentHangThresholdS && activityIdle > config.agentHangThresholdS) {
       hangKind = 'no_heartbeat';
     } else if (stdoutIdle > config.stdoutIdleThresholdS) {
       hangKind = 'stdout_idle';
     }
 
     if (hangKind) {
-      await handleHang({ hangKind, heartbeatAge, fsIdle, stdoutIdle, elapsedAttempt, elapsedTotal });
+      await handleHang({ hangKind, heartbeatAge, activityIdle, fsIdle, stdoutIdle, elapsedAttempt, elapsedTotal });
     }
   }
 
@@ -1086,14 +1091,15 @@ async function main() {
     process.exit(0);
   }
 
-  async function handleHang({ hangKind, heartbeatAge, fsIdle, stdoutIdle, elapsedAttempt, elapsedTotal }) {
+  async function handleHang({ hangKind, heartbeatAge, activityIdle, fsIdle, stdoutIdle, elapsedAttempt, elapsedTotal }) {
     const s = readState();
 
     // 1. 打日志
     process.stderr.write(JSON.stringify({
       level: 'WARN', event: 'agent_hang_detected',
       feature_id: featureId, attempt_index: attemptIndex, hang_kind: hangKind,
-      last_heartbeat_age_s: heartbeatAge, fs_idle_s: fsIdle, stdout_idle_s: stdoutIdle,
+      last_heartbeat_age_s: heartbeatAge, activity_idle_s: activityIdle,
+      fs_idle_s: fsIdle, stdout_idle_s: stdoutIdle,
       elapsed_attempt_s: elapsedAttempt, elapsed_total_s: elapsedTotal,
     }) + '\\n');
 

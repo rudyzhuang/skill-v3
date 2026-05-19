@@ -24,11 +24,11 @@
         "feature_max_parallel": 3
       },
       "codegen": {
-        "feature_max_parallel": 3,
+        "feature_max_parallel": 1,
         "attempt_max_s": null,
-        "agent_hang_threshold_s": 180,
-        "fs_idle_threshold_s": 240,
-        "stdout_idle_threshold_s": 120,
+        "agent_hang_threshold_s": 600,
+        "fs_idle_threshold_s": 480,
+        "stdout_idle_threshold_s": 300,
         "heartbeat_interval_s": 30,
         "max_resume_attempts": 2,
         "graceful_kill_s": 15,
