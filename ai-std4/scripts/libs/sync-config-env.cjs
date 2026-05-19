@@ -13,6 +13,10 @@ const path = require('path');
 const { createLogger } = require('./logger.cjs');
 const { parseEnv } = require('./verify-inputs.cjs');
 const { loadProjectEnv } = require('./pipeline-config.cjs');
+const {
+  parseClientTargetsFromMarkdown,
+  syncDeployConfigFiles,
+} = require('./sync-deploy-by-targets.cjs');
 
 /**
  * 解析 req.md 获取项目名称（## 项目名称 * 节的第一行实质内容）
@@ -110,8 +114,9 @@ function syncConfigEnv({ projectRoot, skillsRoot, runId, logger: externalLogger 
   // ── 3. 读取 req.md 提取项目名 ────────────────────────────────────
   const reqMdPath = path.join(projectRoot, 'inputs', 'req.md');
   let projectName = 'my-project';
+  let reqContent  = '';
   if (fs.existsSync(reqMdPath)) {
-    const reqContent = fs.readFileSync(reqMdPath, 'utf8');
+    reqContent = fs.readFileSync(reqMdPath, 'utf8');
     projectName = extractProjectName(reqContent) || 'my-project';
   }
 
@@ -199,10 +204,36 @@ function syncConfigEnv({ projectRoot, skillsRoot, runId, logger: externalLogger 
     }
   }
 
+  const clientTargetsFromReq = reqContent
+    ? parseClientTargetsFromMarkdown(reqContent)
+    : [];
+  let deploySync = null;
+  if (clientTargetsFromReq.length > 0) {
+    try {
+      deploySync = syncDeployConfigFiles({
+        projectRoot,
+        clientTargets: clientTargetsFromReq,
+        reqPath:         reqMdPath,
+        log,
+      });
+      if (!deploySync.changed) {
+        log.info('file_skipped', 'deploy 配置已与 client_targets 一致，无需裁剪', {
+          client_targets: clientTargetsFromReq,
+          deployable:     deploySync.deployable,
+        });
+      }
+    } catch (err) {
+      log.warn('validation_fail', `deploy 配置按 client_targets 同步失败: ${err.message}`, {
+        reason: err.message,
+      });
+    }
+  }
+
   return {
     configDevPath:     configFiles[0].destPath,
     configReleasePath: configFiles[1].destPath,
     configEnvDestPath: destConfigEnv,
+    deploySync,
   };
 }
 
