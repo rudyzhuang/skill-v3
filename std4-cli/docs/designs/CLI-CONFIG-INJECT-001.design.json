@@ -1,0 +1,50 @@
+{
+  "feature_id": "CLI-CONFIG-INJECT-001",
+  "client_target": "cli",
+  "client_targets": ["cli"],
+  "title": "将 bundled/std4-config.env 同步注入业务项目",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/config/resolve-bundled-std4-config.ts",
+        "role": "在安装根目录下解析 bundled/std4-config.env 的绝对路径，供注入与构建期校验复用"
+      },
+      {
+        "path": "src/cli/config/inject-std4-project-env.ts",
+        "role": "将 bundled 副本原子写入业务项目 docs/config.env；按策略可选同步 inputs/config.env；处理目录创建、权限错误与幂等重放"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/cli/workflows/project-materialize.ts",
+        "role": "在 materialize / 项目准备完成路径中调用 inject-std4-project-env，确保 spawn ai-std4 前目标项目已具备 loadProjectEnv 可读文件"
+      },
+      {
+        "path": "scripts/build/copy-std4-config.mjs",
+        "role": "构建期将 inputs/config.env 生成 bundled/std4-config.env 并随包发布；与 .gitignore 约定对齐，不提交密钥"
+      }
+    ]
+  },
+  "api_outline": [],
+  "acceptance": [
+    "在目标业务项目根目录 materialize 完成后，存在 docs/config.env，其内容与当前 CLI 包内 bundled/std4-config.env 逐行一致（换行规范与构建产物一致），且 stdout/文件日志中不出现 CURSOR_API_KEY、DASH_STD4_API_KEY 等值明文",
+    "对仅含空目录或只读 docs/inputs/ 的目标项目调用注入时失败并返回非零退出路径所依赖的错误信息（指出路径与 EACCES/ENOENT 等），不产生半截文件",
+    "在同一目标项目上连续两次执行注入，docs/config.env 最终内容仍与 bundled 源一致；若实现「仅当目标缺失时写入」策略，须在 help 或内部常量中可核对，且默认行为与 prd-cli 中本 feature acceptance 的幂等描述一致",
+    "注入完成后，在同一项目根下以 vendor 内 ai-std4 既有 loadProjectEnv 入口加载环境，可读取到与 bundled 一致的键集合（以探测键是否存在或占位值校验为准，不打印值）",
+    "当 CLI 安装根缺少 bundled/std4-config.env 时，注入步骤失败并记录不含密钥的诊断信息（例如缺失文件路径），不静默跳过"
+  ],
+  "constraints": [
+    "bundled/std4-config.env、业务侧 docs/config.env 与 inputs/config.env 不得纳入 git；分发包内 bundled 文件权限为当前用户可读",
+    "日志与异常消息禁止包含环境变量值或 .env 文件全文；诊断仅含路径、errno、键名（若需）",
+    "写入 docs/config.env 时使用临时文件 + rename 或等价原子策略，避免流水线并发读到半成品",
+    "注入时机须在 materialize / 项目准备阶段、spawn run-pipeline 之前完成，与 CLI-VENDOR-STD4-001 的 CURSOR_SKILLS_ROOT 编排解耦仅通过调用顺序衔接",
+    "Windows 与 macOS 路径、换行与 fs 权限语义须一致处理"
+  ],
+  "dependencies": [],
+  "risks": [
+    "用户可能在业务项目中 hand-edit docs/config.env；每次覆盖会丢失本地修改，需文档说明并在后续迭代考虑 merge 或「已存在则跳过」策略",
+    "构建机未生成 bundled/std4-config.env 导致发布包缺文件，运行期才发现",
+    "inputs/config.env 与 docs/config.env 双写策略若与团队惯例不一致，可能误导运维来源真值"
+  ]
+}

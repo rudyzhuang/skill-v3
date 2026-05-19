@@ -1,0 +1,60 @@
+{
+  "feature_id": "CLI-VENDOR-STD4-001",
+  "client_target": "cli",
+  "client_targets": ["cli"],
+  "title": "构建内置 vendor/ai-std4 与运行时 CURSOR_SKILLS_ROOT 编排",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "scripts/build/vendor-ai-std4.mjs",
+        "role": "构建期从 Git 拉取约定仓库子树至 vendor/ai-std4/（支持 STD4_SKILL_REPO、STD4_SKILL_REF、STD4_SKILL_SUBDIR 覆盖默认 rudyzhuang/skill-v3 + ai-std4/），在 vendor 目录执行 npm install（或文档等价安装）并校验 run-pipeline.cjs 等入口存在；失败时非零退出以阻断脏发布包。"
+      },
+      {
+        "path": "src/cli/pipeline/resolve-install-root.ts",
+        "role": "在运行时可解析 CLI 安装根目录（可执行文件相对路径或发布布局约定），供 vendor 路径与 CURSOR_SKILLS_ROOT 共用同一真值，避免 cwd 漂移。"
+      },
+      {
+        "path": "src/cli/pipeline/resolve-cursor-skills-root.ts",
+        "role": "根据产品与 ai-std4 文档约定，返回 CURSOR_SKILLS_ROOT 目标路径（安装根或 vendor/ai-std4 父级）；禁止回退到 ~/.cursor/skills 或未配置的相对 skills 路径。"
+      },
+      {
+        "path": "src/cli/pipeline/spawn-run-pipeline.ts",
+        "role": "以继承或显式合并的环境变量 spawn vendor 内 run-pipeline.cjs（或 PRD 指定的等价入口）；注入 CURSOR_SKILLS_ROOT、工作目录为业务项目根；跨平台 node 可执行与参数 quoting 一致；子进程退出码向上透出或映射为 CLI 退出策略。"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "package.json",
+        "role": "增加 build/prepare 等脚本钩子，保证发布前执行 vendor-ai-std4；将 vendor/ai-std4 纳入打包资源清单（或等价 bundler/发布工具配置），并文档化本地开发首次 clone 后的 vendor 生成命令。"
+      },
+      {
+        "path": "src/cli/cli-entry.ts",
+        "role": "在入口或共享 bootstrap 中引用 resolve-cursor-skills-root，确保任何触发流水线路径在 spawn 前已确定 skills 根目录且不依赖本机外部 skill 安装。"
+      }
+    ]
+  },
+  "api_outline": [],
+  "acceptance": [
+    "对 release 或等价打包产物解压/安装后，文件系统存在 vendor/ai-std4/ 且内含可执行的流水线入口（如 run-pipeline.cjs）及 node_modules（或与 prd-spec 一致的依赖形态），在未访问网络的单机环境仍满足「入口文件存在」校验。",
+    "在本机未配置或刻意清空 ~/.cursor/skills、且无 STD4_SKILL_REPO 指向外部的前提下，CLI 触发的最小 run-pipeline 子进程环境中 CURSOR_SKILLS_ROOT（或 ai-std4 文档约定的等价变量）为绝对路径且指向安装包内约定根，stderr/日志不出现回退到用户家目录 skills 的静默行为。",
+    "设置 STD4_SKILL_REPO、STD4_SKILL_REF、STD4_SKILL_SUBDIR 后重新执行构建用 vendor 脚本，vendor/ai-std4 内容与默认分支不一致且仍能完成 npm install 与入口校验（以具体 ref 可解析为前提）。",
+    "在 macOS 与 Windows 各执行一次 spawn-run-pipeline 探测（含含空格路径的安装目录），子进程 argv 与 cwd 正确，无因路径分隔或 quoting 导致的 ENOENT。",
+    "子进程以非零退出结束时，CLI 进程以文档化非零退出码结束或映射为可观测错误（与 CLI-OBS-LOG-001 一致），且日志不含仓库凭据或完整环境变量 dump。"
+  ],
+  "constraints": [
+    "默认 Git 源为 rudyzhuang/skill-v3 子路径 ai-std4/，与 prd-spec 一致；运行期禁止依赖本机 ~/.cursor/skills 作为 skills 加载根。",
+    "STD4_SKILL_REPO / STD4_SKILL_REF / STD4_SKILL_SUBDIR 仅用于构建期拉取与本地维护者覆盖；发布默认包须内置固定 ref 的产物，避免用户运行时才隐式拉取技能树。",
+    "vendor 目录随安装包分发；构建脚本须可重复执行且对既有 vendor 有清理或幂等策略，避免陈旧文件与缺依赖混杂。",
+    "子进程环境仅注入必要变量（含 CURSOR_SKILLS_ROOT）；不得将 DASH_STD4_API_KEY 等写入与流水线无关的子进程环境或日志。",
+    "Node.js 版本须满足 prd-spec（18+）；若 vendor 内 ai-std4 有更高引擎要求，以构建期或文档校验报错暴露。"
+  ],
+  "dependencies": [],
+  "risks": [
+    "上游 skill-v3 仓库结构、默认分支或 ai-std4 子路径变更导致构建脚本 clone 失败或入口改名，需锁定 ref 或增加探测与清晰错误。",
+    "构建环境无 git 或网络受限时 vendor 步骤失败，需在 CI 与本地文档中明确前置条件与镜像/缓存策略。",
+    "npm install 在 vendor 内受 lockfile/注册表差异影响产生不可复现树，建议提交或生成 lockfile 并在 CI 校验。",
+    "CURSOR_SKILLS_ROOT 语义若与未来 ai-std4 版本不一致，可能导致阶段脚本找不到 skills；需与 ai-std4 README 对齐并预留单处适配层。",
+    "打包工具若意外排除 vendor 或路径大小写问题，会在用户机器上表现为入口缺失，需在发布 checklist 做安装目录结构断言。"
+  ]
+}

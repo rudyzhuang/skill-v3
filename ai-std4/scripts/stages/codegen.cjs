@@ -33,6 +33,11 @@ const crypto = require('crypto');
 const { execSync, spawn } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
+const {
+  ensureProjectGitRepo,
+  isProjectGitRoot,
+  reconcileMisscopedWorktrees,
+} = require('../libs/resolve-project-git.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -418,15 +423,12 @@ function createWorktree(featureId) {
   const wtPath = worktreeDir(featureId);
   const branch = `features/v3-${featureId}`;
 
-  // 检查是否是 git 仓库
-  let isGitRepo = false;
-  try {
-    execSync('git rev-parse --git-dir', { cwd: projectRoot, stdio: 'ignore' });
-    isGitRepo = true;
-  } catch (_) { /* not a git repo */ }
+  const config = readConfig();
+  ensureProjectGitRepo(projectRoot, { config, log });
+  reconcileMisscopedWorktrees(projectRoot, { log });
 
-  if (!isGitRepo) {
-    log.warn('file_created', `${projectRoot} 不是 git 仓库，跳过 worktree 创建`, {
+  if (!isProjectGitRoot(projectRoot)) {
+    log.warn('file_created', `${projectRoot} 无独立 git 根（可能位于父仓内且 init 失败），跳过 worktree`, {
       feature_id: featureId, worktree_path: wtPath, branch,
     });
     fs.mkdirSync(wtPath, { recursive: true });
@@ -1039,6 +1041,7 @@ async function main() {
   // 注入上下文
   const ctx = [
     \`<!-- inject: feature_id=\${featureId} -->\`,
+    \`<!-- inject: project_root=\${projectRoot} -->\`,
     \`<!-- inject: worktree_path=\${wtPath} -->\`,
     baseCommit ? \`<!-- inject: base_commit=\${baseCommit} -->\` : '',
     \`<!-- inject: heartbeat_interval_s=\${config.heartbeatIntervalS} -->\`,

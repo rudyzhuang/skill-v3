@@ -1,0 +1,182 @@
+{
+  "pipeline": {
+    "model": "composer-2",
+    "recovery": {
+      "enabled": true,
+      "max_attempts_per_stage": 2,
+      "recoverable_exit_codes": [
+        3,
+        4,
+        6,
+        8
+      ],
+      "log_tail_lines": 200,
+      "require_push_for_skill_fix": true,
+      "run_self_test_after_skill_fix": true,
+      "clear_stale_codegen_workers": true,
+      "artifact_excerpt_max_bytes": 12000
+    },
+    "autorun": {
+      "allow_destructive_deploy": false,
+      "feature_max_parallel": 3,
+      "build_max_parallel": 4
+    },
+    "stages": {
+      "design": {
+        "feature_max_parallel": 3
+      },
+      "design_review": {
+        "feature_max_parallel": 3
+      },
+      "codegen": {
+        "feature_max_parallel": 3,
+        "attempt_max_s": null,
+        "agent_hang_threshold_s": 180,
+        "fs_idle_threshold_s": 240,
+        "stdout_idle_threshold_s": 120,
+        "heartbeat_interval_s": 30,
+        "max_resume_attempts": 2,
+        "graceful_kill_s": 15,
+        "self_check": {
+          "enabled": false,
+          "commands": {},
+          "timeout_s": 300
+        }
+      },
+      "create_ui_scenarios": {
+        "feature_max_parallel": 3,
+        "max_scenarios_per_feature": 10
+      },
+      "code_review": {
+        "feature_max_parallel": 3,
+        "max_retries": 2,
+        "file_plan_strict": false
+      },
+      "build": {
+        "client_max_parallel": 4
+      },
+      "deploy": {
+        "agent_fix_max_attempts": 2,
+        "deploy_retry_max": 1,
+        "fail_fast": true
+      },
+      "ui_e2e": {
+        "scenario_max_parallel": 3,
+        "triage_max_attempts": 2,
+        "prompt_fix_max_attempts": 1,
+        "fail_fast": false
+      }
+    }
+  },
+  "git": {
+    "remote": "origin",
+    "default_branch": "main",
+    "remote_url": "",
+    "auto_commit": false,
+    "allow_push": false
+  },
+  "build": {
+    "artifacts_dir": "dist",
+    "install_before_build": true,
+    "fail_fast": false,
+    "client_targets": {},
+    "commands": {
+      "build": "npm run build",
+      "install": "npm ci",
+      "website": "npm run build",
+      "admin": "npm run build",
+      "mobile": "flutter build apk --release"
+    }
+  },
+  "deploy": {
+    "enabled": false,
+    "provider": "cloudflare",
+    "services": [
+      {
+        "name": "website",
+        "client_target": "website",
+        "type": "pages",
+        "domain": "",
+        "url": ""
+      },
+      {
+        "name": "backend",
+        "client_target": "backend",
+        "type": "workers",
+        "domain": "",
+        "url": ""
+      }
+    ]
+  },
+  "smoke": {
+    "checks": [
+      {
+        "url": "{deploy.services.website.url}/",
+        "method": "GET",
+        "expected_status": 200,
+        "client_targets": [
+          "website"
+        ],
+        "scope": "deploy",
+        "safe": true
+      },
+      {
+        "url": "{deploy.services.backend.url}/health",
+        "method": "GET",
+        "expected_status": 200,
+        "client_targets": [
+          "backend"
+        ],
+        "scope": "deploy",
+        "safe": true
+      }
+    ],
+    "codegen": {
+      "enabled": true,
+      "base_url": "http://127.0.0.1:8787",
+      "timeout_s": 60
+    },
+    "deploy": {
+      "enabled": true,
+      "timeout_s": 120
+    }
+  },
+  "ui_e2e": {
+    "enabled": false,
+    "require_deploy_smoke_passed": true,
+    "strict_mobile": false,
+    "web": {
+      "website": {
+        "base_url_from": "deploy.services.website.url"
+      },
+      "admin": {
+        "base_url_from": "deploy.services.admin.url"
+      }
+    },
+    "mobile": {
+      "bundle_id": "",
+      "device": "emulator",
+      "auto_launch_emulator": true
+    },
+    "commands": {
+      "scenario_max_fix_attempts": 2
+    }
+  },
+  "timeouts": {
+    "stages": {
+      "design_s": 1200,
+      "design_review_s": 900,
+      "create_ui_scenarios_s": 600,
+      "build_s": 300,
+      "codegen_s": 1800,
+      "code_review_s": 600,
+      "deploy_s": 600,
+      "ui_e2e_s": 1800,
+      "ui_e2e_scenario_s": 600,
+      "report_agent_s": 300
+    }
+  },
+  "project": {
+    "name": "Std4Cli"
+  }
+}

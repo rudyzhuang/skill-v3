@@ -1,0 +1,68 @@
+{
+  "feature_id": "CLI-MODE-CREATE-001",
+  "client_target": "cli",
+  "client_targets": ["cli", "dash"],
+  "title": "Create 模式：本地生成业务项目、可选 Dash 注册并切入 Query",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/create/create-command.ts",
+        "role": "注册 create 子命令：解析交互 / --non-interactive 参数，编排脚手架与 Dash 注册，成功后切入 Query 或打印等价指引。"
+      },
+      {
+        "path": "src/cli/create/project-scaffold.ts",
+        "role": "按 ai-std4 / std4-cli 约定生成业务项目骨架（含 inputs/req.md、docs/、inputs/ 等最小可运行布局）。"
+      },
+      {
+        "path": "src/cli/create/create-flow.ts",
+        "role": "串联脚手架 → 可选 Dash 注册 → 写入本地可用于 Query 的项目标识；统一退出码与不含密钥的错误日志。"
+      },
+      {
+        "path": "src/dash/open-api/register-project.ts",
+        "role": "封装 DashStd4 Open API 项目注册 HTTP 调用：Bearer 鉴权、请求体组装、解析成功响应中的 project id 与 Query 关联字段。"
+      },
+      {
+        "path": "src/dash/open-api/errors.ts",
+        "role": "将 4xx/5xx 与结构化错误 envelope 映射为 CLI 可分支处理的类型（校验失败、重复注册、权限不足等），正文不包含密钥或堆栈泄漏。"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/cli/cli-entry.ts",
+        "role": "挂载 create 子命令与全局选项（含与 CLI-OBS-LOG-001 对齐的 --non-interactive）；导出入口供打包。"
+      },
+      {
+        "path": "src/cli/query/handoff.ts",
+        "role": "Create 完成后以约定参数启动或转入 Query 循环（读取注册返回的稳定 project id / 关联字段）。"
+      }
+    ]
+  },
+  "api_outline": [
+    {
+      "method": "POST",
+      "path": "/open-api/v1/projects",
+      "summary": "将 CLI 本地脚手架生成的项目注册到 Dash；返回稳定 project id（或等价键）及后续 Query 轮询所需的关联字段（如队列键、分支元数据）；支持文档化的幂等键或重复语义。"
+    }
+  ],
+  "acceptance": [
+    "可选 Dash 注册开启且服务端返回 2xx 时，CLI stdout 或结构化日志中出现非空的稳定 project id（或文档约定的等价字段），且不包含 Bearer token 或 API Key 明文。",
+    "校验失败（422）、重复注册（409 或文档约定码）、权限不足（401/403）时，CLI 退出码非零且 stderr/日志含可解析的错误类别（来源于服务端结构化错误或映射表），不含堆栈或密钥细节。",
+    "在未启用 Dash 注册的配置下，一次 create 调用仍在目标路径生成约定目录布局（至少包含 docs/ 与 inputs/，且 inputs/req.md 可被后续流水线读取）。",
+    "启用注册且成功后，进程在无用户额外输入的情况下进入 Query 模式或以单行可复制命令等价启动 Query，且传入的关联字段与 PRD 中 Query materialize 所需字段一致或可推导。",
+    "create --non-interactive 在缺少必填参数时立即失败并打印明确缺失项列表，不进入交互提示。"
+  ],
+  "constraints": [
+    "DashStd4 Base URL 与路径前缀来自本地配置（如 ~/.std4-cli/config.env），仓库内不写死生产域名；HTTPS-only。",
+    "Authorization: Bearer <DASH_STD4_API_KEY> 仅从本地配置读取，禁止写入日志、上报 JSON 或错误详情明文。",
+    "生成布局须与 prd-spec 及 ai-std4 vendor 流水线入口兼容（CURSOR_SKILLS_ROOT 由 CLI-VENDOR-STD4-001 设定，不在本 feature 重复实现）。",
+    "幂等 / 重复 POST 行为以实现当期 Dash OpenAPI 文档为准；CLI 重试路径不得静默制造重复业务实体除非服务端声明幂等接受。",
+    "macOS / Windows 路径与换行在脚手架与配置文件写入上一致；不要求用户预装 dash-std4 源码仓库。"
+  ],
+  "dependencies": [],
+  "risks": [
+    "dash-std4 正式路径与 schema 未定稿时，CLI 与服务端可能对字段命名不一致，需在契约冻结前预留适配层或版本探测。",
+    "Create 完成后自动切入 Query 若依赖 CLI-MODE-QUERY-001 未就绪，需提供降级（仅打印下一步命令）以避免半成品用户体验。",
+    "重复注册与网络抖动叠加时，若无幂等键，可能出现与服务端状态不一致；需与 CLI-RETRY-NFR-001 协同界定哪些状态码可重试。"
+  ]
+}

@@ -29,6 +29,7 @@ const { verifyInputs }   = require('../libs/verify-inputs.cjs');
 const { syncConfigEnv }  = require('../libs/sync-config-env.cjs');
 const { registerProject, generateProjectId } = require('../libs/register-project.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
+const { ensureProjectGitRepo } = require('../libs/resolve-project-git.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -357,6 +358,21 @@ async function main() {
     process.exit(1);
   }
 
+  // 6b. 业务项目 Git 作用域（父仓子目录时嵌套 init，避免 codegen 检出整仓）
+  let configDevForGit = {};
+  const configDevPathEarly = path.join(projectRoot, 'docs', 'config.dev.json');
+  if (fs.existsSync(configDevPathEarly)) {
+    try {
+      configDevForGit = JSON.parse(fs.readFileSync(configDevPathEarly, 'utf8'));
+    } catch (_) { /* ignore */ }
+  }
+  const gitScope = ensureProjectGitRepo(projectRoot, { config: configDevForGit, log });
+  if (!gitScope.ok) {
+    log.warn('validation_fail', '业务项目 git 初始化失败（不阻断 setup）', {
+      reason: gitScope.reason,
+    });
+  }
+
   // 7. 写 setup 完成态
   const completedAt    = new Date();
   const completedAtStr = formatLocalTimeShort(completedAt);
@@ -382,15 +398,20 @@ async function main() {
       const configDev = JSON.parse(fs.readFileSync(configDevPath, 'utf8'));
       stagesObj = gitStageSync.applyGitConfigToStages(stagesObj, configDev);
       const g = gitStageSync.resolveGitConfig(configDev);
-      if (g.remote_url) {
-        const gitSyncLib = require('../../../ai-auto3/scripts/lib/git-pipeline-sync.cjs');
-        const init = gitSyncLib.initLocalAndRemote(projectRoot, configDev);
-        if (!init.ok) {
-          log.warn('validation_fail', 'git remote 初始化失败（不阻断 setup）', {
-            reason: init.reason,
-          });
-        } else if (stagesObj.pipeline.project.git) {
-          stagesObj.pipeline.project.git.remote_configured_at = completedAtStr;
+      const init = ensureProjectGitRepo(projectRoot, { config: configDev, log });
+      if (!init.ok) {
+        log.warn('validation_fail', 'git 仓库初始化失败（不阻断 setup）', {
+          reason: init.reason,
+        });
+      } else {
+        if (stagesObj.pipeline.project.git) {
+          if (init.action === 'init_nested' || init.action === 'existing') {
+            stagesObj.pipeline.project.git.repo_initialized_at =
+              stagesObj.pipeline.project.git.repo_initialized_at || completedAtStr;
+          }
+          if (g.remote_url && init.ok) {
+            stagesObj.pipeline.project.git.remote_configured_at = completedAtStr;
+          }
         }
       }
       log.info('file_updated', '已从 config.dev.json 同步 pipeline.project.git', {

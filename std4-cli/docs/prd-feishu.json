@@ -1,0 +1,49 @@
+{
+  "client_target": "feishu",
+  "project_name": "Std4Cli",
+  "features": [
+    {
+      "feature_id": "FEISHU-BIDIR-001",
+      "name": "飞书桥双向集成（feishu-cursor-claw）",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "在 CLI 安装根目录以 sidecar 方式集成 feishu-cursor-claw：提供安装向导/Setup，生成本地 `<installRoot>/feishu-cursor-claw/.env`（不提交仓库）；由 CLI 或文档约定拉起 `bun run server.ts` 维持飞书 WebSocket；将流水线阶段进展与空闲心跳格式化上报至飞书会话；接收并解析飞书侧遥控指令（如 status、stop、切换 mode 等）并交由 CLI 编排层执行。",
+      "acceptance": [
+        "能够从官方模板或嵌入式资源复制 feishu-cursor-claw 至 `<installRoot>/feishu-cursor-claw`，并生成可被 Bun 读取的 `.env` 占位路径；文档明确 App ID/App Secret 等仅驻留本地、不得写入日志或上报正文。",
+        "在 Bun 与子依赖就绪时，`bun run server.ts` 可建立与飞书开放平台的长连接，断线后能自动重连或暴露可观测错误以供 CLI 处理。",
+        "CLI 在流水线 stage 切换或 heartbeat 时能向桥进程投递结构化事件；飞书端用户可读到阶段名、时间与简要状态摘要。",
+        "飞书消息中的约定指令可被解析并映射为 CLI 可查状态、安全停止当前项目或切换运行模式等行为；未知指令须有明确告警且不破坏主进程。",
+        "与 Dash 流水线 API 的职责边界清晰：飞书侧只承载人机交互与控制面，不向飞书明文同步 Dash Bearer、Cursor Key 等敏感字段。"
+      ],
+      "api_hints": ["https://open.feishu.cn/document/home/index（自建应用能力与事件订阅以官方文档为准）"],
+      "dependencies": []
+    },
+    {
+      "feature_id": "CLI-RETRY-NFR-001",
+      "name": "可靠性：指数退避与飞书发送异步解耦（飞书桥侧落实）",
+      "priority": "P1",
+      "phase": "standard",
+      "description": "在飞书桥与 CLI 交界实现与 prd-spec 一致的非功能要求：发往飞书的通知与指令回执走后端异步队列（或等效缓冲），不因短时网络或可逆错误阻塞 `run-pipeline` 主线；短暂失败遵循指数退避重试并可丢弃过载时的非关键告警（关键错误仍须可溯源）。",
+      "acceptance": [
+        "飞书消息发送路径与流水线主线程解耦：主路径在高峰期不因飞书 API 限流或短暂不可达而出现可感知的阻塞（可通过队列 Worker 度量验证）。",
+        "对同一通道的失败重试具备最大次数与抖动退避默认策略；达到上限时将失败记入本地结构化日志，日志中不出现 App Secret、User Access Token 等敏感串。",
+        "在无飞书或未配置 claw 的安装下，流水线仍可按降级策略运行或以明确退出码提示“仅本地模式”；不得因飞书不可用导致悬空子进程。"
+      ],
+      "api_hints": [],
+      "dependencies": ["FEISHU-BIDIR-001"]
+    }
+  ],
+  "deploy": {
+    "domain": "",
+    "service_type": "desktop_sidecar_feishu_bridge"
+  },
+  "auth": {
+    "type": "oauth2",
+    "notes": "飞书企业自建应用：App ID、App Secret 与租户范围事件由用户在本地 `.env` 配置；服务端以 OAuth2/OpenAPI 令牌模型访问开放平台，凭证不入库、不写 PRD/JSON。"
+  },
+  "constraints": [
+    "必须使用 feishu-cursor-claw 作为 WebSocket/Feishu 协议侧 car，不得在 CLI 内重复实现长连接与会话生命周期。",
+    "运行期依赖主机已安装 Bun 与可用的飞书开放平台网络；不得假设存在公网固定域名绑定本交付物（桌面 CLI）。",
+    "所有飞书载荷与 CLI 结构化日志必须符合 prd-spec：禁止记录或上报明文 API Key/Cursor Key/飞书 Secret。"
+  ]
+}

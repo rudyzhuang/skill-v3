@@ -1,0 +1,337 @@
+feature_id: PROJECT-DASH-001
+client_target: admin
+scenarios:
+  - id: PROJECT-DASH-001-SMOKE-001
+    title: 登录后从项目列表进入流水线看板
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表中某一行的查看看板链接或按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects/"
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 项目流水线看板页标题或看板主容器
+
+  - id: PROJECT-DASH-001-HAPPY-001
+    title: 看板展示阶段表、feature 区、当前 stage、阻塞摘要与日志 tail
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表中某一行的查看看板链接或按钮
+      - action: wait
+        timeout_ms: 4000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 当前 stage 或当前阶段横幅区域（含 last_completed_stage 或 synced_at）
+      - type: element_present
+        selector_hint: 流水线阶段表或阶段列表表格
+      - type: element_present
+        selector_hint: 阶段表中的阶段标识或名称列
+      - type: element_present
+        selector_hint: 阶段表中的阶段状态列
+      - type: element_present
+        selector_hint: feature 流水线进度区或 feature 列表
+      - type: element_present
+        selector_hint: feature 列表中的 feature_id 或功能标识列
+      - type: element_present
+        selector_hint: 阻塞摘要列表区域
+      - type: element_present
+        selector_hint: 最近日志 tail 只读展示区域
+
+  - id: PROJECT-DASH-001-EMPTY-001
+    title: 无流水线快照时各区块展示友好空态且不含敏感信息
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 尚未同步流水线或暂无快照的项目行的查看看板链接
+      - action: wait
+        timeout_ms: 4000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/dashboard"
+      - type: text_present
+        value: "未同步"
+      - type: element_present
+        selector_hint: 阶段表或 feature 区的空态提示而非错误堆栈
+      - type: text_absent
+        value: "config.env"
+      - type: text_absent
+        value: "ADMIN_PASSWORD"
+      - type: text_absent
+        value: "/Users/"
+
+  - id: PROJECT-DASH-001-BLOCK-001
+    title: 无阻塞时阻塞摘要展示「无阻塞」
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表中已同步且无阻塞项目的查看看板链接
+      - action: wait
+        timeout_ms: 4000
+      - action: snapshot
+    expect:
+      - type: text_present
+        value: "无阻塞"
+      - type: element_present
+        selector_hint: 阻塞摘要列表区域
+
+  - id: PROJECT-DASH-001-NAV-001
+    title: 项目列表「查看看板」新开标签且 URL 含 projectId
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表表格中第一行的查看看板链接
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/projects/"
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 项目流水线看板页标题或看板主容器
+
+  - id: PROJECT-DASH-001-GUARD-001
+    title: 未登录访问受保护看板路由重定向至登录页
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/projects/00000000-0000-4000-8000-000000000001/dashboard"
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 登录按钮
+
+  - id: PROJECT-DASH-001-ERROR-001
+    title: 未知项目 ID 看板展示明确错误反馈
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/projects/00000000-0000-4000-8000-000000009999/dashboard"
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+    expect:
+      - type: text_present
+        value: "项目"
+      - type: text_present
+        value: "不存在"
+      - type: text_absent
+        value: "未捕获异常"
+      - type: text_absent
+        value: "Uncaught"
+
+  - id: PROJECT-DASH-001-LOAD-001
+    title: 看板加载过程有反馈且完成后展示主内容区
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表中某一行的查看看板链接或按钮
+      - action: wait
+        timeout_ms: 500
+      - action: snapshot
+      - action: wait
+        timeout_ms: 4000
+    expect:
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 当前 stage 或当前阶段横幅区域
+      - type: element_present
+        selector_hint: 流水线阶段表或阶段列表表格
+      - type: text_absent
+        value: "未捕获异常"
+
+  - id: PROJECT-DASH-001-LOG-001
+    title: 看板日志 tail 区域可展示且页面无服务端 5xx 错误提示
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表中已有流水线数据的项目的查看看板链接
+      - action: wait
+        timeout_ms: 4000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 最近日志 tail 只读展示区域
+      - type: text_absent
+        value: "500"
+      - type: text_absent
+        value: "Internal Server Error"
+
+  - id: PROJECT-DASH-001-API-001
+    title: 看板 pipeline 接口失败时展示可读错误反馈且不白屏
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 项目列表中某一行的查看看板链接或按钮
+      - action: wait
+        timeout_ms: 5000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/dashboard"
+      - type: element_present
+        selector_hint: 看板加载失败错误提示或重试按钮区域
+      - type: text_absent
+        value: "未捕获异常"
+      - type: text_absent
+        value: "Uncaught"
+      - type: text_absent
+        value: "白屏"

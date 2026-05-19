@@ -1,0 +1,173 @@
+feature_id: AUTH-LOGIN-001
+client_target: admin
+scenarios:
+  - id: AUTH-LOGIN-001-SMOKE-001
+    title: 管理端登录页可访问
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 邮箱或用户名输入框
+      - type: element_present
+        selector_hint: 密码输入框
+      - type: element_present
+        selector_hint: 登录按钮
+      - type: text_absent
+        value: "默认账号"
+      - type: text_absent
+        value: "ADMIN_PASSWORD"
+      - type: text_absent
+        value: "ADMIN_EMAIL"
+
+  - id: AUTH-LOGIN-001-HAPPY-001
+    title: 凭据正确登录成功并进入项目列表
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+    expect:
+      - type: url_contains
+        value: "/"
+      - type: element_present
+        selector_hint: 项目列表区域
+      - type: element_present
+        selector_hint: 顶栏账户区
+
+  - id: AUTH-LOGIN-001-ERROR-001
+    title: 错误凭据展示通用错误且不含敏感提示
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "wrong-password-not-in-env"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: text_present
+        value: "邮箱或密码"
+      - type: text_absent
+        value: "默认账号"
+      - type: text_absent
+        value: "ADMIN_PASSWORD"
+
+  - id: AUTH-LOGIN-001-LOGOUT-001
+    title: 顶栏退出登录后回到登录页
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: click
+        selector_hint: 顶栏退出登录按钮
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 登录按钮
+
+  - id: AUTH-LOGIN-001-GUARD-001
+    title: 未登录访问受保护路由重定向至登录页
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 登录按钮
+
+  - id: AUTH-LOGIN-001-PERSIST-001
+    title: 登录后刷新仍保持会话直至登出
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/"
+      - type: element_absent
+        selector_hint: 登录按钮
+      - type: element_present
+        selector_hint: 顶栏账户区
+
+  - id: AUTH-LOGIN-001-SESSION-001
+    title: 登出后会话失效无法访问受保护页面
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: click
+        selector_hint: 顶栏退出登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/"
+      - action: wait
+        timeout_ms: 2000
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 登录按钮

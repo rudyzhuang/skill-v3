@@ -1,0 +1,93 @@
+{
+  "feature_id": "PROJECT-LIST-001",
+  "client_target": "backend",
+  "client_targets": ["admin", "backend"],
+  "title": "项目列表与状态",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/backend/migrations/0002_projects.sql",
+        "role": "D1 迁移：projects 表及 status、updated_at 索引（schema 与 Open API / 创建 feature 共用）"
+      },
+      {
+        "path": "src/backend/src/services/projects-list.ts",
+        "role": "已登记项目列表查询：筛选、排序、空列表与状态枚举映射"
+      },
+      {
+        "path": "src/backend/src/routes/projects.ts",
+        "role": "GET /api/projects 管理端列表路由（require-session）"
+      },
+      {
+        "path": "src/backend/src/types/project-summary.ts",
+        "role": "列表项 DTO：id、name_zh、name_en、status、client_targets、pipeline_summary、updated_at"
+      },
+      {
+        "path": "src/backend/tests/projects-list.test.ts",
+        "role": "列表 200/401、空数组、status/q 筛选与排序行为测试"
+      },
+      {
+        "path": "src/admin/src/api/projects.ts",
+        "role": "GET /api/projects 调用封装（credentials include）"
+      },
+      {
+        "path": "src/admin/src/pages/ProjectListPage.tsx",
+        "role": "项目列表页：表格、空态、加载/错误态、筛选与「新建项目」入口"
+      },
+      {
+        "path": "src/admin/src/components/ProjectListTable.tsx",
+        "role": "列表表格：名称、状态徽章、更新时间、查看看板（新标签页）"
+      },
+      {
+        "path": "src/admin/src/components/ProjectStatusBadge.tsx",
+        "role": "登记/流水线状态展示组件（与 backend status 枚举一致）"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/backend/src/index.ts",
+        "role": "挂载 /api/projects 路由并套用 require-session 中间件"
+      },
+      {
+        "path": "src/backend/src/db/schema.ts",
+        "role": "补充 projects 表类型与查询辅助"
+      },
+      {
+        "path": "src/admin/src/App.tsx",
+        "role": "受保护路由 / 与 /projects 指向 ProjectListPage；登录后默认落点与列表一致"
+      },
+      {
+        "path": "src/admin/src/components/AppHeader.tsx",
+        "role": "顶栏增加「项目列表」导航高亮（可选）"
+      }
+    ]
+  },
+  "api_outline": [
+    {
+      "method": "GET",
+      "path": "/api/projects",
+      "summary": "有效 Session 下返回已登记项目列表摘要（id、中英文名称、status、client_targets、pipeline_summary、updated_at）；支持 status、q 筛选与 sort 排序；无项目时 items=[]"
+    }
+  ],
+  "data_outline": "projects(id TEXT PK, name_zh TEXT NOT NULL, name_en TEXT NOT NULL, description TEXT, client_targets TEXT JSON NOT NULL, status TEXT NOT NULL DEFAULT 'active', is_new INTEGER DEFAULT 0, pipeline_summary TEXT, root_path TEXT, created_at TEXT, updated_at TEXT); status 枚举固定为 active|blocked|completed|unknown；pipeline_summary 为可空短文本（当前 stage/阻塞摘要，由后续流水线上报或看板同步写入，列表期可为 null）；列表默认 ORDER BY updated_at DESC",
+  "acceptance": [
+    "GET /api/projects 在有效 Session 下返回 200，body 为 { items: [{ id, name_zh, name_en, status, client_targets, pipeline_summary, updated_at }] }；无项目时 items=[] 且非 5xx；无 Session 或会话失效返回 401",
+    "GET /api/projects 支持 query 参数 status（枚举 active|blocked|completed|unknown）、q（中英文名称模糊匹配至少一生效）、sort（至少支持 updated_at_desc，默认 updated_at DESC）",
+    "admin 在 / 与 /projects 展示项目列表：含项目名称（中/英或主显名）、状态徽章（与 backend status 及 pipeline_summary 一致）；空列表显示明确空态文案；请求中展示加载态，失败展示可读错误且不白屏",
+    "列表每行提供「查看看板」或等效操作，使用 target=_blank 打开 /projects/:projectId/dashboard（projectId 为 backend 返回的 id）",
+    "列表页提供跳转「新建项目」入口（链至 /projects/new，由 PROJECT-CREATE-001 实现表单）；operator/admin/super_admin 均可访问列表，写操作权限不在本 feature 范围"
+  ],
+  "constraints": [
+    "管理端列表 API 路径为 GET /api/*，须复用 AUTH-LOGIN-001 的 require-session 中间件；Open API /api/v1/* 本 feature 不实现",
+    "端代码仅落在 src/admin/ 与 src/backend/；projects 表 schema 与 PROJECT-CREATE-001、BACKEND-API-QUERY-001 共用，status 枚举须一致",
+    "列表为只读；不在响应、日志或前端硬编码 config.env 中的密钥与默认密码",
+    "pipeline_summary 暂缺或流水线上报未到时返回 null 或占位「—」，接口仍 200，不因 .pipeline/stages.json 未同步而 5xx",
+    "须兼容 ai-std4 目录约定；登录后默认进入项目列表（/ 或 /projects），与 AUTH-LOGIN-001 登录成功跳转一致"
+  ],
+  "dependencies": ["AUTH-LOGIN-001"],
+  "risks": [
+    "projects 表若由 PROJECT-CREATE-001 或 BACKEND-API-PIPELINE-001 另起 migration 且字段不一致，会导致列表与 Open API 查询分叉，实现前须合并为单一 0002_projects（或等价）迁移",
+    "pipeline_summary 依赖后续流水线上报或 PROJECT-DASH-001 快照同步策略；MVP 列表可能长期仅显示登记 status，需在 UI 区分「登记状态」与「流水线摘要」避免误解",
+    "operator 与 admin 角色边界：本 feature 仅保证列表可读；若误将 POST /api/projects 暴露给 operator，属 PROJECT-CREATE-001 鉴权范围，列表页「新建」按钮应对 operator 隐藏或禁用"
+  ]
+}

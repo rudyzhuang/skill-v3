@@ -1,0 +1,311 @@
+feature_id: AUTH-USER-001
+client_target: admin
+scenarios:
+  - id: AUTH-USER-001-SMOKE-001
+    title: 管理员登录后可进入用户管理页
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/users"
+      - type: text_present
+        value: "用户管理"
+      - type: element_present
+        selector_hint: 顶栏用户管理导航入口
+
+  - id: AUTH-USER-001-HAPPY-001
+    title: 用户列表展示邮箱、角色、状态与创建时间
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: element_present
+        selector_hint: 用户列表表格
+      - type: text_present
+        value: "邮箱"
+      - type: text_present
+        value: "角色"
+      - type: text_present
+        value: "状态"
+      - type: text_present
+        value: "创建时间"
+      - type: element_absent
+        selector_hint: 密码列或明文密码字段
+      - type: text_absent
+        value: "password_hash"
+
+  - id: AUTH-USER-001-HAPPY-002
+    title: 创建用户成功后列表刷新且新用户可登录
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: click
+        selector_hint: 创建用户按钮
+      - action: type
+        selector_hint: 创建用户弹窗中的邮箱输入框
+        value: "e2e-new-operator@example.com"
+      - action: type
+        selector_hint: 创建用户弹窗中的初始密码输入框
+        value: "E2eTestPass123!"
+      - action: select
+        selector_hint: 创建用户弹窗中的角色下拉框
+        value: "operator"
+      - action: click
+        selector_hint: 创建用户弹窗中的确认或提交按钮
+      - action: wait
+        timeout_ms: 3000
+      - action: snapshot
+      - action: click
+        selector_hint: 顶栏退出登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "e2e-new-operator@example.com"
+      - action: type
+        selector_hint: 密码输入框
+        value: "E2eTestPass123!"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 3000
+    expect:
+      - type: text_present
+        value: "e2e-new-operator@example.com"
+      - type: text_absent
+        value: "E2eTestPass123!"
+      - type: url_contains
+        value: "/"
+      - type: element_present
+        selector_hint: 项目列表区域
+
+  - id: AUTH-USER-001-HAPPY-003
+    title: 管理员可更新非引导用户的角色或状态
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 非引导用户行中的编辑或操作按钮
+      - action: select
+        selector_hint: 状态或角色选择控件
+        value: "disabled"
+      - action: click
+        selector_hint: 保存或确认按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: text_present
+        value: "disabled"
+      - type: text_absent
+        value: "password_hash"
+
+  - id: AUTH-USER-001-GUARD-001
+    title: 未登录访问用户管理页重定向至登录
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/users"
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: url_contains
+        value: "/login"
+      - type: element_present
+        selector_hint: 登录按钮
+      - type: text_absent
+        value: "用户管理"
+
+  - id: AUTH-USER-001-EDGE-001
+    title: 重复邮箱创建用户时展示冲突提示
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: click
+        selector_hint: 创建用户按钮
+      - action: type
+        selector_hint: 创建用户弹窗中的邮箱输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 创建用户弹窗中的初始密码输入框
+        value: "DuplicatePass123!"
+      - action: click
+        selector_hint: 创建用户弹窗中的确认或提交按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: text_present
+        value: "重复"
+      - type: text_absent
+        value: "DuplicatePass123!"
+      - type: url_contains
+        value: "/users"
+
+  - id: AUTH-USER-001-EDGE-002
+    title: 引导默认管理员不可禁用、降级且无删除入口
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: wait
+        timeout_ms: 2000
+      - action: click
+        selector_hint: 引导默认管理员所在行的编辑或操作按钮
+      - action: snapshot
+    expect:
+      - type: element_absent
+        selector_hint: 删除用户按钮
+      - type: element_absent
+        selector_hint: 将状态设为禁用的选项
+      - type: element_absent
+        selector_hint: 将角色降为 operator 的选项
+
+  - id: AUTH-USER-001-NEG-001
+    title: operator 角色无法访问用户管理页
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "e2e-new-operator@example.com"
+      - action: type
+        selector_hint: 密码输入框
+        value: "E2eTestPass123!"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: wait
+        timeout_ms: 2000
+      - action: snapshot
+    expect:
+      - type: text_absent
+        value: "用户管理"
+      - type: text_present
+        value: "无权限"
+      - type: url_contains
+        value: "/"
+
+  - id: AUTH-USER-001-NEG-002
+    title: 用户管理界面不展示任何明文密码或环境默认凭据
+    platform: web
+    steps:
+      - action: navigate
+        url: "{base_url}/login"
+      - action: type
+        selector_hint: 邮箱或用户名输入框
+        value: "{test_user}"
+      - action: type
+        selector_hint: 密码输入框
+        value: "{test_password}"
+      - action: click
+        selector_hint: 登录按钮
+      - action: wait
+        timeout_ms: 2000
+      - action: navigate
+        url: "{base_url}/users"
+      - action: click
+        selector_hint: 创建用户按钮
+      - action: snapshot
+    expect:
+      - type: element_absent
+        selector_hint: 列表或详情中的密码明文列
+      - type: element_absent
+        selector_hint: 显示 password_hash 或环境变量默认密码的字段
+      - type: text_absent
+        value: "ADMIN_PASSWORD"
+      - type: text_absent
+        value: "ADMIN_EMAIL"
+      - type: text_absent
+        value: "默认账号"

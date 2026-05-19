@@ -1,0 +1,76 @@
+{
+  "feature_id": "FEISHU-BIDIR-001",
+  "client_target": "cli",
+  "client_targets": ["cli", "feishu"],
+  "title": "集成 feishu-cursor-claw：安装、启动、上报与指令解析",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/feishu/claw-setup.ts",
+        "role": "安装向导/Setup：校验本机 Bun 与安装根；从嵌入式资源或官方模板将 feishu-cursor-claw 物化到 `<installRoot>/feishu-cursor-claw`；按模板生成仅本地的 `<installRoot>/feishu-cursor-claw/.env`（含 App ID/Secret 等占位与说明），确保路径与权限符合 prd-spec 且该目录不进 git"
+      },
+      {
+        "path": "src/cli/feishu/claw-process.ts",
+        "role": "Sidecar 子进程管理：在安装根下 `bun run server.ts` 启动/停止/重启 bridge；采集 stdout/stderr 到结构化日志（脱敏）；子进程异常退出时写入可诊断事件并可按策略有限次自动拉起；与 CLI 主生命周期协同避免悬空进程"
+      },
+      {
+        "path": "src/cli/feishu/claw-transport.ts",
+        "role": "与 feishu-cursor-claw 约定的 IPC/本地信道（stdin 行协议、Unix/命名管道或 HTTP loopback，以实现仓库最终选中方案为准）：发送待投递飞书的结构化事件；接收 bridge 解析后的遥控指令原文或规范化 envelope，超时与背压策略不阻塞 run-pipeline 主线程"
+      },
+      {
+        "path": "src/cli/feishu/command-router.ts",
+        "role": "将 inbound 指令映射为 CLI 编排动作：`status` 触发当前会话/项目/阶段摘要回执；`stop` 请求安全取消当前 run-pipeline 或清空队列（与 Query 模式约定一致）；`mode`/`切换 mode` 切换 Query/Create 或文档化运行档位；未知指令记录告警并回执简短帮助且不抛未捕获异常"
+      },
+      {
+        "path": "src/cli/feishu/stage-reporter.ts",
+        "role": "订阅 CLI-DASH-PIPELINE-001 或 `.pipeline/stages.json` 监听层产出的 stage 快照（去抖）：格式化为飞书可读摘要（阶段名、status、时间、截断 log 片段）经 claw-transport 异步投递；与 Dash 上报路径解耦，失败不阻塞流水线"
+      },
+      {
+        "path": "src/cli/feishu/idle-heartbeat.ts",
+        "role": "在 Query 空闲或无项目执行窗口，按配置间隔向 bridge 发送轻量 heartbeat 事件，使飞书侧可观测实例存活；频率默认保守，可配置"
+      },
+      {
+        "path": "src/feishu/contracts/bridge-events.ts",
+        "role": "CLI → bridge 出站事件 JSON 形状（如 stage_update、heartbeat、bridge_log_meta）与版本字段；供 TypeScript 编译期对齐，不含任何密钥默认值"
+      },
+      {
+        "path": "src/feishu/contracts/remote-commands.ts",
+        "role": "bridge → CLI 遥控指令规范化类型（command、args、raw_text、correlation_id）；与 command-router 分支一致，便于单测与文档对照"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/cli/cli-entry.ts",
+        "role": "挂载 `setup-feishu`/`feishu` 相关子命令或全局 `--feishu-*` 开关（与产品命名一致）；装载飞书桥启用标志与 installRoot；在进程退出路径上注册 claw-process 的优雅关停"
+      },
+      {
+        "path": "src/cli/runtime/pipeline-dash-reporter.ts",
+        "role": "若存在：在阶段变更回调点挂接 stage-reporter（可选 feature flag），避免双重 fs.watch；明确与仅 Dash 上报时的互斥/组合策略"
+      }
+    ]
+  },
+  "api_outline": [],
+  "acceptance": [
+    "在一台仅预装 git、Bun、Node 18+ 与 Cursor Agent CLI 的干净环境执行飞书 Setup 后，磁盘路径 `<installRoot>/feishu-cursor-claw/.env` 存在且内容可被 `bun` 进程读取，仓库内无该文件提交记录；stdout/文件日志与任意调试输出中不出现 `APP_SECRET`、完整飞书 tenant token 或其它密钥明文。",
+    "配置有效飞书自建应用凭据并完成依赖安装后，启动 CLI 发起的 `bun run server.ts` 子进程在日志中呈现连接建立或 bridge 就绪信号；人为 kill bridge 进程后，CLI 日志含非空退出码或错误分类，且在未禁用自动恢复策略时可在约定次数内观测到重启尝试。",
+    "当业务项目 `.pipeline/stages.json` 中任一 stage 的 `status` 或 `pipeline.current_stage` 发生变更时，在配置启用飞书桥且链路可用的情况下，飞书会话中出现包含该阶段名称与新旧状态摘要的消息（允许与 CLI-DASH-PIPELINE-001 上报存在固定延迟但须在文档化去抖窗口内）。",
+    "在飞书会话发送约定文本指令（至少覆盖文档化的 `status`、`stop`、一种 `mode` 切换用语）时，CLI 侧日志或遥测中可检索到对应 command-router 分支处理记录；`status` 产生与大纲一致的结构化回执，`stop` 触发与当前运行模式一致的取消/停止信号且主进程不崩溃，`mode` 切换后下一轮主循环行为符合新模式；未知指令产生告警且不中断正在执行的 run-pipeline。",
+    "在飞书 API 短暂不可达或 bridge 出站堵塞时，run-pipeline 子进程仍能在同期完成或由用户按约定方式停止；验证手段为在注入故障场景下对比开启/关闭异步/队列策略时的 wall-time 阻塞阈值（默认实现下主线程不因单条飞书发送阻塞超过文档化毫秒上限）。"
+  ],
+  "constraints": [
+    "必须使用 feishu-cursor-claw 作为 WebSocket/飞书协议侧 car；禁止在 CLI 内重复实现开放平台长连接与会话生命周期",
+    "`<installRoot>/feishu-cursor-claw/.env` 与同级 `projects.json`（若 claw 需要）仅存本地；禁止写入仓库、PRD JSON 或契约五件套",
+    "所有日志、上报体与异常 message 禁止包含 App Secret、User Access Token、Dash Bearer、Cursor Key 明文",
+    "bridge 启动与 IPC 路径在 macOS 与 Windows 上一致可用；路径拼接通过 path/join 或等价抽象",
+    "与 CLI-DASH-PIPELINE-001 集成时阶段数据源以单一监听源为准，避免重复 watch；飞书投递须异步于 Dash PUT"
+  ],
+  "dependencies": [],
+  "risks": [
+    "feishu-cursor-claw 上游协议或目录布局变更导致 IPC/启动参数失效，需版本锁定或兼容探测",
+    "用户环境缺少 Bun 或与 claw 要求版本不一致时 Setup 失败；需前置检测与可读安装文档",
+    "飞书开放平台限流/断线重连策略与 CLI 心跳频率若未协调可能导致消息积压；需与 CLI-RETRY-NFR-001 后续对齐",
+    "`stop` 与安全取消 run-pipeline 的语义若与 ai-std4 子进程信号约定不一致，可能出现僵尸进程或部分写入；需与 CLI-MODE-QUERY-001 spawn 层联合验收",
+    "多实例 CLI 共用同一机器人时会话路由混淆；需文档化 projects.json/会话绑定策略"
+  ]
+}

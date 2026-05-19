@@ -24,7 +24,7 @@ Std4Cli
 
 1. 在**桌面端**运行，**headless**（无图形界面），支持 **macOS** 与 **Windows**。
 2. 以单一可执行入口（如 `std4-cli` 或 `npx std4-cli`）提供子命令；Dash / 飞书等 **CLI 自有** 配置可放在 `~/.std4-cli/config.env`；**std4 流水线凭据**以内置 `bundled/std4-config.env` 为准（可由用户覆盖路径，但默认使用内置副本）。
-3. 依赖本机已安装 **Node.js 18+**、**git**（构建阶段拉取 skill 仓库）及 `vendor/ai-std4` 内 **`npm install` 产物**；飞书集成时另需 feishu-cursor-claw 桥接能力。**不要求**用户机器预装 ai-std4 skill 或本地 skills 仓。
+3. 依赖本机已安装 **Node.js 18+**、**git**、**Bun**（飞书桥接）、**Cursor Agent CLI**（`agent`）及 `vendor/ai-std4` 内 **`npm install` 产物**；飞书集成须按 §4.1 安装 feishu-cursor-claw。**不要求**用户机器预装 ai-std4 skill 或本地 skills 仓。
 
 ### 2. 命令行与两种工作模式
 
@@ -75,7 +75,40 @@ Std4Cli
 
 ### 4. 飞书双向通信（feishu-cursor-claw）
 
-CLI 启动后集成 **[feishu-cursor-claw](https://github.com/nongjun/feishu-cursor-claw.git)**（可 vendoring 子模块、sidecar 进程或库级调用，以实现为准），实现与飞书机器人的**双向**通信：
+CLI 启动后集成 **[feishu-cursor-claw](https://github.com/nongjun/feishu-cursor-claw.git)**（sidecar 进程：与本机 `bun run server.ts` 长连接桥接），实现与飞书机器人的**双向**通信。
+
+#### 4.1 feishu-cursor-claw 安装与启动（固定步骤）
+
+安装根目录记为 `<installRoot>`（由 CLI 安装器创建，如 `~/.std4-cli/` 或用户指定路径）。目录布局：
+
+```
+<installRoot>/
+  projects.json              ← 来自 std4-cli/inputs/projects.json（与 claw 同级）
+  feishu-cursor-claw/        ← git clone 目标
+    .env                     ← 来自 std4-cli/inputs/.env
+    server.ts
+    ...
+```
+
+| 步骤 | 操作 |
+| --- | --- |
+| **1. 安装 Bun** | `curl -fsSL https://bun.sh/install \| bash`，确保 `bun` 在 PATH 中（feishu-cursor-claw 运行时依赖）。 |
+| **2. 克隆中继** | `git clone https://github.com/nongjun/feishu-cursor-claw.git <installRoot>/feishu-cursor-claw`，并在该目录执行 `bun install`。 |
+| **3. 复制飞书/Cursor 环境** | 将本仓 **`inputs/.env`**（模板含 `CURSOR_API_KEY`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`CURSOR_MODEL` 等）复制为 `<installRoot>/feishu-cursor-claw/.env`（覆盖仓库内 `.env.example` 占位）。**勿将 `.env` 提交 git。** |
+| **4. 复制项目路由** | 将本仓 **`inputs/projects.json`** 复制到 **`<installRoot>/projects.json`**（即 `feishu-cursor-claw` 的**上一层**）。按本机路径修改其中两个 `path`：<br>• `projects.skills.path` → 本机 Cursor skills 或 std4 业务工作区根（如 `/Users/<user>/.cursor/skills` 或 CLI 的 `projects/` 根）；<br>• `projects.claw.path` → `<installRoot>/feishu-cursor-claw` 的绝对路径。<br>飞书发消息可用 `skills: 指令` 或 `claw: 指令` 路由（见 `default_project`）。 |
+| **5. 安装 Cursor Agent CLI** | 安装 **cursor-agent**（`agent` 命令），供 feishu-cursor-claw 调用本地 Cursor。须**按当前 OS/架构自动选择**安装包：从 [Cursor 下载页](https://cursor.com/cn/download) 获取对应版本（macOS ARM64/x64/Universal、Windows x64/ARM64 等）；CLI 安装器实现时检测 `process.platform` / `arch` 并下载安装，或文档引导用户安装后校验 `agent --version`。 |
+| **6. 启动桥接** | `cd <installRoot>/feishu-cursor-claw && bun run server.ts`；控制台出现「飞书长连接已启动，等待消息…」即就绪。生产环境可配合 feishu-cursor-claw 自带的 `service.sh install`（macOS launchd）或 std4-cli 守护进程托管该子进程。 |
+
+**配置模板（本仓维护，安装时复制）：**
+
+| 源文件 | 目标 |
+| --- | --- |
+| `std4-cli/inputs/.env` | `<installRoot>/feishu-cursor-claw/.env` |
+| `std4-cli/inputs/projects.json` | `<installRoot>/projects.json`（需改 `path`） |
+
+实现阶段：std4-cli 可提供 `std4-cli setup-feishu`（或安装向导）自动执行步骤 1–6；`create` / `query` 启动前检测桥接进程，未运行则拉起 `bun run server.ts`。
+
+#### 4.2 运行时行为
 
 **CLI → 飞书（上报）：**
 
@@ -99,7 +132,7 @@ CLI 启动后集成 **[feishu-cursor-claw](https://github.com/nongjun/feishu-cur
 ## 非功能需求
 
 - **可靠性**：Dash API 或网络短暂失败时指数退避重试；飞书发送失败不阻塞流水线主路径（异步队列 + 重试）。
-- **安全**：API Key、飞书 Secret、Cursor Key 不得写入日志或上报载荷；含密钥的 `inputs/config.env` / `bundled/std4-config.env` **不进 git**（构建时由 CI 或本地加密注入）；分发安装包时对内置 config 做权限限制（仅当前用户可读）。
+- **安全**：API Key、飞书 Secret、Cursor Key 不得写入日志或上报载荷；含密钥的 `inputs/config.env`、`inputs/.env`、`bundled/std4-config.env` **不进 git**（仅提供 `.env.example` 或安装时复制）；分发安装包时对内置 config 做权限限制（仅当前用户可读）。
 - **资源**：单项目流水线占用符合 ai-std4 既有约束；query 空闲心跳时 CPU/内存占用可忽略级。
 - **可移植性**：macOS / Windows 路径、换行、子进程 spawn 行为一致；不依赖 macOS 专属 launchd（Windows 可用任务计划或前台常驻）。
 
@@ -125,7 +158,8 @@ CLI 启动后集成 **[feishu-cursor-claw](https://github.com/nongjun/feishu-cur
 - 实现语言建议：**TypeScript**（Node.js 18+），便于编排子进程与 feishu-cursor-claw 生态。
 - **ai-std4 以 vendor 方式内置**：构建时从 **GitHub `rudyzhuang/skill-v3`**（路径 `ai-std4/`）拉取，**禁止**依赖本机 `~/.cursor/skills` 或相对路径 `../ai-std4` 同步；须调用其 `scripts/*.cjs`，不 fork 流水线逻辑。拆仓后仅改 `STD4_SKILL_REPO` 等配置指向新 std4 仓库。
 - **内置 config**：`inputs/config.env` 为运维源文件；发布前生成 `bundled/std4-config.env` 并打入安装包。
-- feishu-cursor-claw 以**依赖或子进程**方式集成，避免重复实现飞书 WebSocket 协议；扩展点集中在「将 std4 事件映射为飞书消息」与「将飞书指令路由到 CLI 命令处理器」。
+- feishu-cursor-claw 以 **sidecar 子进程**（`bun run server.ts`）集成，安装步骤见 §4.1；避免重复实现飞书 WebSocket 协议。扩展点：将 std4 事件映射为飞书消息、将飞书指令路由到 CLI。
+- **Cursor Agent CLI**：安装包或安装向导须支持按 OS/架构从 [cursor.com/cn/download](https://cursor.com/cn/download) 选择对应构建（与 §4.1 步骤 5 一致）。
 - 打包：macOS / Windows 安装包须包含 `vendor/ai-std4/`（含 node_modules）与 `bundled/std4-config.env`；可选用预编译 CLI 外壳 + 资源目录布局。
 
 ## 其他说明

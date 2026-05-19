@@ -12,7 +12,9 @@ skills-lock.json
 .cursor/
 */node_modules/
 
-dash-std4/.pipeline/
-dash-std4/logs/
-dash-std4/node_modules/
-dash-std4/.agent-sessions/
+*/.pipeline/
+*/logs/
+*/node_modules/
+*/.agent-sessions/
+# 业务项目独立 git（父仓内嵌套 init，勿提交子项目 .git）
+*/.git

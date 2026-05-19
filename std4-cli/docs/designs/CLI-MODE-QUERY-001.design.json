@@ -1,0 +1,78 @@
+{
+  "feature_id": "CLI-MODE-QUERY-001",
+  "client_target": "cli",
+  "client_targets": ["cli", "dash"],
+  "title": "Query 模式：轮询 Dash 待开发项目、本地 materialize 并串行执行 ai-std4 全量流水线",
+  "phase": "mvp",
+  "file_plan": {
+    "new_files": [
+      {
+        "path": "src/cli/query/query-command.ts",
+        "role": "注册 query 子命令：读取轮询间隔、工作区根路径、Dash Base URL 与 Bearer 配置；解析 SIGINT/优雅停止与可选守护/前台运行约定；导出主循环入口。"
+      },
+      {
+        "path": "src/cli/query/poll-loop.ts",
+        "role": "主事件循环：定时调用 Dash 待开发项目列表；队列非空时串行 dequeue；无任务时按配置触发空闲心跳；同一时刻最多一个 run-pipeline 子进程活跃。"
+      },
+      {
+        "path": "src/cli/query/dash-materialize.ts",
+        "role": "将 Open API 响应项映射为本地目录：克隆/检出或复制元数据至约定工作区布局，供后续 CLI-CONFIG-INJECT-001 与 spawn 共用；错误可诊断且不打印 token。"
+      },
+      {
+        "path": "src/cli/query/spawn-run-pipeline.ts",
+        "role": "在安装根设置 CURSOR_SKILLS_ROOT（含 vendor 路径语义，与 CLI-VENDOR-STD4-001 对齐）后 spawn ai-std4 run-pipeline 入口；继承/隔离环境变量与跨平台 argv；汇聚子进程退出码到 CLI 策略。"
+      },
+      {
+        "path": "src/dash/open-api/list-pending-projects.ts",
+        "role": "封装 GET 待开发项目队列：Bearer 鉴头、超时、解析列表体与 materialize 必填字段校验；空列表与 2xx 可预期行为。"
+      },
+      {
+        "path": "src/dash/open-api/post-idle-heartbeat.ts",
+        "role": "封装空闲保活请求（路径/动词以 dash-std4 OpenAPI 为准）：低负载 noop 或 worker 心跳；失败记录可重试分类但不阻塞进程退出策略（与当期 NFR 默认值一致）。"
+      }
+    ],
+    "modify_files": [
+      {
+        "path": "src/cli/cli-entry.ts",
+        "role": "挂载 query 子命令与全局配置装载（如 ~/.std4-cli/config.env 中的 DASH_STD4_API_KEY）；与 CLI-OBS-LOG-001 日志/退出码约定衔接。"
+      },
+      {
+        "path": "src/cli/workflows/project-materialize.ts",
+        "role": "在 Query 拉取路径复用或编排 materialize：在 spawn run-pipeline 之前完成目录就绪，并确保与 CLI-CONFIG-INJECT-001 的注入调用顺序固定。"
+      }
+    ]
+  },
+  "api_outline": [
+    {
+      "method": "GET",
+      "path": "/open-api/v1/projects/pending",
+      "summary": "返回待开发/待拉取项目列表；每项包含 CLI 本地 materialize 所需字段（稳定 project id、仓库与 ref/分支、目标工作区提示等）；无排队项时返回 200 与空数组，非 5xx。"
+    },
+    {
+      "method": "POST",
+      "path": "/open-api/v1/cli/heartbeat",
+      "summary": "Query 空闲或无任务时发送 worker/CLI 实例保活；鉴权与速率限制与通用 Dash Open API 一致；具体频率上限以服务端文档为准。"
+    }
+  ],
+  "acceptance": [
+    "启动 query 子命令后，日志或可追溯输出中周期性出现对 GET 待开发列表的成功调用记录（含 HTTP 状态或等价字段），且在收到停止信号或进程退出时主循环在约定超时内结束、无僵尸子进程残留。",
+    "当 GET 返回至少一条待处理项时，本地工作区出现与该条字段一致的目录与仓库状态（可校验的 project id 路径或 .git HEAD），且随后有一次指向 vendor 内 run-pipeline 入口的子进程创建记录，环境含 CURSOR_SKILLS_ROOT（或文档等价变量）且其值指向当前 CLI 安装根下的 vendor/ 约定路径。",
+    "在连续多条待处理项存在时，观测到 run-pipeline 子进程起止时间戳互不重叠（串行），而非并行多个项目根同时执行。",
+    "在 GET 连续返回空列表的窗口内，仍按配置间隔观测到对 POST 心跳（或文档命名的保活路径）的成功调用；间隔与 dash-std4 文档上限一致或低于上限；401/403 时进程行为与 CLI 退出/重试策略文档一致且不泄露 Bearer 明文。",
+    "stdout、文件日志与错误详情中不出现 DASH_STD4_API_KEY、Authorization 头值或完整 curl 再现形式的密钥片段。"
+  ],
+  "constraints": [
+    "Dash Base URL 与路径前缀来自本地配置，仓库内不写死生产域名；仅 HTTPS。",
+    "Authorization: Bearer 仅从本地配置读取；禁止写入日志、上报体或异常 message。",
+    "ai-std4 必须通过包内 vendor 与 CURSOR_SKILLS_ROOT 编排调用，禁止运行期依赖 ~/.cursor/skills。",
+    "轮询与心跳频率须遵守 dash-std4 文档中的 rate limit；默认为有限间隔睡眠，避免 tight loop。",
+    "macOS / Windows 下 spawn、路径分隔与工作区根解析行为一致；单进程内串行流水线，与 CLI-DASH-PIPELINE-001、FEISHU-BIDIR-001 并行集成时仅通过既有事件边界交互。"
+  ],
+  "dependencies": [],
+  "risks": [
+    "dash-std4 正式 GET/POST 路径与响应 schema 未定稿时，需版本探测或适配层，否则 CLI 与服务器字段不一致导致 materialize 失败。",
+    "CLI-VENDOR-STD4-001 或 CLI-CONFIG-INJECT-001 未就绪时，Query 仅能拉到项目但无法跑通流水线；需明确最小联调顺序与降级日志。",
+    "长耗时 run-pipeline 阻塞队列时，心跳与轮询若共享单线程需避免饿死；需明确定时器或独立轻量定时路径。",
+    "服务端将空队列误返回 5xx 会导致 CLI 误判；需与 Dash 端 SLA 及 CLI-RETRY-NFR-001 后续衔接界定可重试范围。"
+  ]
+}

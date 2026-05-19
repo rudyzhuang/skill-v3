@@ -1,0 +1,71 @@
+{
+  "client_target": "dash",
+  "project_name": "Std4Cli",
+  "features": [
+    {
+      "feature_id": "CLI-MODE-QUERY-001",
+      "name": "Query 模式：待开发项目查询与轮询契约",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "DashStd4 Open API 暴露可被 CLI 轮询的「待开发/待拉取」项目队列或等价查询接口；响应需包含本地 materialize（检出目录、分支、元数据等）所需字段，并与 CLI Query 模式语义一致。若服务端需要空闲保活，需提供明确的心跳或 noop 调用约定（路径、频率上限、鉴权方式与通用接口一致）。",
+      "acceptance": [
+        "存在已文档化的查询接口（或 graphql 等价），CLI 可用单一 Base URL + Bearer 鉴权完成调用；响应 schema 列出 materialize 必填字段且无未文档化的隐含依赖。",
+        "接口行为与 dash-std4 当前「待开发项目」模型一致；破坏性变更须在版本或 changelog 中标注并给出迁移说明。",
+        "在未排队项目时，接口返回可预期的空结果或明确状态码，而非 5xx；支持 CLI 侧有限频率轮询而不触发误杀（或有 documented rate limit）。"
+      ],
+      "api_hints": []
+    },
+    {
+      "feature_id": "CLI-MODE-CREATE-001",
+      "name": "Create 模式：项目注册与回调标识",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "DashStd4 Open API 支持 CLI 在本地生成业务项目后，可选将项目注册到 Dash（POST 或等价写入）；返回稳定的项目标识及后续 Query 轮询所需关联字段，使 CLI 可在完成后自动切入 Query 模式。错误响应需可解析（校验失败、重复注册、权限不足等）。",
+      "acceptance": [
+        "提供创建/注册类接口文档：请求体字段、成功响应中的 project id（或等价键）、以及可选元数据字段说明。",
+        "重复提交或幂等键策略（若支持）在文档中说明，避免 CLI 重试时产生重复业务实体或不可恢复状态。",
+        "创建失败时返回 4xx 与结构化错误体（或统一错误 envelope），不包含密钥或堆栈细节。"
+      ],
+      "api_hints": []
+    },
+    {
+      "feature_id": "CLI-DASH-PIPELINE-001",
+      "name": "流水线阶段状态上报",
+      "priority": "P0",
+      "phase": "mvp",
+      "description": "DashStd4 Open API 接收 CLI 上报的 ai-std4 流水线阶段状态（来源可为 `.pipeline/stages.json` 或等价聚合），字段命名、枚举值与 dash-std4 流水线 API 一致，便于服务端展示与审计。支持按项目/运行实例区分多次执行。",
+      "acceptance": [
+        "上报接口文档明确 stage 名称、状态枚举（与 dash-std4 / stages 约定对齐）、时间戳与可选日志摘要字段。",
+        "同一运行实例多次上报为更新语义或可追踪的版本链，文档说明冲突解析规则。",
+        "鉴权失败、项目不存在、格式错误分别返回可区分的状态码或错误码，便于 CLI 映射退出策略。"
+      ],
+      "api_hints": []
+    },
+    {
+      "feature_id": "CLI-RETRY-NFR-001",
+      "name": "Dash API 可重试与非阻塞语义",
+      "priority": "P1",
+      "phase": "standard",
+      "description": "在网络抖动或服务短暂过载场景下，DashStd4 Open API 返回明确的可重试信号（如 429、503 及 Retry-After 或文档化退避建议），与安全相关的 401/403 区分；尽可能避免非幂等写操作的重复副作用，或对幂等键行为予以说明，以配合 CLI 指数退避实现。",
+      "acceptance": [
+        "只读类接口在瞬时故障下优先返回 503/429 而非笼统 500；若返回 500，文档说明是否建议重试。",
+        "写类接口（创建、上报）对重复请求的语义（拒绝重复、幂等接受、或返回已有资源）在 OpenAPI/文档中可查。",
+        "存在速率限制时返回一致的错误结构与可选 Retry-After，避免 CLI 盲退避。"
+      ],
+      "api_hints": []
+    }
+  ],
+  "deploy": {
+    "domain": "",
+    "service_type": "dash-std4-open-api"
+  },
+  "auth": {
+    "type": "oauth2",
+    "notes": "DashStd4 Open API：请求头 Authorization: Bearer <token>；令牌形态与签发方式以 dash-std4 部署为准。运维侧密钥仅存于 CLI 本地配置（如 ~/.std4-cli/config.env），禁止写入日志、上报载荷与本 PRD。"
+  },
+  "constraints": [
+    "API Base URL 与路径前缀以 dash-std4 实际部署为准（dev/release）；CLI 仅通过配置注入，不在仓库内写死生产域名。",
+    "所有集成须基于 HTTPS；明文密钥不得出现在 OpenAPI 示例或 PRD 附件中。",
+    "与 CLI 侧的契约变更需保持向后兼容或提供版本字段，避免破坏已发布 CLI 的默认行为。"
+  ]
+}
