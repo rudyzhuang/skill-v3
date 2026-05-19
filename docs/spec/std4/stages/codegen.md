@@ -25,9 +25,9 @@ node ai-std4/scripts/stages/codegen.cjs --project=<业务项目根绝对路径> 
 | 粒度 | 条件 |
 | --- | --- |
 | **stage 启动** | `stages.design_review.outputs.can_enter_codegen=true`（任一 group 已 release，与 create-ui-scenarios 同级） |
-| **单 feature 入队** | `stages.design_review.features.<feature_id>.can_enter_codegen=true` 且 `docs/designs/<feature_id>.design.json` 存在并 Ajv 通过 |
+| **单 feature 入队** | `stages.design_review.features.<feature_id>.can_enter_codegen=true` 且 `output-stages/design/<feature_id>.design.json` 存在并 Ajv 通过 |
 
-> 与 create-ui-scenarios 共用同一组 feature 级释放条件；**不**互相阻塞。`docs/ui-scenarios/<feature_id>.scenarios.yaml` 为 codegen 的**软依赖**（若已就绪，Agent 可选读以理解验收边界；缺失**不**阻塞 codegen）。
+> 与 create-ui-scenarios 共用同一组 feature 级释放条件；**不**互相阻塞。`output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` 为 codegen 的**软依赖**（若已就绪，Agent 可选读以理解验收边界；缺失**不**阻塞 codegen）。
 
 ## 并发配置（feature 级线程池）
 
@@ -68,8 +68,8 @@ effective_parallel = min(
 | `stages.design.outputs.design_specs[]` | feature 列表（与 `stages.design.features.<id>.status=completed` 一致） |
 | `stages.design_review.outputs.released_groups[]` | 已 release 的 group / `features.<id>.can_enter_codegen` |
 | `stages.prd.outputs.features[]` | feature 元数据（`client_targets`、优先级；与 `design.json.client_targets` 交叉校验） |
-| `<业务项目根绝对路径>/docs/designs/<feature_id>.design.json` | 代码生成依据（`file_plan` / `api_outline` / `acceptance` / `constraints` / `dependencies`） |
-| `<业务项目根绝对路径>/docs/ui-scenarios/<feature_id>.scenarios.yaml` | 可选（**软依赖**）：若已存在，仅供 Agent 理解验收边界 |
+| `<业务项目根绝对路径>/output-stages/design/<feature_id>.design.json` | 代码生成依据（`file_plan` / `api_outline` / `acceptance` / `constraints` / `dependencies`） |
+| `<业务项目根绝对路径>/output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` | 可选（**软依赖**）：若已存在，仅供 Agent 理解验收边界 |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 并发上限、各项超时阈值、`heartbeat_interval_s`、`self_check.*` |
 | `inputs/config.env` → `CURSOR_API_KEY` | `@cursor/sdk` Agent（`libs/invoke-sdk-agent.cjs` 同类封装） |
 
@@ -82,7 +82,7 @@ effective_parallel = min(
 1. **`codegen-bootstrap.cjs`（bootstrap + 增量门控）**：
    - **先读旧值**：读取 `stages.codegen.inputs.release_bundle_hash`（骨架不存在则为 `null`）与 `inputs.design_bundle_hash`。
    - **计算新值**：
-     - `release_bundle_hash_new`：取 `stages.design_review.features.<id>.can_enter_codegen=true` 的 feature_id 按字典序排列各自 `docs/designs/<id>.design.json` SHA-256，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与其他 stage 一致）。
+     - `release_bundle_hash_new`：取 `stages.design_review.features.<id>.can_enter_codegen=true` 的 feature_id 按字典序排列各自 `output-stages/design/<id>.design.json` SHA-256，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与其他 stage 一致）。
      - `design_bundle_hash_new`：同上，但范围为所有 `design.features.<id>.status=completed` feature 的 `design.json` SHA-256 列表。
    - **hash 门控（全段跳过）**：若两个新值均等于旧值 **且** `stages.codegen.status=completed` **且** 全部目标 feature 已 `status=completed` **且** 各 worktree HEAD == `features.<id>.commit`，则**整段跳过**（写 `stage_skipped` + 退出码 0，不启动任何 worker）。
    - **骨架处理 + 写入新值**（非跳过路径）：
@@ -277,14 +277,14 @@ effective_parallel = min(
 
    **单 feature 输入**（首次 attempt）：
    - `<worktree_path>` 下源码（多为空骨架）；
-   - 通过 prompt 注入只读引用：`docs/designs/<feature_id>.design.json`、可选 `docs/ui-scenarios/<feature_id>.scenarios.yaml`、依赖 feature 已完成的 `docs/designs/<dep>.design.json`（不读其代码 worktree，避免误抄）；
+   - 通过 prompt 注入只读引用：`output-stages/design/<feature_id>.design.json`、可选 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`、依赖 feature 已完成的 `output-stages/design/<dep>.design.json`（不读其代码 worktree，避免误抄）；
    - `docs/config.dev.json` 中的 `heartbeat_interval_s` 数值（用于 prompt 渲染）。
 
    **resume attempt 另读**：`.codegen-resume-context.json`、`git log -p <base_commit>..HEAD`。
 
    **Agent 硬约束（首次 + resume 通用）**：
    - **不得**新增 `design.json.file_plan` 之外的文件；只能 `edit` `modify_files[]`、`create` `new_files[]`；
-   - **不得**修改 `docs/designs/` / `docs/prd-*` / `docs/ui-scenarios/` / `.pipeline/` / `.git/`；
+   - **不得**修改 `output-stages/design/` / `output-stages/prd/prd-*` / `output-stages/create-ui-scenarios/` / `.pipeline/` / `.git/`；
    - **不得**调用网络服务（项目内 `npm i <dep>` / `flutter pub add <dep>` 允许，但须在 heartbeat 中报 `phase:"running_command"` + `command`）；
    - API 端点与 `api_outline` 一致；实现内嵌单元 + 集成测试（**无独立 test stage**，但 Agent 须自我校验）；
    - 心跳频度 ≤ `heartbeat_interval_s`；任何 ≥ 30s 的外部命令前后必须各打一次心跳；

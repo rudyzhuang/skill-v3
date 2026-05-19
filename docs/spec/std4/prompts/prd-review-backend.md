@@ -4,7 +4,7 @@
 
 ## 必读
 
-- `docs/prd-spec.md`、本端 `docs/prd-backend.json`、`docs/feature_list-<client_target>.md`
+- `output-stages/prd/prd-spec.md`、本端 `output-stages/prd/prd-backend.json`、`output-stages/prd/feature_list-<client_target>.md`
 - `stages.prd.outputs.features[]` 中含本端的条目
 
 ## 评审要点（Backend）

@@ -8,6 +8,8 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { createPipelinePaths } = require('./pipeline-paths.cjs');
+const { createArtifactPaths } = require('./artifact-paths.cjs');
 
 const DEPLOYABLE_TYPES = new Set(['pages', 'workers']);
 const RESOURCE_TYPES   = new Set(['d1', 'r2', 'kv', 'queues', 'durable_objects', 'dns']);
@@ -390,7 +392,8 @@ function applyDeployInference({ projectRoot, skillsRoot, clientTargets, log }) {
   const providerId = (config.deploy && config.deploy.provider) || 'cloudflare';
   const providerBlock = getProviderBlock(catalog, providerId);
 
-  const prdBackendPath = path.join(projectRoot, 'docs', 'prd-backend.json');
+  const artifacts = createArtifactPaths(createPipelinePaths(projectRoot));
+  const prdBackendPath = artifacts.resolvePrdClientJsonPath('prd-backend.json');
   let prdBackend = null;
   if (fs.existsSync(prdBackendPath)) {
     try {
@@ -403,7 +406,7 @@ function applyDeployInference({ projectRoot, skillsRoot, clientTargets, log }) {
     const file = ct === 'backend' || ct === 'api' || ct === 'server'
       ? 'prd-backend.json'
       : (ct === 'web' || ct === 'website' ? 'prd-web.json' : `prd-${ct}.json`);
-    const p = path.join(projectRoot, 'docs', file);
+    const p = artifacts.resolvePrdClientJsonPath(file);
     if (!fs.existsSync(p)) continue;
     try {
       allPrdDocs.push(JSON.parse(fs.readFileSync(p, 'utf8')));
@@ -607,7 +610,8 @@ if (require.main === module) {
   const skillsRoot = process.env.CURSOR_SKILLS_ROOT ||
     path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
 
-  const specPath = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const artifactsCli = createArtifactPaths(createPipelinePaths(projectRoot));
+  const specPath = artifactsCli.resolvePrdSpecPath();
   let clientTargets = ['backend'];
   if (fs.existsSync(specPath)) {
     const content = fs.readFileSync(specPath, 'utf8');

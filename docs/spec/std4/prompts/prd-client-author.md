@@ -4,9 +4,9 @@
 
 ## 必读
 
-- `docs/prd-spec.md`（全文）
-- 当前端内容文件（如 `docs/prd-web.json`；路径由脚本注入）
-- 可选：同目录 `docs/feature_list-<client_target>.md` 草稿
+- `output-stages/prd/prd-spec.md`（全文）
+- 当前端内容文件（如 `output-stages/prd/prd-web.json`；路径由脚本注入）
+- 可选：同目录 `output-stages/prd/feature_list-<client_target>.md` 草稿
 
 ## 硬约束
 
@@ -19,8 +19,8 @@
 
 ## 输出
 
-1. 更新 **`docs/prd-<映射文件>.json`**（见 [prd § 文件映射](../stages/prd.md#client_target--文件与模板映射)）。
-2. 更新或创建 **`docs/feature_list-<client_target>.md`**：Markdown 表，列含 feature_id、名称、优先级、阶段。
+1. 更新 **`output-stages/prd/prd-<映射文件>.json`**（见 [prd § 文件映射](../stages/prd.md#client_target--文件与模板映射)）。
+2. 更新或创建 **`output-stages/prd/feature_list-<client_target>.md`**：Markdown 表，列含 feature_id、名称、优先级、阶段。
 3. 若当前端为 **backend**：在 `deploy` 中填写 **`api`**（runtime/domain）与 **`resources[]`**（`role`+`kind`：如 `workers`/`d1`/`r2`/`kv`/`queues`/`durable_objects`），**不要**写账号/密钥；`config.dev.json` 由脚本 `infer-deploy-services` 在 Agent-B 后自动 merge，**勿**手改完整 `deploy.services[]`。漏写时脚本 **warn + 自动补全**（不阻断 prd）。
 
 ## 输出约束

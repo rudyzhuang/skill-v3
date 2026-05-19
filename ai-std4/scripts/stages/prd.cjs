@@ -9,7 +9,7 @@
  *   2. 检测 stop.signal → exit 5
  *   3. hash 门控（stages.prd.status=completed + req_hash 命中 → skipped exit 0）
  *   4. prd-bootstrap：初始化 stages.prd 骨架、拷贝 prd-spec.md 模板
- *   5. Agent-A（prd-spec-author.md）→ 生成 docs/prd-spec.md
+ *   5. Agent-A（prd-spec-author.md）→ 生成 output-stages/prd/prd-spec.md
  *   6. 解析 client_targets，检测 stop.signal → exit 5
  *   7. Agent-B 并发（prd-client-author.md × N 端）→ prd-<client_target>.json + feature_list-*.md
  *   7b. infer-deploy-services → merge docs/config.dev.json deploy.services[]
@@ -27,6 +27,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort, datetimeFromRunId } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 const { applyDeployInference } = require('../libs/infer-deploy-services.cjs');
@@ -48,6 +49,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -368,7 +370,7 @@ async function invokeAgent(opts) {
 // ── Agent-A（单次调用 prd-spec-author） ───────────────────────────
 async function runAgentA({ model, timeoutMs }) {
   const reqMdPath   = path.join(projectRoot, 'inputs', 'req.md');
-  const prdSpecPath = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const prdSpecPath = artifacts.prdSpecPath();
 
   const t0 = Date.now();
   const result = await invokeAgent({
@@ -423,9 +425,9 @@ async function runAgentA({ model, timeoutMs }) {
 // ── Agent-B（单端，带重试） ───────────────────────────────────────
 async function runAgentBForTarget({ clientTarget, model, timeoutMs, maxRetries }) {
   const resolved  = resolveClientTarget(clientTarget);
-  const prdFile   = path.join(projectRoot, 'docs', resolved.file);
-  const flFile    = path.join(projectRoot, 'docs', `feature_list-${clientTarget}.md`);
-  const prdSpec   = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const prdFile   = artifacts.prdClientJsonPath(resolved.file);
+  const flFile    = artifacts.featureListPath(clientTarget);
+  const prdSpec   = artifacts.prdSpecPath();
   const agentId   = `prd-agent-b-${clientTarget}`;
 
   // 拷贝模板（若目标文件不存在）
@@ -573,7 +575,7 @@ function aggregateFeatures(clientTargets) {
 
   for (const ct of clientTargets) {
     const resolved = resolveClientTarget(ct);
-    const prdFile  = path.join(projectRoot, 'docs', resolved.file);
+    const prdFile  = artifacts.prdClientJsonPath(resolved.file);
     if (!fs.existsSync(prdFile)) {
       warnings.push(`${resolved.file} 不存在，跳过该端 feature 聚合`);
       continue;
@@ -644,7 +646,7 @@ function aggregateFeatures(clientTargets) {
       }
 
       // sources
-      existing.sources[ct] = path.join(projectRoot, 'docs', resolved.file);
+      existing.sources[ct] = artifacts.prdSourceRel(resolved.file);
     }
   }
 
@@ -690,8 +692,8 @@ function validateOutputs(clientTargets) {
   const missing = [];
   const invalid = [];
 
-  const prdSpecPath = path.join(projectRoot, 'docs', 'prd-spec.md');
-  if (!fs.existsSync(prdSpecPath)) missing.push('docs/prd-spec.md');
+  const prdSpecPath = artifacts.prdSpecPath();
+  if (!fs.existsSync(prdSpecPath)) missing.push(artifacts.prdSpecRel());
   else {
     const content = fs.readFileSync(prdSpecPath, 'utf8');
     if (!/^##\s+客户端目标/m.test(content)) invalid.push('prd-spec.md: 缺少 ## 客户端目标 节');
@@ -699,10 +701,10 @@ function validateOutputs(clientTargets) {
 
   for (const ct of clientTargets) {
     const resolved = resolveClientTarget(ct);
-    const prdFile = path.join(projectRoot, 'docs', resolved.file);
-    const flFile  = path.join(projectRoot, 'docs', `feature_list-${ct}.md`);
-    if (!fs.existsSync(prdFile)) missing.push(`docs/${resolved.file}`);
-    if (!fs.existsSync(flFile))  missing.push(`docs/feature_list-${ct}.md`);
+    const prdFile = artifacts.prdClientJsonPath(resolved.file);
+    const flFile  = artifacts.featureListPath(ct);
+    if (!fs.existsSync(prdFile)) missing.push(artifacts.prdClientJsonRel(resolved.file));
+    if (!fs.existsSync(flFile))  missing.push(artifacts.featureListRel(ct));
   }
 
   const configDevPath = path.join(projectRoot, 'docs', 'config.dev.json');
@@ -812,7 +814,7 @@ async function main() {
 
   // 4. prd-bootstrap：初始化 stages.prd 骨架
   // 提前定义 prdSpecPath，供 bootstrap hash_check 日志与后续步骤使用
-  const prdSpecPath  = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const prdSpecPath  = artifacts.prdSpecPath();
   const specTemplate = path.join(skillsRoot, 'ai-std4', 'templates', 'prd-spec.md.template');
 
   let stagesObj = readStagesJson();
@@ -1015,8 +1017,8 @@ async function main() {
 
   for (const ct of clientTargets) {
     const resolved  = resolveClientTarget(ct);
-    const prdFile   = path.join(projectRoot, 'docs', resolved.file);
-    const flFile    = path.join(projectRoot, 'docs', `feature_list-${ct}.md`);
+    const prdFile   = artifacts.prdClientJsonPath(resolved.file);
+    const flFile    = artifacts.featureListPath(ct);
 
     // 与 Agent-A 前的旧 prd_spec_hash 比较（不与刚写入的新值比较）
     // 仅在 skipAgentA=true（Agent-A 已跳过）时旧值与新值相同，hash 才能真正命中
@@ -1218,7 +1220,7 @@ async function main() {
     });
   }
 
-  const checks = ['docs/prd-spec.md', ...clientTargets.map(ct => `docs/${resolveClientTarget(ct).file}`), 'docs/config.dev.json'];
+  const checks = [artifacts.prdSpecRel(), ...clientTargets.map(ct => artifacts.prdClientJsonRel(resolveClientTarget(ct).file)), 'docs/config.dev.json'];
 
   log.info('validation_pass', '产出校验全部通过', {
     checks,
@@ -1269,8 +1271,8 @@ async function main() {
     },
     generated_files: [
       prdSpecPath,
-      ...clientTargets.map(ct => path.join(projectRoot, 'docs', resolveClientTarget(ct).file)),
-      ...clientTargets.map(ct => path.join(projectRoot, 'docs', `feature_list-${ct}.md`)),
+      ...clientTargets.map(ct => artifacts.prdClientJsonPath(resolveClientTarget(ct).file)),
+      ...clientTargets.map(ct => artifacts.featureListPath(ct)),
     ].filter(p => fs.existsSync(p)),
     blocking_issues: [],
     git_sync: stagesObj.stages.prd.git_sync || {

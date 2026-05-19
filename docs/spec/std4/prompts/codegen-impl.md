@@ -9,8 +9,8 @@
 
 ## 必读
 
-- `docs/designs/<feature_id>.design.json`（`file_plan`、`acceptance`、`api_outline`、`constraints`）
-- 可选：`docs/ui-scenarios/<feature_id>.scenarios.yaml`（理解验收，非硬依赖）
+- `output-stages/design/<feature_id>.design.json`（`file_plan`、`acceptance`、`api_outline`、`constraints`）
+- 可选：`output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`（理解验收，非硬依赖）
 - 依赖 feature 已在 worktree/主线的实现（若有 `dependencies[]`）
 
 ## 任务

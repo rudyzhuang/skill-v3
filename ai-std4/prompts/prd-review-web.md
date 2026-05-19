@@ -4,8 +4,8 @@
 
 ## 必读
 
-- `docs/prd-spec.md`
-- 本端 PRD 与 `docs/feature_list-<client_target>.md`（路径由脚本注入）
+- `output-stages/prd/prd-spec.md`
+- 本端 PRD 与 `output-stages/prd/feature_list-<client_target>.md`（路径由脚本注入）
 - `stages.prd.outputs.features[]` 中 **`client_targets` 含本端** 的条目（评审范围）
 
 ## 评审要点（Web）

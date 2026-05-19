@@ -11,7 +11,7 @@
 
 - `.pipeline/worktrees/v3-<feature_id>/`（只读）
 - `.pipeline/code-review-<feature_id>.diff`（脚本生成的 patch）
-- `docs/designs/<feature_id>.design.json`
+- `output-stages/design/<feature_id>.design.json`
 
 ## 评审维度
 

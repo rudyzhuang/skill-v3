@@ -14,18 +14,18 @@
 node ai-std4/scripts/stages/create-ui-scenarios.cjs --project=<业务项目根绝对路径> [--tick] [--feature=<feature_id>]
 ```
 
-> **不**评审、**不**改写 `design.json` / `docs/contracts/`；只产出 `docs/ui-scenarios/<feature_id>.scenarios.yaml`。
+> **不**评审、**不**改写 `design.json` / `docs/contracts/`；只产出 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`。
 
 ## 上游门闸
 
 | 粒度 | 条件 |
 | --- | --- |
 | **stage 启动** | `stages.design_review.outputs.can_enter_codegen=true`（任一 group 已 release，与 codegen 同级） |
-| **单 feature 入队** | `stages.design_review.features.<feature_id>.can_enter_codegen=true` 且 `docs/designs/<feature_id>.design.json` 存在并 Ajv 通过 |
+| **单 feature 入队** | `stages.design_review.features.<feature_id>.can_enter_codegen=true` 且 `output-stages/design/<feature_id>.design.json` 存在并 Ajv 通过 |
 
 > 与 codegen 共用同一组 feature 级释放条件；**不**互相阻塞。
 >
-> **下游对本 stage 的依赖**：仅 `ui_e2e` 真正消费 `docs/ui-scenarios/<feature_id>.scenarios.yaml`；`codegen` Agent 可选读以理解验收边界，但**不**作硬门闸。详见 [§3.2](../std4.md#32-codegen--create-ui-scenarios-并行编排)。
+> **下游对本 stage 的依赖**：仅 `ui_e2e` 真正消费 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`；`codegen` Agent 可选读以理解验收边界，但**不**作硬门闸。详见 [§3.2](../std4.md#32-codegen--create-ui-scenarios-并行编排)。
 
 ## 并发配置（feature 级线程池）
 
@@ -72,7 +72,7 @@ effective_parallel = min(
 | `stages.design.outputs.design_specs[]` | 已就绪的 feature 列表（与 `stages.design.features.<id>.status=completed` 一致） |
 | `stages.design_review.outputs.released_groups[]` | 已 release 的 group / `features.<id>.can_enter_codegen` |
 | `stages.prd.outputs.features[]` | feature 元数据（`client_targets`、优先级，与 `design.json.client_targets` 交叉校验） |
-| `<业务项目根绝对路径>/docs/designs/<feature_id>.design.json` | 场景派生**唯一**真源（`acceptance[]` / `api_outline[]` / `client_target` / `client_targets[]`） |
+| `<业务项目根绝对路径>/output-stages/design/<feature_id>.design.json` | 场景派生**唯一**真源（`acceptance[]` / `api_outline[]` / `client_target` / `client_targets[]`） |
 | `<业务项目根绝对路径>/docs/config.dev.json` | `ui_e2e.enabled`、`deploy.services.*.url`（`{base_url}` 占位真源）、并发上限、`timeouts.stages.create_ui_scenarios_s` |
 
 **CLI 过滤**：`--feature=<feature_id>` 仅处理单个 feature（用于失败后重跑）；仍遵守上游门闸。
@@ -85,7 +85,7 @@ effective_parallel = min(
    - 若 `docs/config.dev.json.ui_e2e.enabled=false` → 写 `status=skipped`，`outputs.summary="ui_e2e disabled"`，退出 0（无需执行后续步骤）。
    - **先读旧值**：读取 `stages.create_ui_scenarios.inputs.release_bundle_hash`（骨架不存在则为 `null`）与 `inputs.design_bundle_hash`。
    - **计算新值**：
-     - `release_bundle_hash_new`：取 `stages.design_review.features.<id>.can_enter_codegen=true` 的 feature_id 按字典序排列各自 `docs/designs/<id>.design.json` SHA-256，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与 design-review `design_bundle_hash` 算法一致）。
+     - `release_bundle_hash_new`：取 `stages.design_review.features.<id>.can_enter_codegen=true` 的 feature_id 按字典序排列各自 `output-stages/design/<id>.design.json` SHA-256，对该列表做 `JSON.stringify + SHA-256`（hash-of-hashes 方式，与 design-review `design_bundle_hash` 算法一致）。
      - `design_bundle_hash_new`：同上，但范围为所有已就绪（`design.features.<id>.status=completed`）feature 的 `design.json` SHA-256 列表。
    - **hash 门控（全段跳过）**：若两个新值均等于旧值 **且** `stages.create_ui_scenarios.status=completed` **且** 全部目标 feature 均已 `completed` / `skipped`，则**整段跳过**（写 `stage_skipped` + 退出码 0，不修改 stages.create_ui_scenarios）。
    - **骨架处理 + 写入新值**（非跳过路径）：
@@ -98,13 +98,13 @@ effective_parallel = min(
 
 2. **Agent-CreateUIScenarios（按 feature 并发，组感知）**：
    - 每轮 `--tick` 从「`design_review.features.<id>.can_enter_codegen=true` 且 `create_ui_scenarios.features.<id>` 未 `completed`/`failed`/`skipped`」集合中取就绪 feature（**确定性预检通过**）入池。
-   - 按 `effective_parallel` 与全局限额并发启动 Agent；每个 Agent **仅生成一个 feature** 的 `docs/ui-scenarios/<feature_id>.scenarios.yaml`，按 **`ai-std4/prompts/create-ui-scenarios.md`** 执行（**不得**修改 `design.json`，**不得**写其它路径）。
+   - 按 `effective_parallel` 与全局限额并发启动 Agent；每个 Agent **仅生成一个 feature** 的 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`，按 **`ai-std4/prompts/create-ui-scenarios.md`** 执行（**不得**修改 `design.json`，**不得**写其它路径）。
    - 单 feature 落盘后：脚本立即 Ajv 校验 `ui-scenarios.yaml.schema.json`；通过 → 写 `features.<feature_id>.{status: completed, scenarios_hash, scenarios_count, design_hash}` 与 `outputs.scenario_files[]`；打事件 `feature_scenarios_ready`（`meta.feature_id`、`meta.group_id`、`meta.scenarios_count`）。
    - **`--tick` 模式**（与 codegen 并行编排默认）：调度一轮后写回 `stages.json` 并退出 **0**；编排器与 `codegen --tick` 交替调用（见 [§3.2](../std4.md#32-codegen--create-ui-scenarios-并行编排)）直至全部目标 feature `completed` / `failed` / `skipped`。
    - **批量模式**（单独 `--from-stage=create-ui-scenarios`）：循环 `--tick` 直至无在途 Agent 且无待调度 feature，再进入步骤 3。
 
    **单 feature 输入**（每次 Agent 调用仅读下列文件）：
-   - `<业务项目根绝对路径>/docs/designs/<feature_id>.design.json`
+   - `<业务项目根绝对路径>/output-stages/design/<feature_id>.design.json`
    - 该 feature 在 `stages.prd.outputs.features[]` 中的元数据（`client_targets[]` 与 `name`）
    - `<业务项目根绝对路径>/docs/config.dev.json`（仅取 `deploy.services.*.url` 用于在示例中渲染 `{base_url}` 占位提示；Agent **不得**硬编码真实 URL）
 
@@ -157,7 +157,7 @@ effective_parallel = min(
    >
    > | 机制 | 说明 |
    > | --- | --- |
-   > | **按 feature 哈希门控** | 若 `docs/ui-scenarios/<feature_id>.scenarios.yaml` 存在且 SHA-256 等于 `stages.create_ui_scenarios.features.<id>.scenarios_hash`，且对应 `design.json.SHA-256 == features.<id>.design_hash`，则**跳过该 feature Agent**（`agent_skipped`） |
+   > | **按 feature 哈希门控** | 若 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` 存在且 SHA-256 等于 `stages.create_ui_scenarios.features.<id>.scenarios_hash`，且对应 `design.json.SHA-256 == features.<id>.design_hash`，则**跳过该 feature Agent**（`agent_skipped`） |
    > | **Schema 强校验 + 重试** | 产出后立即 YAML 解析 + Ajv 校验；失败则重试该 feature Agent，**最多 2 次**（`agent_retry`，meta 含 `invalid_fields[]`） |
    > | **确定性 gap 保留** | bootstrap 写入的 `skipped` / `blocking` 不因 Agent 产出被覆盖 |
    > | **超时单 feature 失败** | 单 feature Agent 超过 `timeouts.stages.create_ui_scenarios_s` → `agent_failed`、`timed_out:true`；**不**影响其它 feature 与 codegen track |
@@ -218,7 +218,7 @@ effective_parallel = min(
 
 | 路径 | 说明 |
 | --- | --- |
-| `docs/ui-scenarios/<feature_id>.scenarios.yaml` | 可执行 UI 场景（每 feature 一文件），`ui_e2e` 阶段直接消费 |
+| `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` | 可执行 UI 场景（每 feature 一文件），`ui_e2e` 阶段直接消费 |
 | `.pipeline/stages.json` | `stages.create_ui_scenarios`：`features.<id>`（含 `group_id` / `scenarios_hash`）、`outputs.scenario_files[]`、`outputs.skipped_features[]`、`outputs.coverage`、`validation.passed` |
 | `.pipeline/reports/create-ui-scenarios-summary.md` | 每 feature 一行人话摘要（场景数、覆盖率、跳过原因） |
 

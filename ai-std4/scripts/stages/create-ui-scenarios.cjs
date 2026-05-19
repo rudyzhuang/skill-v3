@@ -34,6 +34,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 
@@ -53,6 +54,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -252,7 +254,7 @@ function computeReleaseBundleHash(drFeatures) {
     .sort();
   if (releasedIds.length === 0) return null;
   const hashes = releasedIds.map(fid => {
-    const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const p = artifacts.designPath(fid);
     return fileSha256(p);
   });
   return crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex');
@@ -269,7 +271,7 @@ function computeDesignBundleHash(designFeatures) {
     .sort();
   if (completedIds.length === 0) return null;
   const hashes = completedIds.map(fid => {
-    const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const p = artifacts.designPath(fid);
     return fileSha256(p);
   });
   return crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex');
@@ -409,7 +411,7 @@ async function doBootstrap(stagesObj, config) {
       design_bundle_hash: designBundleHashNew,
       design_hashes: Object.fromEntries(
         targetFeatureIds.map(fid => {
-          const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+          const p = artifacts.designPath(fid);
           return [fid, fileSha256(p)];
         })
       ),
@@ -470,8 +472,8 @@ async function invokeScenariosAgent({ featureId, featureMeta, stagesObj, model, 
 
   let promptContent = fs.readFileSync(promptPath, 'utf8');
 
-  const designFile = path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`);
-  const outputDir  = path.join(projectRoot, 'docs', 'ui-scenarios');
+  const designFile = artifacts.designPath(featureId);
+  const outputDir  = artifacts.uiScenariosDir();
   const outputFile = path.join(outputDir, `${featureId}.scenarios.yaml`);
   const configPath = path.join(projectRoot, 'docs', 'config.dev.json');
 
@@ -546,7 +548,7 @@ async function invokeScenariosAgent({ featureId, featureMeta, stagesObj, model, 
 // ── 单 feature Agent（带重试 + schema 校验）──────────────────────
 async function runScenariosAgentForFeature({ featureId, featureMeta, stagesObj, model, timeoutMs, maxRetries }) {
   const agentId    = `create-ui-scenarios-agent-${featureId}`;
-  const outputFile = path.join(projectRoot, 'docs', 'ui-scenarios', `${featureId}.scenarios.yaml`);
+  const outputFile = artifacts.uiScenarioPath(featureId);
 
   let lastError = null;
   let timedOut  = false;
@@ -610,7 +612,7 @@ async function runScenariosAgentForFeature({ featureId, featureMeta, stagesObj, 
 
     // 成功
     const scenarioHash   = fileSha256(outputFile);
-    const designHash     = fileSha256(path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`));
+    const designHash     = fileSha256(artifacts.designPath(featureId));
     const scenariosCount = (parsedData && Array.isArray(parsedData.scenarios)) ? parsedData.scenarios.length : 0;
 
     log.info('agent_complete', `create-ui-scenarios Agent(${featureId}) 完成`, {
@@ -742,7 +744,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     if (status !== 'pending' && status !== 'failed') continue;
 
     // design.json 必须存在（否则本轮跳过等待下一轮）
-    const designFilePath = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFilePath = artifacts.designPath(fid);
     if (!fs.existsSync(designFilePath)) {
       log.info('agent_skipped', `feature ${fid} design.json 不存在，本轮跳过等待`, {
         agent_id:   `create-ui-scenarios-agent-${fid}`,
@@ -758,7 +760,7 @@ async function doTick(stagesObj, config, featureFilterId) {
       const storedDesignHash    = featureStatus.design_hash;
       const storedScenarioHash  = featureStatus.scenario_hash;
       const currentDesignHash   = fileSha256(designFilePath);
-      const scenarioFile        = path.join(projectRoot, 'docs', 'ui-scenarios', `${fid}.scenarios.yaml`);
+      const scenarioFile        = artifacts.uiScenarioPath(fid);
       const currentScenarioHash = fileSha256(scenarioFile);
 
       if (storedDesignHash && currentDesignHash && storedDesignHash === currentDesignHash

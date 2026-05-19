@@ -151,11 +151,11 @@ setup
 
 | 层 | 文件 / 字段 | 角色 | 谁读 |
 | --- | --- | --- | --- |
-| **内容真源** | `docs/prd-spec.md`、`docs/prd-<client_target>.json`、`docs/designs/<feature_id>.design.json` | feature / 设计的完整文本 | **Agent** |
+| **内容真源** | `output-stages/prd/prd-spec.md`、`output-stages/prd/prd-<client_target>.json`、`output-stages/design/<feature_id>.design.json` | feature / 设计的完整文本 | **Agent** |
 | **索引真源** | `stages.prd.outputs.features[]`（含 `feature_id` / `client_targets[]` / `dependencies[]` / `sources`）、`stages.design.inputs.dependency_groups[]` | feature 全集与依赖图 | **脚本**（prd-review 门闸、design bootstrap、依赖组、调度器） |
 | **执行态** | `stages.<stage>.features.<feature_id>.*`（`status` / `group_id` / `can_enter_codegen` 等） | 单 feature 在某 stage 的进度 | 当前 stage 与下游编排 |
 
-> 任何 stage 脚本需要 feature 列表 / 依赖 / 跨端归属时，**只读** `stages.prd.outputs.features[]`，不得在脚本里重新扫 `docs/prd-*.json`。Agent 仍按提示词读各端原文。详见 [prd § 真源分层](stages/prd.md#真源分层重要)。
+> 任何 stage 脚本需要 feature 列表 / 依赖 / 跨端归属时，**只读** `stages.prd.outputs.features[]`，不得在脚本里重新扫 `output-stages/prd/prd-*.json`。Agent 仍按提示词读各端原文。详见 [prd § 真源分层](stages/prd.md#真源分层重要)。
 
 ### 退出码
 
@@ -366,7 +366,7 @@ setup
 
 | 层级 | 文件 | 说明 |
 | --- | --- | --- |
-| PRD 语义 | `docs/prd-backend.json` → `deploy.api` / `deploy.resources[]` | Agent-B 声明 Workers/D1/R2 等需求（无密钥） |
+| PRD 语义 | `output-stages/prd/prd-backend.json` → `deploy.api` / `deploy.resources[]` | Agent-B 声明 Workers/D1/R2 等需求（无密钥） |
 | 推断脚本 | `libs/infer-deploy-services.cjs` | prd 步骤 **3b**：规则 + catalog → merge `docs/config.dev.json`；`auditDeployResources` 对 Agent 漏写的 `deploy.resources[]` **warn + 自动补全**（不阻断） |
 | 运行真源 | `deploy.services[]` | 每条含 `type`、`role`、`requires_artifact`、`status`、`resource_config` |
 | Catalog | `docs/templates/deploy-services.catalog.json` | provider 下可用 `id`（`pages`/`workers`/`d1`/`r2`…） |
@@ -694,16 +694,16 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 
 | prompt | 被哪个 stage 调用 | 职责 |
 | --- | --- | --- |
-| [prd-spec-author.md](prompts/prd-spec-author.md) | prd（Agent-A） | 增量补全 `docs/prd-spec.md` |
+| [prd-spec-author.md](prompts/prd-spec-author.md) | prd（Agent-A） | 增量补全 `output-stages/prd/prd-spec.md` |
 | [prd-client-author.md](prompts/prd-client-author.md) | prd（Agent-B） | 增量补全该端 `prd-*.json` + `feature_list-*.md` |
 | [prd-review-web.md](prompts/prd-review-web.md) | prd-review | 评审 web/website/frontend → `prd-review-<client_target>.json` |
 | [prd-review-backend.md](prompts/prd-review-backend.md) | prd-review | 评审 backend |
 | [prd-review-mobile.md](prompts/prd-review-mobile.md) | prd-review | 评审 mobile |
 | [prd-review-admin.md](prompts/prd-review-admin.md) | prd-review | 评审 admin |
 | [prd-review-default.md](prompts/prd-review-default.md) | prd-review | 未知端兜底 |
-| [design-spec.md](prompts/design-spec.md) | design | 产出 `docs/designs/<feature_id>.design.json` |
+| [design-spec.md](prompts/design-spec.md) | design | 产出 `output-stages/design/<feature_id>.design.json` |
 | [design-review.md](prompts/design-review.md) | design-review | 产出 `.pipeline/design-review-<feature_id>.json` |
-| [create-ui-scenarios.md](prompts/create-ui-scenarios.md) | create-ui-scenarios | 产出 `docs/ui-scenarios/<feature_id>.scenarios.yaml` |
+| [create-ui-scenarios.md](prompts/create-ui-scenarios.md) | create-ui-scenarios | 产出 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` |
 | [codegen-impl.md](prompts/codegen-impl.md) | codegen（首次） | worktree 实现 + JSON Lines 心跳 |
 | [codegen-impl-resume.md](prompts/codegen-impl-resume.md) | codegen（resume） | 续跑，禁止覆盖 `do_not_overwrite[]` |
 | [code-review-agent.md](prompts/code-review-agent.md) | code-review | 只读评审 → `code-review-<feature_id>.json` |
@@ -727,11 +727,11 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | [config.env.template](templates/config.env.template) | inputs/config.env 模板；不进 git |
 | [config.json.template](templates/config.json.template) | docs/config.dev.json / config.release.json 模板 |
 | [stages.json.template](templates/stages.json.template) | `.pipeline/stages.json` 初始骨架 |
-| [prd-spec.md.template](templates/prd-spec.md.template) | docs/prd-spec.md 模板 |
-| [prd-web.json.template](templates/prd-web.json.template) | docs/prd-web.json 模板（前端/Web） |
-| [prd-backend.json.template](templates/prd-backend.json.template) | docs/prd-backend.json 模板（服务端） |
-| [prd-mobile.json.template](templates/prd-mobile.json.template) | docs/prd-mobile.json 模板（移动端） |
-| [prd-admin.json.template](templates/prd-admin.json.template) | docs/prd-admin.json 模板（管理后台） |
+| [prd-spec.md.template](templates/prd-spec.md.template) | output-stages/prd/prd-spec.md 模板 |
+| [prd-web.json.template](templates/prd-web.json.template) | output-stages/prd/prd-web.json 模板（前端/Web） |
+| [prd-backend.json.template](templates/prd-backend.json.template) | output-stages/prd/prd-backend.json 模板（服务端） |
+| [prd-mobile.json.template](templates/prd-mobile.json.template) | output-stages/prd/prd-mobile.json 模板（移动端） |
+| [prd-admin.json.template](templates/prd-admin.json.template) | output-stages/prd/prd-admin.json 模板（管理后台） |
 | [prd-default.json.template](templates/prd-default.json.template) | 未知端兜底 prd JSON 模板 |
 
 ---
@@ -936,17 +936,17 @@ node ai-std4/scripts/stop-pipeline.cjs --project=<业务项目根绝对路径> [
 | [stop.signal.schema.json](schemas/stop.signal.schema.json) | `.pipeline/stop.signal` |
 | [stages.json.schema.json](schemas/stages.json.schema.json) | `.pipeline/stages.json` |
 | [config.json.schema.json](schemas/config.json.schema.json) | `docs/config.dev.json` / `config.release.json` |
-| [prd-client.base.schema.json](schemas/prd-client.base.schema.json) | 所有 `docs/prd-*.json` 公共字段（`allOf` 引用） |
-| [prd-web.json.schema.json](schemas/prd-web.json.schema.json) | `docs/prd-web.json` |
-| [prd-backend.json.schema.json](schemas/prd-backend.json.schema.json) | `docs/prd-backend.json` |
-| [prd-mobile.json.schema.json](schemas/prd-mobile.json.schema.json) | `docs/prd-mobile.json` |
-| [prd-admin.json.schema.json](schemas/prd-admin.json.schema.json) | `docs/prd-admin.json` |
-| [prd-default.json.schema.json](schemas/prd-default.json.schema.json) | 未知端 `docs/prd-<client_target>.json` |
+| [prd-client.base.schema.json](schemas/prd-client.base.schema.json) | 所有 `output-stages/prd/prd-*.json` 公共字段（`allOf` 引用） |
+| [prd-web.json.schema.json](schemas/prd-web.json.schema.json) | `output-stages/prd/prd-web.json` |
+| [prd-backend.json.schema.json](schemas/prd-backend.json.schema.json) | `output-stages/prd/prd-backend.json` |
+| [prd-mobile.json.schema.json](schemas/prd-mobile.json.schema.json) | `output-stages/prd/prd-mobile.json` |
+| [prd-admin.json.schema.json](schemas/prd-admin.json.schema.json) | `output-stages/prd/prd-admin.json` |
+| [prd-default.json.schema.json](schemas/prd-default.json.schema.json) | 未知端 `output-stages/prd/prd-<client_target>.json` |
 | [prd-review-client-output.schema.json](schemas/prd-review-client-output.schema.json) | `.pipeline/prd-review-<client_target>.json` |
 | [prd-review-output.schema.json](schemas/prd-review-output.schema.json) | `.pipeline/prd-review-output.json` |
-| [design.json.schema.json](schemas/design.json.schema.json) | `docs/designs/<feature_id>.design.json` |
+| [design.json.schema.json](schemas/design.json.schema.json) | `output-stages/design/<feature_id>.design.json` |
 | [design-review-feature-output.schema.json](schemas/design-review-feature-output.schema.json) | `.pipeline/design-review-<feature_id>.json` |
-| [ui-scenarios.yaml.schema.json](schemas/ui-scenarios.yaml.schema.json) | `docs/ui-scenarios/<feature_id>.scenarios.yaml`（先 YAML 解析后按 JSON Schema 校验） |
+| [ui-scenarios.yaml.schema.json](schemas/ui-scenarios.yaml.schema.json) | `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`（先 YAML 解析后按 JSON Schema 校验） |
 | [code-review-feature-output.schema.json](schemas/code-review-feature-output.schema.json) | `.pipeline/code-review-<feature_id>.json` |
 | [deploy-triage-output.schema.json](schemas/deploy-triage-output.schema.json) | `.pipeline/deploy-triage.json` |
 | [merge-push-triage-output.schema.json](schemas/merge-push-triage-output.schema.json) | `.pipeline/merge-push-triage.json` |

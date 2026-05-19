@@ -96,7 +96,8 @@ node ai-std4/scripts/stop-pipeline.cjs --project=<业务项目根路径> --teard
 | 路径 | 内容 |
 | --- | --- |
 | `output-stages/stages.json` | 流水线状态真源 |
-| `output-stages/<stage>/` | 各 stage 产出（评审 JSON、摘要 md、deploy 分诊等）；**merge_push** 仍写在 `.pipeline/` |
+| `docs/` | 仅 `config.dev.json`、`config.release.json`、`config.env`（不进 git 的 env 同步副本） |
+| `output-stages/<stage>/` | 各 stage 内容产出（如 `prd/` 下 prd-spec、prd-*.json；`design/` 下 *.design.json；评审 JSON、deploy 分诊等）；**merge_push** 仍写在 `.pipeline/` |
 | `output-stages/codegen/` | codegen worktrees、worker 状态与内联脚本 |
 | `.pipeline/` | 锁、`stop.signal`、编排 recovery 包等运行时 |
 | `.pipeline/logs/` | 全局与各 stage/feature 日志 |

@@ -29,6 +29,7 @@ const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 
@@ -48,6 +49,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -730,8 +732,8 @@ async function runCodeReviewAgentForFeature({
   const hangHistory    = (codegen.features && codegen.features[featureId] && codegen.features[featureId].hang_history) || [];
   const attemptsInCodegen = (codegen.features && codegen.features[featureId] && codegen.features[featureId].attempts_used) || 0;
 
-  const designFile       = path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`);
-  const scenariosFile    = path.join(projectRoot, 'docs', 'ui-scenarios', `${featureId}.scenarios.yaml`);
+  const designFile       = artifacts.resolveDesignPath(featureId);
+  const scenariosFile    = artifacts.resolveUiScenarioPath(featureId);
   const inputFiles       = [worktreePath, diffPath, designFile];
   if (fs.existsSync(scenariosFile)) inputFiles.push(scenariosFile);
 
@@ -1405,7 +1407,7 @@ async function main() {
   // 5. 加载 design.json（供确定性预检使用）
   const designMap = {};
   for (const fid of featureIds) {
-    const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile = artifacts.designPath(fid);
     if (fs.existsSync(designFile)) {
       try {
         designMap[fid] = JSON.parse(fs.readFileSync(designFile, 'utf8'));

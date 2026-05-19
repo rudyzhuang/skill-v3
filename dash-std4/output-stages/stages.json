@@ -134,8 +134,8 @@
             ],
             "dependencies": [],
             "sources": {
-              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           },
           {
@@ -152,8 +152,8 @@
               "AUTH-LOGIN-001"
             ],
             "sources": {
-              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           },
           {
@@ -167,7 +167,7 @@
             ],
             "dependencies": [],
             "sources": {
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           },
           {
@@ -181,7 +181,7 @@
             ],
             "dependencies": [],
             "sources": {
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           },
           {
@@ -199,8 +199,8 @@
               "PROJECT-LIST-001"
             ],
             "sources": {
-              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           },
           {
@@ -217,8 +217,8 @@
               "PROJECT-LIST-001"
             ],
             "sources": {
-              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           },
           {
@@ -235,8 +235,8 @@
               "AUTH-LOGIN-001"
             ],
             "sources": {
-              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
-              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json"
+              "admin": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-admin.json",
+              "backend": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json"
             }
           }
         ],
@@ -251,20 +251,20 @@
         "checked_at": "2026-05-19 22:48:16 +0800",
         "summary": null,
         "required_files": [
-          "docs/prd-spec.md",
-          "docs/prd-admin.json",
-          "docs/prd-backend.json",
+          "output-stages/prd/prd-spec.md",
+          "output-stages/prd/prd-admin.json",
+          "output-stages/prd/prd-backend.json",
           "docs/config.dev.json"
         ],
         "missing_required_fields": [],
         "warnings": []
       },
       "generated_files": [
-        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-spec.md",
-        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-admin.json",
-        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-backend.json",
-        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/feature_list-admin.md",
-        "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/feature_list-backend.md"
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-spec.md",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-admin.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-backend.json",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/feature_list-admin.md",
+        "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/feature_list-backend.md"
       ],
       "blocking_issues": [],
       "git_sync": {
@@ -335,7 +335,7 @@
       "inputs": {
         "prd_spec_hash": "970b1fdac677a7c8af4ca9cb1cce3b6eae291072aa2055ccb344429ea0ffab5e",
         "requires_stage": "prd",
-        "source_prd_spec": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/prd-spec.md",
+        "source_prd_spec": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/prd/prd-spec.md",
         "feature_index_ref": "stages.prd.outputs.features",
         "per_target_hashes": {
           "admin": "df804b7143f340695aee6c637c0b80e267cb5b55905de3dd736115761e213c0a",
@@ -491,7 +491,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/AUTH-LOGIN-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/AUTH-LOGIN-001.design.json",
           "design_hash": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
           "error": null
         },
@@ -501,7 +501,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/AUTH-USER-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/AUTH-USER-001.design.json",
           "design_hash": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
           "error": null
         },
@@ -511,7 +511,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/PROJECT-LIST-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/PROJECT-LIST-001.design.json",
           "design_hash": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4",
           "error": null
         },
@@ -521,7 +521,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/PROJECT-DASH-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/PROJECT-DASH-001.design.json",
           "design_hash": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",
           "error": null
         },
@@ -531,7 +531,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/PROJECT-CREATE-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/PROJECT-CREATE-001.design.json",
           "design_hash": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
           "error": null
         },
@@ -541,7 +541,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/BACKEND-API-QUERY-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/BACKEND-API-QUERY-001.design.json",
           "design_hash": "bd3f2dc8695fe037195fcce26cadf5b826c4900a9fb8495fdeeacb2d86330946",
           "error": null
         },
@@ -551,7 +551,7 @@
           "started_at": null,
           "completed_at": "2026-05-19 22:50:50 +0800",
           "attempts": 0,
-          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/designs/BACKEND-API-PIPELINE-001.design.json",
+          "design_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/design/BACKEND-API-PIPELINE-001.design.json",
           "design_hash": "8eeefc5e8ba18fb26362352c72ec207cc990d472918c09c4acfd5f70983e45e5",
           "error": null
         }
@@ -1239,7 +1239,7 @@
         "PROJECT-CREATE-001": {
           "status": "completed",
           "completed_at": "2026-05-19 23:48:49 +0800",
-          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/PROJECT-CREATE-001.scenarios.yaml",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/create-ui-scenarios/PROJECT-CREATE-001.scenarios.yaml",
           "scenario_hash": "ba84e9de45d09a355c8029422a1bb55e30632246434c5a2ff26e37c9ee1b0623",
           "scenarios_count": 9,
           "design_hash": "e7d6747701d3ffa17a2758a92983b1d75c6c4229d5fdc92e8e4a5637fd9c0c7b",
@@ -1249,7 +1249,7 @@
         "AUTH-USER-001": {
           "status": "completed",
           "completed_at": "2026-05-19 23:49:16 +0800",
-          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/AUTH-USER-001.scenarios.yaml",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/create-ui-scenarios/AUTH-USER-001.scenarios.yaml",
           "scenario_hash": "e7b5329318d58fb0dea2d1edb8fb9cb337b9289d7e44db42eb070e14790988a1",
           "scenarios_count": 9,
           "design_hash": "f03cffd0e8806198889f2cb9a3e6bd93a74bb70db26c221dad883de2d567165a",
@@ -1259,7 +1259,7 @@
         "AUTH-LOGIN-001": {
           "status": "completed",
           "completed_at": "2026-05-19 23:49:37 +0800",
-          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/AUTH-LOGIN-001.scenarios.yaml",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/create-ui-scenarios/AUTH-LOGIN-001.scenarios.yaml",
           "scenario_hash": "e5757445df8cae413e687b73efc801d5d3d2ca4d9bde9df6e9d9f368aa7fbcf8",
           "scenarios_count": 7,
           "design_hash": "9d4a45a2c57917f12bd3da9bd847bb4b134e9cf8217ec78a1681653b27d96d57",
@@ -1269,7 +1269,7 @@
         "PROJECT-LIST-001": {
           "status": "completed",
           "completed_at": "2026-05-19 23:50:30 +0800",
-          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/PROJECT-LIST-001.scenarios.yaml",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/create-ui-scenarios/PROJECT-LIST-001.scenarios.yaml",
           "scenario_hash": "5441f1db1c69285d506e71367fe5096b86e661dcdf33c153ef2c32088cf2f350",
           "scenarios_count": 10,
           "design_hash": "30bd5d80e017db409ac4306dc6758b828307607260945cc4ca805cddcb078bc4",
@@ -1279,7 +1279,7 @@
         "PROJECT-DASH-001": {
           "status": "completed",
           "completed_at": "2026-05-19 23:50:58 +0800",
-          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/docs/ui-scenarios/PROJECT-DASH-001.scenarios.yaml",
+          "scenario_file": "/Users/guodongzhuang/.cursor/skills/dash-std4/output-stages/create-ui-scenarios/PROJECT-DASH-001.scenarios.yaml",
           "scenario_hash": "543e34c6d000975f4fad65af5a017c0734c0ca4a214afae6079525daee220c09",
           "scenarios_count": 10,
           "design_hash": "a42e7b64a73f45f57e7977d2c7b6b4dbe9bc55e245e43bb639703d6da6a80d1d",

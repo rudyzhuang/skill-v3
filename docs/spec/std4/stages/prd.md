@@ -8,7 +8,7 @@
 
 | 层 | 文件 | 角色 | 谁会读 |
 | --- | --- | --- | --- |
-| **内容真源** | `docs/prd-spec.md`、`docs/prd-<client_target>.json` | feature 的完整定义：`description`、`acceptance`、`api_calls`、端内字段等 | Agent（prd-review / design / design-review / codegen 等） |
+| **内容真源** | `output-stages/prd/prd-spec.md`、`output-stages/prd/prd-<client_target>.json` | feature 的完整定义：`description`、`acceptance`、`api_calls`、端内字段等 | Agent（prd-review / design / design-review / codegen 等） |
 | **索引真源** | `stages.prd.outputs.features[]` | feature 全集摘要 + 跨端归属 + 依赖图 | 所有 stage **脚本**（prd-review 门闸、design bootstrap、依赖组、调度器） |
 | **执行态** | `stages.<stage>.features.<feature_id>` | 每 stage 的逐 feature 状态（pending/completed、group_id、can_enter_codegen 等） | 当前 stage 自己与下游编排 |
 
@@ -35,11 +35,11 @@ node ai-std4/scripts/stages/prd.cjs --project=<业务项目根绝对路径>
 
 | 逻辑端名（`client_targets[]`） | 内容文件 | JSON Schema | 拷贝模板 |
 | --- | --- | --- | --- |
-| `website`、`web`、`frontend` | `docs/prd-web.json` | `prd-web.json.schema.json` | `prd-web.json.template` |
-| `admin` | `docs/prd-admin.json` | `prd-admin.json.schema.json` | `prd-admin.json.template` |
-| `backend`、`api` | `docs/prd-backend.json` | `prd-backend.json.schema.json` | `prd-backend.json.template` |
-| `mobile` | `docs/prd-mobile.json` | `prd-mobile.json.schema.json` | `prd-mobile.json.template` |
-| 其它未知端 | `docs/prd-<client_target>.json` | `prd-default.json.schema.json` | `prd-default.json.template` |
+| `website`、`web`、`frontend` | `output-stages/prd/prd-web.json` | `prd-web.json.schema.json` | `prd-web.json.template` |
+| `admin` | `output-stages/prd/prd-admin.json` | `prd-admin.json.schema.json` | `prd-admin.json.template` |
+| `backend`、`api` | `output-stages/prd/prd-backend.json` | `prd-backend.json.schema.json` | `prd-backend.json.template` |
+| `mobile` | `output-stages/prd/prd-mobile.json` | `prd-mobile.json.schema.json` | `prd-mobile.json.template` |
+| 其它未知端 | `output-stages/prd/prd-<client_target>.json` | `prd-default.json.schema.json` | `prd-default.json.template` |
 
 `stages.prd.outputs.client_targets[]` 与 `sources` 键使用**逻辑端名**；`sources` 的值指向实际上述**内容文件路径**。
 
@@ -107,15 +107,15 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
   - 若 `req_hash` 命中 **且** `prd-spec.md` 已存在 **且** `status ≠ completed`：跳过 Agent-A（写 `agent_skipped`），写 `stages.prd.status=running`，继续步骤 3（Agent-B 按端检查）；
   - 否则（req_hash miss 或 prd-spec.md 不存在）：继续执行步骤 2（Agent-A 全量运行）。
 
-- 判断 `<业务项目根绝对路径>/docs/prd-spec.md` 是否存在；若不存在，从 [`prd-spec.md.template`](../templates/prd-spec.md.template) 拷贝。
+- 判断 `<业务项目根绝对路径>/output-stages/prd/prd-spec.md` 是否存在；若不存在，从 [`prd-spec.md.template`](../templates/prd-spec.md.template) 拷贝。
 
 2. **Agent-A（补全 prd-spec，单次调用）**：脚本写 `stages.prd.status=running` 后启动，按 `ai-std4/prompts/prd-spec-author.md` 提示词执行：
-- 同时精读 `<业务项目根绝对路径>/inputs/req.md`（需求原文）与已存在的 `<业务项目根绝对路径>/docs/prd-spec.md`（现有草稿，若为空模板则视为全新），**增量补全** prd-spec，产出 **`<业务项目根绝对路径>/docs/prd-spec.md`**（中文、含 `## 客户端目标` 列表与 `## 核心功能` 表）。
+- 同时精读 `<业务项目根绝对路径>/inputs/req.md`（需求原文）与已存在的 `<业务项目根绝对路径>/output-stages/prd/prd-spec.md`（现有草稿，若为空模板则视为全新），**增量补全** prd-spec，产出 **`<业务项目根绝对路径>/output-stages/prd/prd-spec.md`**（中文、含 `## 客户端目标` 列表与 `## 核心功能` 表）。
 - **超时**：受 `config.dev.json` 的 `timeouts.stages.prd_s`（默认 300 s）约束；超时退出码 **3**。
 - Agent-A 完成后退出；脚本立即计算 `prd-spec.md` SHA-256 并写入 `stages.prd.inputs.prd_spec_hash`（供步骤 3 Agent-B 按端跳过使用）；再从 prd-spec.md 解析 `client_targets[]` 列表，准备并发调用 Agent-B。
 
 3. **Agent-B（各端 prd.json，每端一个 Agent 并发）**：脚本按 `client_targets[]` 同时启动 N 个 Agent，每个 Agent 仅处理自己的端，按 `ai-std4/prompts/prd-client-author.md` 提示词执行：
-- 精读 `docs/prd-spec.md` 与当前端内容文件（见上表「内容文件」列；若不存在，脚本按映射从对应 `.template` 拷贝，未知端用 `prd-default.json.template`），**增量补全**该端 prd.json，字段：
+- 精读 `output-stages/prd/prd-spec.md` 与当前端内容文件（见上表「内容文件」列；若不存在，脚本按映射从对应 `.template` 拷贝，未知端用 `prd-default.json.template`），**增量补全**该端 prd.json，字段：
 
 > **`feature_id` 命名规则**（与 v3 prd-spec 保持一致）：
 >
@@ -157,7 +157,7 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
     "constraints": ["..."]
     }
 ```
-- 同时产出 **`<业务项目根绝对路径>/docs/feature_list-<client_target>.md`**（Markdown 表，每行一个 feature_id，含名称、优先级、阶段）。
+- 同时产出 **`<业务项目根绝对路径>/output-stages/prd/feature_list-<client_target>.md`**（Markdown 表，每行一个 feature_id，含名称、优先级、阶段）。
 - 若该端为 **backend/api**：在 `prd-backend.json` 的 `deploy.api` / `deploy.resources[]` 中声明云资源需求（Workers/D1/R2 等，**不含密钥**）；**不**直接维护完整 `config.dev.json`（由步骤 3b 推断）。
 - 各端 Agent-B 超时同受 `config.dev.json` 的 `timeouts.stages.prd_s` 约束；单端超时不影响其他端，该端记 `agent_failed`，退出码 **4**（全部端完成后汇总失败）。
 - 所有 Agent-B 全部完成后，执行 **步骤 3b**。
@@ -180,7 +180,7 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 >
 > | 机制 | 作用于 | 说明 |
 > | --- | --- | --- |
-> | **输入哈希门控** | Agent-A / Agent-B | Agent-A 跳过条件（bootstrap 中）：`req.md` SHA-256 命中 **且** `prd-spec.md` 已存在；Agent-B 各端跳过条件（步骤 3 启动前）：`prd-spec.md` SHA-256 命中（对比 `prd_spec_hash`）**且** 该端 `docs/prd-<client_target>.json` 通过 Ajv schema 校验 **且** `docs/feature_list-<client_target>.md` 已存在（写 `agent_skipped`）；全部端均跳过时直接进入步骤 4 |
+> | **输入哈希门控** | Agent-A / Agent-B | Agent-A 跳过条件（bootstrap 中）：`req.md` SHA-256 命中 **且** `prd-spec.md` 已存在；Agent-B 各端跳过条件（步骤 3 启动前）：`prd-spec.md` SHA-256 命中（对比 `prd_spec_hash`）**且** 该端 `output-stages/prd/prd-<client_target>.json` 通过 Ajv schema 校验 **且** `output-stages/prd/feature_list-<client_target>.md` 已存在（写 `agent_skipped`）；全部端均跳过时直接进入步骤 4 |
 > | **增量写保护** | Agent-A / Agent-B | Prompt 模板明确要求：**只填写占位符或新增缺失字段，禁止删除或修改已有非空内容**；Agent 产出后由脚本做 diff，若发现已有非空字段被清空则拒绝写入并重试 |
 > | **Schema 强校验 + 重试** | Agent-B | 每个端的 prd.json 产出后立即用 Ajv 校验 schema（必填字段、类型、`features[]` 非空）；校验失败则带错误提示**重试该端 Agent，最多 2 次**；仍失败退出码 **4** |
 > | **Prompt 输出格式锁定** | Agent-A / Agent-B | 提示词模板末尾附 `## 输出约束` 节，逐字要求输出格式（文件路径、必填节名称、JSON 字段名），Agent 不得自行增删顶层结构 |
@@ -188,9 +188,9 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 （下列为 validate 步骤明细，编排上紧接 3b。）
 
 **`prd-validate.cjs`（validate + write）**：
-- 校验 `docs/prd-spec.md` 存在、含 `## 客户端目标` H2、每个 `client_target` 对应的 `docs/prd-<client_target>.json` 与 `docs/feature_list-<client_target>.md` 存在。
+- 校验 `output-stages/prd/prd-spec.md` 存在、含 `## 客户端目标` H2、每个 `client_target` 对应的 `output-stages/prd/prd-<client_target>.json` 与 `output-stages/prd/feature_list-<client_target>.md` 存在。
 - 校验 `docs/config.dev.json` 存在且合法 JSON，无明文密钥（forbidden key 扫描）。
-- **聚合 features → 索引真源**：遍历所有 `docs/prd-<client_target>.json` 的 `features[]`，按 `feature_id` **去重合并**写入 **`stages.prd.outputs.features[]`**。每条记录字段与合并规则：
+- **聚合 features → 索引真源**：遍历所有 `output-stages/prd/prd-<client_target>.json` 的 `features[]`，按 `feature_id` **去重合并**写入 **`stages.prd.outputs.features[]`**。每条记录字段与合并规则：
 
 | 字段 | 来源 / 合并规则 |
 | --- | --- |
@@ -201,7 +201,7 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 | `description` | 取**最长非空**值（仅作摘要，不替代各端原文） |
 | `client_targets` | 各端 `client_target` **并集**，排序后写入 |
 | `dependencies` | 各端 `features[].dependencies[]` **并集去重**；任一 id 不在最终 `features[]` 内 → `validation_fail`，退出码 **4** |
-| `sources` | `{ "<client_target>": "docs/prd-<client_target>.json" }`，标记内容真源位置 |
+| `sources` | `{ "<client_target>": "output-stages/prd/prd-<client_target>.json" }`，标记内容真源位置 |
 
 示例：
 
@@ -215,9 +215,9 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
   "client_targets": ["backend", "mobile", "website"],
   "dependencies": [],
   "sources": {
-    "backend": "docs/prd-backend.json",
-    "mobile":  "docs/prd-mobile.json",
-    "website": "docs/prd-web.json"
+    "backend": "output-stages/prd/prd-backend.json",
+    "mobile":  "output-stages/prd/prd-mobile.json",
+    "website": "output-stages/prd/prd-web.json"
   }
 }
 ```
@@ -286,9 +286,9 @@ setup 通过（`stages.setup.status=completed`）且 `stages.setup.validation.pa
 
 | 路径 | 说明 |
 | --- | --- |
-| `docs/prd-spec.md` | PRD 总源头 |
-| `docs/prd-<client_target>.json` | 各端结构化 PRD（AI 直接消费） |
-| `docs/feature_list-<client_target>.md` | 特性表（feature_id、名称、优先级、阶段、涉及端） |
+| `output-stages/prd/prd-spec.md` | PRD 总源头 |
+| `output-stages/prd/prd-<client_target>.json` | 各端结构化 PRD（AI 直接消费） |
+| `output-stages/prd/feature_list-<client_target>.md` | 特性表（feature_id、名称、优先级、阶段、涉及端） |
 | `docs/config.dev.json` | 部署/smoke 配置初稿 |
 | `.pipeline/stages.json` | `stages.prd` 完成态：`outputs.features[]`（**索引真源**，含 `feature_id` / `name` / `priority` / `phase` / `description` / `client_targets[]` / `dependencies[]` / `sources`）、`outputs.features_hash`、`outputs.features_total`、`outputs.client_targets[]` |
 

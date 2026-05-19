@@ -37,6 +37,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const {
   loadProjectEnv,
@@ -70,6 +71,7 @@ const projectRoot       = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths             = createPipelinePaths(projectRoot);
+const artifacts         = createArtifactPaths(paths);
 
 const runId             = args['run-id'] || null;
 const featureFilter     = args.feature   || null;
@@ -236,7 +238,7 @@ function buildScenarioQueue(stages, config) {
 
     // 查找 YAML 路径
     let yamlPath = scenarioFilesMap[featureId]
-      || path.join(projectRoot, 'docs', 'ui-scenarios', `${featureId}.scenarios.yaml`);
+      || artifacts.resolveUiScenarioPath(featureId);
 
     if (!fs.existsSync(yamlPath)) continue;
 
@@ -1022,7 +1024,7 @@ async function main() {
       scenario_files: Object.fromEntries(
         [...new Set(scenarioQueue.map(sc => sc.feature_id))].map(fid => [
           fid,
-          path.join(projectRoot, 'docs', 'ui-scenarios', `${fid}.scenarios.yaml`),
+          artifacts.resolveUiScenarioPath(fid),
         ])
       ),
       deployment_urls: (deployStg && deployStg.outputs && deployStg.outputs.deployment_urls) || {},

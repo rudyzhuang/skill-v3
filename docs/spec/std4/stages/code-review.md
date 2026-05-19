@@ -72,8 +72,8 @@ effective_parallel = min(
 | `stages.codegen.outputs.feature_artifacts[]` | 已完成 codegen 的 feature 列表（`feature_id` / `commit` / `branch` / `worktree_path` / `files_changed_count` 等） |
 | `stages.codegen.features.<feature_id>` | 单 feature 详细：`commit` / `files_changed[]` / `attempts_used` / `hang_history[]` / `design_hash`（评审上下文：评审中可参考"该 feature 曾卡死 N 次"，但**不得**因此放宽标准） |
 | `<业务项目根绝对路径>/.pipeline/worktrees/v3-<feature_id>/` | 评审对象：worktree HEAD（与 `features.<id>.commit` 一致） + `git diff <base_commit>..HEAD` 变更集 |
-| `<业务项目根绝对路径>/docs/designs/<feature_id>.design.json` | 对齐基准（`file_plan` / `api_outline` / `acceptance` / `constraints` / `dependencies`） |
-| `<业务项目根绝对路径>/docs/ui-scenarios/<feature_id>.scenarios.yaml` | 可选（若已就绪）：核对验收点是否能映射到代码路径 |
+| `<业务项目根绝对路径>/output-stages/design/<feature_id>.design.json` | 对齐基准（`file_plan` / `api_outline` / `acceptance` / `constraints` / `dependencies`） |
+| `<业务项目根绝对路径>/output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` | 可选（若已就绪）：核对验收点是否能映射到代码路径 |
 | `<业务项目根绝对路径>/docs/config.dev.json` | 并发上限、`timeouts.stages.code_review_s`、`max_retries` |
 | `inputs/config.env` → `CURSOR_API_KEY` | `@cursor/sdk` |
 
@@ -120,8 +120,8 @@ effective_parallel = min(
    **单 feature 输入**（每次 Agent 调用范围）：
    - `<worktree_path>` 下全部源码（HEAD 状态，pinned 到 `features.<id>.commit`）；
    - `git diff <base_commit>..HEAD` 完整 patch（由脚本预生成 `.pipeline/code-review-<feature_id>.diff` 文件供 Agent 读，避免 Agent 反复执行 git）；
-   - `docs/designs/<feature_id>.design.json`；
-   - 可选 `docs/ui-scenarios/<feature_id>.scenarios.yaml`；
+   - `output-stages/design/<feature_id>.design.json`；
+   - 可选 `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`；
    - 注入 prompt 的 `deterministic_issues[]`（脚本预先发现的越界/缺失项，要求 Agent 在 `issues[]` 中**复述并扩充**，不得忽略）；
    - 注入 prompt 的 codegen 上下文摘要（`commit` / `files_changed_count` / `attempts_used` / `hang_kinds[]`），仅供参考。
 

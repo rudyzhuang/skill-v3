@@ -9,8 +9,8 @@
 
 ## 必读
 
-- `docs/designs/<feature_id>.design.json`
-- `docs/prd-spec.md`、本 feature 涉及的各端 PRD
+- `output-stages/design/<feature_id>.design.json`
+- `output-stages/prd/prd-spec.md`、本 feature 涉及的各端 PRD
 - `stages.prd_review.review.phase_plan[]`（分期目标）
 
 ## 硬约束

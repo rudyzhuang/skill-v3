@@ -2,7 +2,7 @@
 
 [← 规范索引](../std4.md) · [门闸链](../std4.md#2-门闸链汇总) · [编排映射](../std4.md#3-run-pipelinecjs-编排映射) · [卡点速查](../std4.md#4-agent-卡点速查)
 
-> 在 **`create-ui-scenarios`** 与 **`deploy`** 均就绪后，按 **`docs/ui-scenarios/<feature_id>.scenarios.yaml`** 中的场景定义，用 **MCP** 驱动各端 UI 验收。
+> 在 **`create-ui-scenarios`** 与 **`deploy`** 均就绪后，按 **`output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`** 中的场景定义，用 **MCP** 驱动各端 UI 验收。
 >
 > **执行器**：`website` / `admin`（`platform=web`）→ **`ui-e2e-runner.cjs`** + Playwright/HTTP；`android` / `ios` → **`ui-e2e-dart-runner.cjs`**（Flutter CLI：`prepareMobileSession` + 单场景 `integration_test/<scenario_id>_test.dart` 或深链 `navigate` + 脚本 `expect[]`；失败时 `adb`/`simctl` 截图）。**`desktop` 本期不实现**。
 >
@@ -61,7 +61,7 @@ node ai-std4/scripts/stages/ui-e2e.cjs --project=<路径> --use-sdk-scenarios
 | --- | --- |
 | **stage 启动** | `stages.create_ui_scenarios.status ∈ {completed, skipped}` **且** `stages.deploy.status ∈ {completed, skipped}` |
 | **配置** | `ui_e2e.enabled=true`；否则 `status=skipped`、退出 **0** |
-| **场景来源** | 对每个候选 `feature_id`：`stages.create_ui_scenarios.features.<id>.status=completed` 且 `docs/ui-scenarios/<id>.scenarios.yaml` 存在并通过 Ajv |
+| **场景来源** | 对每个候选 `feature_id`：`stages.create_ui_scenarios.features.<id>.status=completed` 且 `output-stages/create-ui-scenarios/<id>.scenarios.yaml` 存在并通过 Ajv |
 | **代码来源** | `stages.codegen.features.<id>.status=completed`（无代码则该 feature 下全部场景 `skipped`，`reason: no_codegen`） |
 | **部署 URL** | `platform=web` 场景须能解析 `base_url`（来自 `deploy.outputs.services[]`）；`deploy.skipped` 时 web 场景须 YAML 内写绝对 URL 或 config 覆盖 |
 | **deploy 内联 smoke**（可选） | `ui_e2e.require_deploy_smoke_passed=true`（默认）时须 `deploy.outputs.inline_smoke_passed=true`（`deploy` 跳过时视为满足） |
@@ -103,7 +103,7 @@ effective_parallel = min(
 
 | 来源 | 要求 |
 | --- | --- |
-| `docs/ui-scenarios/<feature_id>.scenarios.yaml` | [create-ui-scenarios](create-ui-scenarios.md) 产出；Ajv：`ui-scenarios.yaml.schema.json` |
+| `output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml` | [create-ui-scenarios](create-ui-scenarios.md) 产出；Ajv：`ui-scenarios.yaml.schema.json` |
 | `stages.deploy.outputs.services[]` | 解析 `{base_url}`、`ui_e2e.web.<client_target>.base_url_from` |
 | `stages.codegen.features.<feature_id>` | `worktree_path` / `commit` / `branch`（修复子链与日志关联） |
 | `docs/config.dev.json` | `ui_e2e.*`、`timeouts.*` |

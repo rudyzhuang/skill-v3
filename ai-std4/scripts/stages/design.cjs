@@ -34,6 +34,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
@@ -54,6 +55,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -347,7 +349,7 @@ async function doBootstrap(stagesObj, config) {
 
   // 计算 hash
   const phasePlanHashNew = computePhasePlanHash(phasePlan);
-  const prdSpecPath      = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const prdSpecPath      = artifacts.prdSpecPath();
   const prdSpecHashNew   = fileSha256(prdSpecPath);
 
   const existingDesign = stagesObj.stages && stagesObj.stages.design;
@@ -359,7 +361,7 @@ async function doBootstrap(stagesObj, config) {
       const designFeatures = existingDesign.features || {};
       const allFresh = targetFeatureIds.every(fid => {
         const storedHash  = designFeatures[fid] && designFeatures[fid].design_hash;
-        const currentHash = fileSha256(path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`));
+        const currentHash = fileSha256(artifacts.designPath(fid));
         return storedHash && currentHash && storedHash === currentHash;
       });
       if (allFresh) {
@@ -515,21 +517,21 @@ async function invokeDesignAgent({ featureId, featureMeta, model, timeoutMs }) {
 
   // 依赖 feature 的 design.json 路径
   const depDesignFiles = (featureMeta.dependencies || [])
-    .filter(d => fs.existsSync(path.join(projectRoot, 'docs', 'designs', `${d}.design.json`)))
-    .map(d => path.join(projectRoot, 'docs', 'designs', `${d}.design.json`));
+    .filter(d => fs.existsSync(artifacts.designPath(d)))
+    .map(d => artifacts.designPath(d));
 
   // 涉及的 PRD / feature_list 文件
   const clientTargets = featureMeta.client_targets || (featureMeta.client_target ? [featureMeta.client_target] : []);
   const prdFiles = [];
   for (const ct of clientTargets) {
-    const pf = path.join(projectRoot, 'docs', `prd-${ct}.json`);
-    const fl = path.join(projectRoot, 'docs', `feature_list-${ct}.md`);
+    const pf = artifacts.resolvePrdClientJsonPath(`prd-${ct}.json`);
+    const fl = artifacts.resolveFeatureListPath(ct);
     if (fs.existsSync(pf)) prdFiles.push(pf);
     if (fs.existsSync(fl)) prdFiles.push(fl);
   }
 
-  const prdSpecPath = path.join(projectRoot, 'docs', 'prd-spec.md');
-  const designDir   = path.join(projectRoot, 'docs', 'designs');
+  const prdSpecPath = artifacts.prdSpecPath();
+  const designDir   = artifacts.designDir();
   const outputFile  = path.join(designDir, `${featureId}.design.json`);
 
   // 注入上下文
@@ -601,7 +603,7 @@ async function invokeDesignAgent({ featureId, featureMeta, model, timeoutMs }) {
 // ── 单 feature Agent（带重试 + schema 校验）──────────────────────
 async function runDesignAgentForFeature({ featureId, featureMeta, model, timeoutMs, maxRetries }) {
   const agentId    = `design-agent-${featureId}`;
-  const outputFile = path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`);
+  const outputFile = artifacts.designPath(featureId);
 
   let lastError = null;
   let timedOut  = false;
@@ -725,7 +727,7 @@ async function runAgentsConcurrent({ readyFeatureIds, featuresMap, config, progr
       if (progress && !result.stopped) {
         const completedAtStr = formatLocalTimeShort();
         if (result.success) {
-          const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+          const designFile = artifacts.designPath(fid);
           await progress.patchFeature('design', fid, {
             status:       'completed',
             completed_at: completedAtStr,
@@ -802,7 +804,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     if (!featureStatuses[fid] || featureStatuses[fid].status !== 'pending') continue;
     if (forceRerun) continue;
 
-    const designFile  = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile  = artifacts.designPath(fid);
     if (!fs.existsSync(designFile)) continue;
 
     const storedHash  = featureStatuses[fid].design_hash;
@@ -922,7 +924,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     const fStatus        = featureStatusesFresh[r.featureId] || {};
 
     if (r.success) {
-      const designFile = path.join(projectRoot, 'docs', 'designs', `${r.featureId}.design.json`);
+      const designFile = artifacts.designPath(r.featureId);
       fStatus.status       = 'completed';
       fStatus.completed_at = completedAtStr;
       fStatus.design_file  = designFile;
@@ -987,7 +989,7 @@ async function doValidate(stagesObj, targetFeatureIds, config) {
   const designSpecs  = [];
 
   for (const fid of targetFeatureIds) {
-    const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile = artifacts.designPath(fid);
 
     if (!fs.existsSync(designFile)) {
       if (featureStatuses[fid] && featureStatuses[fid].status === 'completed') {

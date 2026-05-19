@@ -62,7 +62,8 @@ flowchart TB
 
   subgraph Biz["业务项目（你的代码仓）"]
     IN["inputs/<br/>需求与密钥"]
-    DOC["docs/<br/>需求文档、设计、配置"]
+    DOC["docs/<br/>仅流水线配置"]
+    OUT["output-stages/<br/>各阶段产物（PRD/设计/场景等）"]
     SRC["src/<br/>各端源代码"]
     PIPE[".pipeline/<br/>进度与停止信号"]
     LOG["logs/<br/>运行日志"]

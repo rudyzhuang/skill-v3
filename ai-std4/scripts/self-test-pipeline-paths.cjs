@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createPipelinePaths } = require('./libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('./libs/artifact-paths.cjs');
 
 let failed = 0;
 function assert(cond, msg) {
@@ -32,6 +33,12 @@ assert(paths.worktreeDir('AUTH-001').endsWith('output-stages/codegen/worktrees/v
 
 paths.writeStagesJson({ pipeline: {}, stages: {} });
 assert(fs.existsSync(paths.stagesJsonPath), 'writeStagesJson creates file');
+
+const artifacts = createArtifactPaths(paths);
+assert(artifacts.prdSpecPath().includes('output-stages/prd/prd-spec.md'), 'prd-spec under output-stages/prd');
+assert(artifacts.designPath('X').includes('output-stages/design/X.design.json'), 'design under output-stages/design');
+assert(artifacts.uiScenarioPath('X').includes('output-stages/create-ui-scenarios/X.scenarios.yaml'), 'ui scenario path');
+assert(artifacts.prdSpecRel() === 'output-stages/prd/prd-spec.md', 'prd-spec rel path');
 
 if (failed > 0) process.exit(1);
 console.log('\nAll tests passed.');

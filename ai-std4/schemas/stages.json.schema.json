@@ -166,7 +166,7 @@
                   },
                   "sources": {
                     "type": "object",
-                    "description": "{ <client_target>: <docs/prd-<client_target>.json> }，指向各端内容真源",
+                    "description": "{ <client_target>: <output-stages/prd/prd-<client_target>.json 或映射文件名> }，指向各端内容真源",
                     "additionalProperties": { "type": "string" }
                   }
                 }

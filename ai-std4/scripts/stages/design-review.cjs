@@ -35,6 +35,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const { createStagesJsonWriteQueue } = require('../libs/stages-json-write-queue.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
@@ -55,6 +56,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -203,7 +205,7 @@ function computeDesignBundleHash(designFeatures) {
     .sort();
   if (completedIds.length === 0) return null;
   const hashes = completedIds.map(fid => {
-    const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const p = artifacts.designPath(fid);
     return fileSha256(p);
   });
   return crypto.createHash('sha256')
@@ -257,7 +259,7 @@ function runDeterministicChecks(stagesObj, targetFeatureIds) {
   // 检查跨 feature modify_files 路径冲突
   const modifyFileOwners = {};
   for (const fid of targetFeatureIds) {
-    const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile = artifacts.designPath(fid);
     if (!fs.existsSync(designFile)) continue;
     try {
       const data = JSON.parse(fs.readFileSync(designFile, 'utf8'));
@@ -275,7 +277,7 @@ function runDeterministicChecks(stagesObj, targetFeatureIds) {
   const result = {};
   for (const fid of targetFeatureIds) {
     const gaps = [];
-    const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile = artifacts.designPath(fid);
     if (!fs.existsSync(designFile)) continue;
 
     let data;
@@ -476,7 +478,7 @@ async function doBootstrap(stagesObj, config) {
       phase_plan_hash:    phasePlanHashNew,
       design_hashes:      Object.fromEntries(
         targetFeatureIds.map(fid => {
-          const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+          const p = artifacts.designPath(fid);
           return [fid, fileSha256(p)];
         })
       ),
@@ -539,8 +541,8 @@ async function invokeReviewAgent({ featureId, featureMeta, stagesObj, model, tim
 
   let promptContent = fs.readFileSync(promptPath, 'utf8');
 
-  const designFile = path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`);
-  const prdSpecPath = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const designFile = artifacts.designPath(featureId);
+  const prdSpecPath = artifacts.prdSpecPath();
   const outputFile  = paths.stageOutputFile('design-review', `design-review-${featureId}.json`);
   paths.ensureOutputStagesDir('design-review');
 
@@ -554,8 +556,8 @@ async function invokeReviewAgent({ featureId, featureMeta, stagesObj, model, tim
   const clientTargets = fMeta.client_targets || (fMeta.client_target ? [fMeta.client_target] : []);
   const prdFiles = [];
   for (const ct of clientTargets) {
-    const pf = path.join(projectRoot, 'docs', `prd-${ct}.json`);
-    const fl = path.join(projectRoot, 'docs', `feature_list-${ct}.md`);
+    const pf = artifacts.resolvePrdClientJsonPath(`prd-${ct}.json`);
+    const fl = artifacts.resolveFeatureListPath(ct);
     if (fs.existsSync(pf)) prdFiles.push(pf);
     if (fs.existsSync(fl)) prdFiles.push(fl);
   }
@@ -706,7 +708,7 @@ async function runReviewAgentForFeature({ featureId, featureMeta, stagesObj, mod
 
     // 成功
     const reviewHash = fileSha256(outputFile);
-    const designHash = fileSha256(path.join(projectRoot, 'docs', 'designs', `${featureId}.design.json`));
+    const designHash = fileSha256(artifacts.designPath(featureId));
     const gaps       = outputData.gaps || [];
     const blockingGaps = gaps.filter(isBlockingGap);
     const decision   = outputData.outputs && outputData.outputs.decision;
@@ -981,7 +983,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     // 单 feature hash 门控：design.json hash 命中且上次 decision=passed → 跳过 Agent
     if (!forceRerun) {
       const storedDesignHash  = featureStatuses[fid] && featureStatuses[fid].design_hash;
-      const currentDesignHash = fileSha256(path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`));
+      const currentDesignHash = fileSha256(artifacts.designPath(fid));
       const storedDecision    = featureStatuses[fid] && featureStatuses[fid].decision;
 
       if (storedDesignHash && currentDesignHash && storedDesignHash === currentDesignHash && storedDecision === 'passed') {

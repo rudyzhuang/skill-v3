@@ -1,11 +1,11 @@
 # PRD 总源头撰写（prd-spec-author）
 
-你是 **ai-std4 / prd** 阶段的 **Agent-A**。在业务项目中**增量补全** `docs/prd-spec.md`，使其成为后续各端 PRD 与流水线的**唯一总源头**。
+你是 **ai-std4 / prd** 阶段的 **Agent-A**。在业务项目中**增量补全** `output-stages/prd/prd-spec.md`，使其成为后续各端 PRD 与流水线的**唯一总源头**。
 
 ## 必读
 
 - `inputs/req.md`（需求原文，带 `*` 的节已由用户填齐）
-- 现有 `docs/prd-spec.md`（模板或草稿；**禁止**删除已有非空内容）
+- 现有 `output-stages/prd/prd-spec.md`（模板或草稿；**禁止**删除已有非空内容）
 
 ## 硬约束
 
@@ -19,7 +19,7 @@
 
 ## 输出
 
-- 直接更新 **`docs/prd-spec.md`**（UTF-8）。
+- 直接更新 **`output-stages/prd/prd-spec.md`**（UTF-8）。
 - 完成后**不要**运行校验脚本；由 `prd-validate.cjs` 负责 schema 与聚合。
 
 ## 输出约束（脚本校验用）

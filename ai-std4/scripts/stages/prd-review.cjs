@@ -25,6 +25,7 @@ const path   = require('path');
 const crypto = require('crypto');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
 const { activateDeployServicesOnPrdReviewPass } = require('../libs/activate-deploy-services.cjs');
@@ -45,6 +46,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -176,7 +178,7 @@ function buildPrdReviewSkeleton({ status, startedAtStr, existing }) {
     inputs: Object.assign({}, base.inputs || {}, {
       prd_spec_hash:     (base.inputs && base.inputs.prd_spec_hash) || null,
       requires_stage:    'prd',
-      source_prd_spec:   path.join(projectRoot, 'docs', 'prd-spec.md'),
+      source_prd_spec:   artifacts.prdSpecPath(),
       feature_index_ref: 'stages.prd.outputs.features',
       per_target_hashes: (base.inputs && base.inputs.per_target_hashes) || {},
     }),
@@ -357,9 +359,9 @@ async function invokeAgent(opts) {
 async function runReviewAgentForTarget({ clientTarget, model, timeoutMs, maxRetries, featuresInScope }) {
   const promptFile  = resolvePromptFile(clientTarget);
   const prdFileName = resolvePrdFileName(clientTarget);
-  const prdFile     = path.join(projectRoot, 'docs', prdFileName);
-  const flFile      = path.join(projectRoot, 'docs', `feature_list-${clientTarget}.md`);
-  const prdSpec     = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const prdFile     = artifacts.prdClientJsonPath(prdFileName);
+  const flFile      = artifacts.featureListPath(clientTarget);
+  const prdSpec     = artifacts.prdSpecPath();
   const outputFile  = paths.stageOutputFile('prd-review', `prd-review-${clientTarget}.json`);
   const agentId     = `prd-review-agent-${clientTarget}`;
 
@@ -847,7 +849,7 @@ async function main() {
   const timeoutMs = timeoutS * 1000;
 
   // 3. hash 门控（整段跳过判断）
-  const prdSpecPath       = path.join(projectRoot, 'docs', 'prd-spec.md');
+  const prdSpecPath       = artifacts.prdSpecPath();
   const currentPrdSpecHash = fileSha256(prdSpecPath);
 
   if (!forceRerun) {
@@ -871,7 +873,7 @@ async function main() {
 
       let allTargetHashesHit = specHashHit;
       for (const ct of clientTargets) {
-        const prdFile    = path.join(projectRoot, 'docs', resolvePrdFileName(ct));
+        const prdFile    = artifacts.prdClientJsonPath(resolvePrdFileName(ct));
         const curHash    = fileSha256(prdFile);
         const storedHash = storedPerTargetHashes[ct];
         const hit        = !!(curHash && storedHash && curHash === storedHash);
@@ -961,7 +963,7 @@ async function main() {
   const skippedTargets = [];
 
   for (const ct of clientTargets) {
-    const prdFile    = path.join(projectRoot, 'docs', resolvePrdFileName(ct));
+    const prdFile    = artifacts.prdClientJsonPath(resolvePrdFileName(ct));
     const curHash    = fileSha256(prdFile);
     const storedHash = storedPerTargetHashes[ct];
     const outputFile = paths.stageOutputFile('prd-review', `prd-review-${ct}.json`);
@@ -1178,7 +1180,7 @@ async function main() {
   const finalPrdSpecHash     = fileSha256(prdSpecPath);
   const finalPerTargetHashes = {};
   for (const ct of clientTargets) {
-    finalPerTargetHashes[ct] = fileSha256(path.join(projectRoot, 'docs', resolvePrdFileName(ct)));
+    finalPerTargetHashes[ct] = fileSha256(artifacts.prdClientJsonPath(resolvePrdFileName(ct)));
   }
 
   // 构建 client_results

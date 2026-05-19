@@ -33,6 +33,7 @@ const crypto = require('crypto');
 const { execSync, spawn } = require('child_process');
 
 const { createPipelinePaths } = require('../libs/pipeline-paths.cjs');
+const { createArtifactPaths } = require('../libs/artifact-paths.cjs');
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const {
   ensureProjectGitRepo,
@@ -56,6 +57,7 @@ const projectRoot = args.project
     ? path.resolve(process.env.AI_STD4_PROJECT)
     : process.cwd();
 const paths = createPipelinePaths(projectRoot);
+const artifacts = createArtifactPaths(paths);
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   || path.join(process.env.HOME || process.env.USERPROFILE, '.cursor', 'skills');
@@ -372,7 +374,7 @@ function computeReleaseBundleHash(stagesObj) {
     .sort();
   if (releasedIds.length === 0) return null;
   const hashes = releasedIds.map(fid => {
-    const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const p = artifacts.designPath(fid);
     return fileSha256(p);
   });
   return crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex');
@@ -389,7 +391,7 @@ function computeDesignBundleHash(stagesObj) {
     .sort();
   if (completedIds.length === 0) return null;
   const hashes = completedIds.map(fid => {
-    const p = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const p = artifacts.designPath(fid);
     return fileSha256(p);
   });
   return crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex');
@@ -594,7 +596,7 @@ async function doBootstrap(stagesObj, config) {
     // 确定性预检：design.json 的 file_plan
     let isBlocking    = false;
     let isPendingDep  = false;
-    const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile = artifacts.designPath(fid);
     let designData   = null;
     if (fs.existsSync(designFile)) {
       try { designData = JSON.parse(fs.readFileSync(designFile, 'utf8')); } catch (_) { /* */ }
@@ -781,7 +783,7 @@ function spawnWorker(featureId, attemptIndex, stagesObj, config) {
     worktree_path: cgFeature.worktree_path,
     branch:       cgFeature.branch,
     pid:          child.pid,
-    input_files:  [`docs/designs/${featureId}.design.json`],
+    input_files:  [artifacts.designRel(featureId)],
   });
 
   return child.pid;
@@ -866,7 +868,7 @@ function spawnInlineWorker(featureId, attemptIndex, stagesObj, config) {
     worktree_path: wtPath,
     branch:        cgFeature.branch,
     pid:           child.pid,
-    input_files:   [`docs/designs/${featureId}.design.json`],
+    input_files:   [artifacts.designRel(featureId)],
   });
 
   return child.pid;
@@ -993,14 +995,14 @@ async function main() {
   }
 
   // 获取 design.json
-  const designFile = path.join(projectRoot, 'docs', 'designs', featureId + '.design.json');
+  const designFile = artifacts.designPath(featureId);
   let designData = null;
   if (fs.existsSync(designFile)) {
     try { designData = JSON.parse(fs.readFileSync(designFile, 'utf8')); } catch(_) {}
   }
 
   // 获取 scenarios（可选）
-  const scenariosFile = path.join(projectRoot, 'docs', 'ui-scenarios', featureId + '.scenarios.yaml');
+  const scenariosFile = artifacts.resolveUiScenarioPath(featureId);
 
   // 写 resume context（若 attemptIndex >= 2）
   if (attemptIndex >= 2 && hangHistory.length > 0) {
@@ -1603,7 +1605,7 @@ async function doTick(stagesObj, config, featureFilterId) {
     }
 
     // 检查依赖是否满足
-    const designFile = path.join(projectRoot, 'docs', 'designs', `${fid}.design.json`);
+    const designFile = artifacts.designPath(fid);
     if (fs.existsSync(designFile)) {
       try {
         const dd = JSON.parse(fs.readFileSync(designFile, 'utf8'));

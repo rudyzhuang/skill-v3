@@ -8,11 +8,11 @@
 
 ## 必读
 
-- **仅** `docs/designs/<feature_id>.design.json`
+- **仅** `output-stages/design/<feature_id>.design.json`
 
 ## 硬约束
 
-1. **仅写一个文件**：`docs/ui-scenarios/<feature_id>.scenarios.yaml`。
+1. **仅写一个文件**：`output-stages/create-ui-scenarios/<feature_id>.scenarios.yaml`。
 2. **禁止**改 `design.json` 或其它路径。
 3. `client_target` 须为 `website` | `admin` | `mobile` 之一，与 design 主责端一致。
 4. 每个 scenario：

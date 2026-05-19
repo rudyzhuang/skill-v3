@@ -6,7 +6,7 @@
 
 1. **`.codegen-resume-context.json`**（worktree 根，**最高优先级**）
 2. `git log -p <base_commit>..HEAD` 与 `git diff <base_commit>..HEAD`
-3. `docs/designs/<feature_id>.design.json`
+3. `output-stages/design/<feature_id>.design.json`
 
 ## 硬约束（来自 context.constraints，不得违反）
 
