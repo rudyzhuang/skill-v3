@@ -358,13 +358,17 @@ async function runBuildPhase() {
 
     if (cgTick === 5 || uisTick === 5) return 5;
     if (cgTick !== 0) {
-      log.warn('stage_failed', `codegen --tick 返回非零退出码 ${cgTick}，继续下一轮`, {
+      const lvl = cgTick === 4 ? 'error' : 'warn';
+      log[lvl]('stage_failed', `codegen --tick 返回非零退出码 ${cgTick}`, {
         stage: 'codegen', exit_code: cgTick, phase: 'build_phase',
+        note: cgTick === 4 ? 'feature 级失败已落盘，将尽快结束 build_phase' : '继续下一轮 tick',
       });
     }
     if (uisTick !== 0) {
-      log.warn('stage_failed', `create-ui-scenarios --tick 返回非零退出码 ${uisTick}，继续下一轮`, {
+      const lvl = uisTick === 4 ? 'error' : 'warn';
+      log[lvl]('stage_failed', `create-ui-scenarios --tick 返回非零退出码 ${uisTick}`, {
         stage: 'create-ui-scenarios', exit_code: uisTick, phase: 'build_phase',
+        note: uisTick === 4 ? 'agent/校验失败，将尽快结束 build_phase' : '继续下一轮 tick',
       });
     }
 

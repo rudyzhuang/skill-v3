@@ -507,7 +507,7 @@ after report.cjs exit 0:
 | 非 **不可恢复** | **`5`** stopped、**`9`** blocked、**`2`** pending_user_input → **不**触发 |
 | `pipeline.recovery.enabled=true` | 默认 **true**；`false` 时仅记日志，行为与现网一致（继续后续 step） |
 | `CURSOR_API_KEY` 已设置（`loadProjectEnv` 后） | 未设置 → 写 `recovery_skipped`（WARN），不派发 Agent |
-| 未超 `max_attempts_per_stage` | 默认每 step 每 session **2** 次 recovery |
+| 未超 `max_attempts_per_stage` | 默认每 **(step, exit_code)** 每 session **2** 次（exit 3 与 exit 4 分开计次） |
 
 **不触发 recovery 的 step**：`report`（终点）；`setup` 退出码 **2**（等用户填表）。
 
@@ -515,19 +515,23 @@ after report.cjs exit 0:
 
 ```text
 on step exit_code ∉ {0,5,9,2} and recoverable:
-  1. assemble_error_bundle(stage, exit_code, stages.json, log_tail)
+  1. assemble_error_bundle(stage, exit_code, stages.json, log_tail, …)
      → .pipeline/pipeline-recovery-<stage>.json（含 input + 空 recovery）
+     → 附加：error_signatures、failed_features、artifact_excerpts（codegen worker）、recovery_hints
   2. spawn pipeline-recovery Agent（prompts/pipeline-recovery.md）
-     → 分析日志 / stages / 既有 *-triage*.json
+     → 分析签名 / worker 摘录 / stages / *-triage*.json
      → 修改文件（skill 或 project 二选一）
-     → self_review（自评，写入 recovery.self_review）
+     → self_review（写入 recovery.self_review）
+  3. 脚本确定性门闸（repair_target=skill 且 decision=fix）：
+     → node ai-std4/scripts/self-test-pipeline-recovery.cjs（失败则 recovery_failed，不重跑）
      → git commit + push（见下表）
-     → 写 recovery 字段，Ajv 校验 pipeline-recovery-output.schema.json
-  3. switch recovery.decision:
+     → 若 build_phase/codegen 且适用：删除 .pipeline/workers/codegen/*.tmp.cjs
+     → Ajv 校验 recovery JSON
+  4. switch recovery.decision:
        fix | retry_only → 重跑**同一 step**（复合阶段重跑整个 design_phase/build_phase）
        blocked          → 写 pipeline.recovery_blocked_at、停止后续 step（进程最终倾向 9）
        invalid/missing  → 记 recovery_failed，**不**重跑，继续原「非零仍往下」语义
-  4. 若重跑后仍失败且 attempts 未用尽 → 回到 1；用尽 → 继续后续 step（门闸会挡）或整线失败
+  5. 若重跑后仍失败且 attempts 未用尽 → 回到 1（**按 step + exit_code 计次**，exit 3 用尽仍可 recovery exit 4）
 ```
 
 #### 双仓 git 规则
@@ -554,6 +558,9 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | `recoverable_exit_codes` | `[3, 4, 6, 8]` | 触发 recovery 的 stage 退出码（**6**=merge_push 冲突，**8**=deploy 重试用尽等） |
 | `log_tail_lines` | `200` | 注入 Agent 的 stage 日志尾行数 |
 | `require_push_for_skill_fix` | `true` | skill 修复后 push 失败是否仍视为 `fix`（默认仍 `fix`，仅 WARN） |
+| `run_self_test_after_skill_fix` | `true` | `decision=fix` 且 `repair_target=skill` 后跑 `self-test-pipeline-recovery.cjs` |
+| `clear_stale_codegen_workers` | `true` | 重跑前删除 `.pipeline/workers/codegen/*.tmp.cjs`（避免旧内联 worker） |
+| `artifact_excerpt_max_bytes` | `12000` | 错误包中 worker 摘录总字节上限 |
 
 #### 日志事件（`stage=pipeline`）
 
@@ -565,6 +572,9 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | `recovery_complete` | INFO | recovery 结束 | `decision`, `will_retry_step` |
 | `recovery_blocked` | ERROR | `decision=blocked` | `user_actions[]` |
 | `recovery_skipped` | WARN | 未派发 Agent | `reason` |
+| `recovery_self_test_passed` | INFO | skill 修复后确定性自测通过 | `script` |
+| `recovery_self_test_failed` | ERROR | 自测未通过，本轮 recovery 失败 | `output` |
+| `recovery_artifacts_cleared` | INFO | 已清理 stale codegen worker | `count`, `files` |
 
 #### `stages.json` 写入
 

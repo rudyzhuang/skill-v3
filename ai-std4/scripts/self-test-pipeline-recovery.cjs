@@ -7,6 +7,7 @@
 
 const path = require('path');
 const fs   = require('fs');
+const os   = require('os');
 
 const skillsRoot = process.env.CURSOR_SKILLS_ROOT
   ? path.resolve(process.env.CURSOR_SKILLS_ROOT)
@@ -19,6 +20,11 @@ const {
   countRecoveryAttempts,
   stepToLogStages,
   readRecoveryConfig,
+  scanLogTailForSignatures,
+  collectCodegenWorkerExcerpts,
+  clearStaleCodegenWorkers,
+  shouldClearCodegenWorkers,
+  touchesCodegenSkillPath,
 } = require('./libs/pipeline-recovery.cjs');
 
 let failed = 0;
@@ -48,7 +54,7 @@ const stages = {
   stages: {},
 };
 delete process.env.CURSOR_API_KEY;
-const tmpProject = fs.mkdtempSync(path.join(require('os').tmpdir(), 'std4-recovery-'));
+const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'std4-recovery-'));
 fs.mkdirSync(path.join(tmpProject, 'docs'), { recursive: true });
 fs.writeFileSync(
   path.join(tmpProject, 'docs', 'config.dev.json'),
@@ -85,21 +91,58 @@ assert(countRecoveryAttempts(stages, 'build_phase', 't', 3) === 2, 'build_phase 
 r = shouldAttemptRecovery({ step: 'build_phase', exitCode: 4, projectRoot: tmpProject, stages, runId: 't' });
 assert(r.ok === true, 'exit 4 recoverable after exit 3 attempts exhausted');
 
-delete process.env.CURSOR_API_KEY;
+// 3. error signature scan
+const sig = scanLogTailForSignatures({
+  codegen: ['[ERROR] Cannot find module \'@cursor/sdk\''],
+});
+assert(sig.signature_ids.includes('sdk_module_not_found'), 'scan sdk signature');
 
-// 3. assemble bundle
+// 4. worker excerpts + clear
+const workerDir = path.join(tmpProject, '.pipeline', 'workers', 'codegen');
+fs.mkdirSync(workerDir, { recursive: true });
+const workerPath = path.join(workerDir, 'worker-TEST-001-1.tmp.cjs');
+fs.writeFileSync(workerPath, "const x = require('@cursor/sdk');\n", 'utf8');
+const excerpts = collectCodegenWorkerExcerpts(tmpProject, 8000);
+assert(excerpts.length >= 1 && excerpts[0].hint, 'worker excerpt hints stale template');
+const cleared = clearStaleCodegenWorkers(tmpProject, null);
+assert(cleared.removed.includes('worker-TEST-001-1.tmp.cjs'), 'clear stale tmp workers');
+
+// 5. assemble bundle (enriched)
 const bundle = assembleErrorBundle({
   projectRoot: tmpProject,
   skillsRoot,
-  step:        'prd-review',
+  step:        'build_phase',
   exitCode:    4,
   runId:       'test-run',
   attempt:     1,
-  stages:      { stages: { prd_review: { status: 'failed' } } },
+  stages:      {
+    stages: {
+      codegen: {
+        status: 'failed',
+        features: { 'AUTH-001': { status: 'failed', error: 'sdk' } },
+        outputs: { failed_features: ['AUTH-001'] },
+      },
+    },
+  },
 });
-assert(bundle.failed_stage === 'prd-review' && bundle.recovery === null, 'bundle shape');
+assert(bundle.failed_stage === 'build_phase' && bundle.recovery === null, 'bundle shape');
+assert(Array.isArray(bundle.recovery_hints) && bundle.recovery_hints.length > 0, 'bundle recovery_hints');
+assert(Array.isArray(bundle.failed_features) && bundle.failed_features.length >= 1, 'bundle failed_features');
+assert(Array.isArray(bundle.error_signatures.signature_ids), 'bundle error_signatures');
 
-// 4. Ajv
+// 6. shouldClearCodegenWorkers
+const cfg = readRecoveryConfig(tmpProject);
+assert(
+  shouldClearCodegenWorkers({
+    recovery: { decision: 'fix', repair_target: 'skill', category: 'script_bug', files_changed: ['ai-std4/scripts/stages/codegen.cjs'] },
+    step: 'build_phase',
+    cfg,
+  }),
+  'clear workers on skill codegen fix'
+);
+assert(touchesCodegenSkillPath(['ai-std4/scripts/stages/codegen.cjs']), 'touchesCodegenSkillPath');
+
+// 7. Ajv
 const sample = {
   decision:      'retry_only',
   repair_target: 'none',
@@ -113,10 +156,12 @@ assert(valid, `ajv valid retry_only (${JSON.stringify(errors)})`);
 const bad = { decision: 'fix', repair_target: 'skill', category: 'unknown' };
 assert(!validateRecovery(bad, skillsRoot).valid, 'ajv rejects missing reason');
 
-// 5. config defaults
-const cfg = readRecoveryConfig(tmpProject);
-assert(cfg.enabled === true && cfg.recoverableExitCodes.includes(4), 'config defaults');
+// 8. config defaults
+const cfg2 = readRecoveryConfig(tmpProject);
+assert(cfg2.enabled === true && cfg2.recoverableExitCodes.includes(4), 'config defaults');
+assert(cfg2.runSelfTestAfterSkillFix === true && cfg2.clearStaleCodegenWorkers === true, 'config recovery flags');
 
+delete process.env.CURSOR_API_KEY;
 fs.rmSync(tmpProject, { recursive: true, force: true });
 
 console.log(failed === 0 ? '\nAll self-tests passed.' : `\n${failed} test(s) failed.`);

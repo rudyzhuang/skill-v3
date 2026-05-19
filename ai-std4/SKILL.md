@@ -50,4 +50,4 @@ node ai-std4/scripts/run-dash.cjs --project=<路径>
 
 ## stage 失败自动修复
 
-`run-pipeline.cjs` 在 stage 可恢复失败（默认退出码 3/4）时，按 [std4 §3.4](docs/spec/std4/std4.md#34-stage-失败后的编排级自动修复run-pipeline) 调用 **pipeline-recovery**：分析日志 → 修复 → 自评 → **skill 仓或业务项目** 分别 commit/push → 重跑该 step。配置见 `docs/config.*.json` → `pipeline.recovery`。
+`run-pipeline.cjs` 在 stage 可恢复失败（默认退出码 3/4）时，按 [std4 §3.4](docs/spec/std4/std4.md#34-stage-失败后的编排级自动修复run-pipeline) 调用 **pipeline-recovery**：组装错误包（含 worker 摘录 / 错误签名 / recovery_hints）→ Agent 修复 → **self-test-pipeline-recovery.cjs** 门闸 → commit/push → 清理 stale codegen worker → 重跑该 step。按 **(step, exit_code)** 计次。配置见 `docs/config.*.json` → `pipeline.recovery`。

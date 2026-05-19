@@ -53,7 +53,178 @@ function readRecoveryConfig(projectRoot) {
       : [3, 4, 6, 8],
     logTailLines:             Number(rec.log_tail_lines) || 200,
     requirePushForSkillFix:   rec.require_push_for_skill_fix !== false,
+    runSelfTestAfterSkillFix: rec.run_self_test_after_skill_fix !== false,
+    clearStaleCodegenWorkers: rec.clear_stale_codegen_workers !== false,
+    artifactExcerptMaxBytes:  Number(rec.artifact_excerpt_max_bytes) || 12000,
   };
+}
+
+/** 日志中常见确定性错误签名（用于错误包与 recovery_hints） */
+const ERROR_SIGNATURE_PATTERNS = [
+  { id: 'sdk_module_not_found', re: /Cannot find module '@cursor\/sdk'/i,
+    hint: 'codegen 内联 worker 须用 createRequire(ai-std4/package.json) 加载 @cursor/sdk，勿依赖 worktree cwd；修复后须清理 .pipeline/workers/codegen/*.tmp.cjs' },
+  { id: 'ajv_schema_duplicate', re: /schema.*already exists|ui-scenarios\.yaml\.schema\.json/i,
+    hint: 'create-ui-scenarios 须缓存 Ajv compile（勿对同一 $id 重复 compile）' },
+  { id: 'stages_json_missing', re: /stages\.json 不存在/i,
+    hint: '先跑 setup；勿在 tick 中丢失 stages.json' },
+  { id: 'build_phase_max_iter', re: /tick 循环超出最大迭代|max_iterations/i,
+    hint: 'build_phase exit 3 常为 tick 空转；先查 codegen exit 4 / has_failed 与 worker 生成物' },
+];
+
+function scanLogTailForSignatures(logTail) {
+  const hits = [];
+  const lines = [];
+  for (const [stage, stageLines] of Object.entries(logTail || {})) {
+    for (const line of stageLines || []) {
+      for (const pat of ERROR_SIGNATURE_PATTERNS) {
+        if (pat.re.test(line)) {
+          if (!hits.includes(pat.id)) hits.push(pat.id);
+          lines.push(`[${stage}] ${line.trim()}`);
+        }
+      }
+    }
+  }
+  return { signature_ids: hits, matched_lines: lines.slice(0, 40) };
+}
+
+function collectFailedFeatures(stages, step) {
+  const out = [];
+  if (!stages || !stages.stages) return out;
+  const keys = step === 'build_phase'
+    ? ['codegen', 'create_ui_scenarios']
+    : [stageKeyInJson(step)];
+  for (const sk of keys) {
+    const st = stages.stages[sk];
+    if (!st) continue;
+    const feats = st.features || {};
+    for (const [fid, f] of Object.entries(feats)) {
+      if (!f || !['failed', 'blocked'].includes(f.status)) continue;
+      out.push({
+        feature_id: fid,
+        stage:      sk,
+        status:     f.status,
+        error:      (f.error || '').slice(0, 500),
+      });
+    }
+    if (st.status === 'failed' && st.outputs && Array.isArray(st.outputs.failed_features)) {
+      for (const fid of st.outputs.failed_features) {
+        if (!out.some(x => x.feature_id === fid && x.stage === sk)) {
+          out.push({ feature_id: fid, stage: sk, status: 'failed', error: null });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function collectCodegenWorkerExcerpts(projectRoot, maxBytes) {
+  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  if (!fs.existsSync(workerDir)) return [];
+  const excerpts = [];
+  let budget = maxBytes;
+  const files = fs.readdirSync(workerDir)
+    .filter(f => f.endsWith('.tmp.cjs') || f.endsWith('.cjs'))
+    .map(f => ({ f, m: fs.statSync(path.join(workerDir, f)).mtimeMs }))
+    .sort((a, b) => b.m - a.m)
+    .slice(0, 6);
+  for (const { f } of files) {
+    if (budget <= 0) break;
+    const fp = path.join(workerDir, f);
+    try {
+      let raw = fs.readFileSync(fp, 'utf8');
+      const sdkLine = raw.split('\n').findIndex(l => /@cursor\/sdk|createRequire/.test(l));
+      let excerpt;
+      if (sdkLine >= 0) {
+        const start = Math.max(0, sdkLine - 5);
+        excerpt = raw.split('\n').slice(start, start + 25).join('\n');
+      } else {
+        excerpt = raw.length > 2000 ? raw.slice(0, 2000) + '\n…(truncated)' : raw;
+      }
+      if (excerpt.length > budget) excerpt = excerpt.slice(0, budget) + '\n…(truncated)';
+      budget -= excerpt.length;
+      excerpts.push({
+        path:    `.pipeline/workers/codegen/${f}`,
+        excerpt,
+        hint:    /@cursor\/sdk/.test(excerpt) && !/createRequire/.test(excerpt)
+          ? 'worker 可能为旧模板（裸 require @cursor/sdk）'
+          : null,
+      });
+    } catch (_) { /* */ }
+  }
+  return excerpts;
+}
+
+function buildRecoveryHints({ exitCode, step, signatures, failedFeatures, artifactExcerpts }) {
+  const hints = [];
+  for (const id of signatures.signature_ids || []) {
+    const pat = ERROR_SIGNATURE_PATTERNS.find(p => p.id === id);
+    if (pat && pat.hint) hints.push(pat.hint);
+  }
+  if (exitCode === 3 && step === 'build_phase') {
+    hints.push('优先排查 codegen/create-ui-scenarios 的 exit 4 与 agent_failed，勿仅减少 tick 次数');
+  }
+  if ((artifactExcerpts || []).some(a => a.hint)) {
+    for (const a of artifactExcerpts) {
+      if (a.hint) hints.push(`${a.path}: ${a.hint}`);
+    }
+  }
+  if ((failedFeatures || []).length > 0) {
+    hints.push(`失败 feature 共 ${failedFeatures.length} 个，修复 skill 后脚本将清理 stale codegen worker 再重跑 step`);
+  }
+  return [...new Set(hints)];
+}
+
+function touchesCodegenSkillPath(filesChanged) {
+  if (!Array.isArray(filesChanged)) return false;
+  return filesChanged.some(f => {
+    const n = String(f).replace(/\\/g, '/');
+    return /ai-std4\/scripts\/stages\/(codegen|create-ui-scenarios)\.cjs/.test(n) ||
+      /ai-std4\/scripts\/libs\/pipeline-recovery/.test(n);
+  });
+}
+
+function shouldClearCodegenWorkers({ recovery, step, cfg }) {
+  if (!cfg.clearStaleCodegenWorkers) return false;
+  if (recovery.decision !== 'fix' && recovery.decision !== 'retry_only') return false;
+  if (step !== 'build_phase' && step !== 'codegen') return false;
+  if (recovery.decision === 'retry_only') return true;
+  if (recovery.repair_target === 'skill' && touchesCodegenSkillPath(recovery.files_changed)) return true;
+  return recovery.category === 'script_bug' && (step === 'build_phase' || step === 'codegen');
+}
+
+function clearStaleCodegenWorkers(projectRoot, log) {
+  const workerDir = path.join(projectRoot, '.pipeline', 'workers', 'codegen');
+  if (!fs.existsSync(workerDir)) return { removed: [] };
+  const removed = [];
+  for (const name of fs.readdirSync(workerDir)) {
+    if (!name.endsWith('.tmp.cjs')) continue;
+    try {
+      fs.unlinkSync(path.join(workerDir, name));
+      removed.push(name);
+    } catch (_) { /* */ }
+  }
+  if (removed.length > 0 && log) {
+    log.info('recovery_artifacts_cleared', '已清理 stale codegen worker 脚本', {
+      count: removed.length,
+      files: removed.slice(0, 20),
+    });
+  }
+  return { removed };
+}
+
+function runSkillRecoverySelfTests(skillsRoot) {
+  const script = path.join(skillsRoot, 'ai-std4', 'scripts', 'self-test-pipeline-recovery.cjs');
+  if (!fs.existsSync(script)) {
+    return { passed: true, skipped: true, output: 'self-test script missing' };
+  }
+  const r = spawnSync(process.execPath, [script], {
+    cwd:    skillsRoot,
+    env:    process.env,
+    encoding: 'utf8',
+    stdio:  ['ignore', 'pipe', 'pipe'],
+  });
+  const output = ((r.stdout || '') + (r.stderr || '')).trim();
+  return { passed: r.status === 0, skipped: false, output: output.slice(-4000) };
 }
 
 // ── step → 日志 stage 名 ──────────────────────────────────────────
@@ -192,6 +363,17 @@ function assembleErrorBundle({
     }
   }
 
+  const logTail = readLogTail(projectRoot, stepToLogStages(step), cfg.logTailLines);
+  const signatures = scanLogTailForSignatures(logTail);
+  const failedFeatures = collectFailedFeatures(stages, step);
+  const includeWorkers = step === 'build_phase' || step === 'codegen';
+  const artifactExcerpts = includeWorkers
+    ? collectCodegenWorkerExcerpts(projectRoot, cfg.artifactExcerptMaxBytes)
+    : [];
+  const recoveryHints = buildRecoveryHints({
+    exitCode, step, signatures, failedFeatures, artifactExcerpts,
+  });
+
   return {
     failed_stage:  step,
     exit_code:     exitCode,
@@ -199,14 +381,21 @@ function assembleErrorBundle({
     attempt,
     assembled_at:  require('./logger.cjs').formatLocalTimeShort(),
     skills_root:   skillsRoot,
-    log_tail:      readLogTail(projectRoot, stepToLogStages(step), cfg.logTailLines),
+    log_tail:      logTail,
+    error_signatures: signatures,
+    failed_features:  failedFeatures,
+    artifact_excerpts: artifactExcerpts,
+    recovery_hints:   recoveryHints,
     stage_snapshot: stageSnap,
     triage_artifacts: findTriageArtifacts(projectRoot),
     acceptance_criteria: [
-      '修改须能解释 exit_code 与 log_tail 中的错误信息',
+      '修改须能解释 exit_code、error_signatures 与 artifact_excerpts 中的错误',
+      '须逐条处理 recovery_hints（若存在）',
       'repair_target=skill 时仅允许修改 ai-std4/ 下文件',
       'repair_target=project 时禁止修改 ai-std4/ 与 skill 仓',
       '禁止提交 config.env、.env、密钥文件',
+      'skill 修复后由脚本跑 self-test-pipeline-recovery.cjs（勿跳过）',
+      'codegen SDK：createRequire(ai-std4/package.json)；ui-scenarios：缓存 Ajv validator',
       '输出 JSON 须满足 pipeline-recovery-output.schema.json',
     ],
     recovery: null,
@@ -497,9 +686,28 @@ async function runOneRecoveryAttempt({
     });
   }
 
+  if (recovery.decision === 'fix' && recovery.repair_target === 'skill' && cfg.runSelfTestAfterSkillFix) {
+    const stResult = runSkillRecoverySelfTests(skillsRoot);
+    if (!stResult.passed && !stResult.skipped) {
+      log.error('recovery_self_test_failed', 'skill 修复后确定性自测未通过', {
+        output: stResult.output,
+      });
+      return { kind: 'failed', recovery, self_test_failed: true };
+    }
+    if (!stResult.skipped) {
+      log.info('recovery_self_test_passed', 'skill 修复后确定性自测通过', {
+        script: 'self-test-pipeline-recovery.cjs',
+      });
+    }
+  }
+
   ensureGitAfterRecovery({
     recovery, projectRoot, skillsRoot, step, log, cfg,
   });
+
+  if (shouldClearCodegenWorkers({ recovery, step, cfg })) {
+    clearStaleCodegenWorkers(projectRoot, log);
+  }
 
   const histEntry = {
     stage:         step,
@@ -636,4 +844,13 @@ module.exports = {
   recoveryBundlePath,
   stepToLogStages,
   countRecoveryAttempts,
+  scanLogTailForSignatures,
+  collectCodegenWorkerExcerpts,
+  collectFailedFeatures,
+  buildRecoveryHints,
+  clearStaleCodegenWorkers,
+  runSkillRecoverySelfTests,
+  shouldClearCodegenWorkers,
+  touchesCodegenSkillPath,
+  ERROR_SIGNATURE_PATTERNS,
 };
