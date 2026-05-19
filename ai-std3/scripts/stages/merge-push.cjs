@@ -14,8 +14,9 @@
  *   0  成功（合并并 push 成功，或 hash 门控命中整段跳过）
  *   1  上游门闸未满足 / PID 锁占用 / stash 失败 / 其它前置错误
  *   5  检测到 stop.signal
- *   6  合并冲突（conflict_features[] 非空）
+ *   6  合并冲突（conflict_features[] 非空，分诊用尽）
  *   7  git push 失败
+ *   9  分诊 decision=blocked
  */
 
 const fs      = require('fs');
@@ -25,6 +26,13 @@ const { spawnSync } = require('child_process');
 
 const { createLogger, formatLocalTimeShort } = require('../libs/logger.cjs');
 const gitStageSync = require('../libs/git-stage-sync.cjs');
+const {
+  loadProjectEnv,
+  getSkillsRoot,
+  readConfigJson,
+  resolvePipelineModel,
+} = require('../libs/pipeline-config.cjs');
+const { invokeSdkAgent } = require('../libs/invoke-sdk-agent.cjs');
 
 // ── 解析参数 ──────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -169,6 +177,161 @@ function handleStop(stages, stashed) {
 // ── 特性排序辅助 ──────────────────────────────────────────────────
 const PRIORITY_ORDER = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
+function listUnmergedFiles() {
+  const r = git(['diff', '--name-only', '--diff-filter=U']);
+  if (r.status !== 0) return [];
+  return r.stdout.trim().split('\n').filter(Boolean);
+}
+
+function isMergeInProgress() {
+  return fs.existsSync(path.join(projectRoot, '.git', 'MERGE_HEAD'));
+}
+
+function writeMergeLastError({ featureId, branch, mergeStderr, targetBranch }) {
+  const errorPath = path.join(projectRoot, '.pipeline', 'merge-push-last-error.json');
+  const doc = {
+    failed_at:       formatLocalTimeShort(),
+    feature_id:      featureId,
+    branch,
+    target_branch:   targetBranch,
+    merge_stderr:    String(mergeStderr || '').slice(-2000),
+    unmerged_files:  listUnmergedFiles(),
+  };
+  fs.mkdirSync(path.dirname(errorPath), { recursive: true });
+  fs.writeFileSync(errorPath, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+  return errorPath;
+}
+
+async function runMergeTriageAgent({ attempt, lastErrorPath }) {
+  const skillsRoot    = getSkillsRoot();
+  const triageOutPath = path.join(projectRoot, '.pipeline', 'merge-push-triage.json');
+
+  log.info('merge_push_triage_start', `[merge_push] 启动分诊 Agent attempt=${attempt}`, {
+    agent_id: 'merge-push-triage',
+    attempt,
+    feature_id: (() => {
+      try {
+        return JSON.parse(fs.readFileSync(lastErrorPath, 'utf8')).feature_id;
+      } catch (_) {
+        return null;
+      }
+    })(),
+  });
+
+  const cfg   = readConfigJson(projectRoot);
+  const model = resolvePipelineModel(cfg);
+
+  const result = await invokeSdkAgent({
+    skillsRoot,
+    projectRoot,
+    promptFile:   'merge-push-triage.md',
+    agentId:      'merge-push-triage',
+    cwd:          projectRoot,
+    model,
+    timeoutMs:    300000,
+    log,
+    artifactPath: triageOutPath,
+    inject:       { last_error: lastErrorPath, attempt: String(attempt) },
+  });
+
+  let triage = result.artifact;
+  if (!triage) {
+    triage = {
+      decision:     'blocked',
+      category:     'unknown',
+      reason:       result.error || '分诊 Agent 未产出 merge-push-triage.json',
+      user_actions: ['查看 logs/stages/merge_push 与冲突文件后人工解决'],
+    };
+    fs.writeFileSync(triageOutPath, JSON.stringify(triage, null, 2) + '\n', 'utf8');
+  }
+
+  log.info('merge_push_triage_complete', `[merge_push] 分诊 decision=${triage.decision}`, {
+    decision: triage.decision,
+    reason:   triage.reason,
+  });
+  return triage;
+}
+
+function tryCompleteMerge(featureId) {
+  const unmerged = listUnmergedFiles();
+  if (unmerged.length > 0) {
+    return { ok: false, error: `仍有未合并文件: ${unmerged.slice(0, 8).join(', ')}` };
+  }
+  if (!isMergeInProgress()) {
+    return { ok: false, error: '无进行中的 merge（可能已 abort）' };
+  }
+  git(['add', '-A']);
+  const commitR = git(['commit', '--no-edit'], { timeout: 120000 });
+  if (commitR.status !== 0) {
+    const contR = git(['-c', 'core.editor=true', 'merge', '--continue'], { timeout: 120000 });
+    if (contR.status !== 0) {
+      return {
+        ok: false,
+        error: (commitR.stderr || contR.stderr || 'merge continue 失败').trim().slice(0, 400),
+      };
+    }
+  }
+  return { ok: true, commit: getHeadCommit() };
+}
+
+function abortMergeIfNeeded() {
+  if (isMergeInProgress()) git(['merge', '--abort']);
+}
+
+/**
+ * merge 冲突后：分诊 Agent 修冲突 → merge --continue
+ */
+async function resolveConflictWithTriage({
+  featureId,
+  branch,
+  mergeStderr,
+  targetBranch,
+  triageMaxAttempts,
+}) {
+  const lastErrorPath = writeMergeLastError({
+    featureId,
+    branch,
+    mergeStderr,
+    targetBranch,
+  });
+
+  if (!process.env.CURSOR_API_KEY) {
+    log.warn('merge_push_triage_skipped', 'CURSOR_API_KEY 未设置，跳过冲突分诊', {
+      feature_id: featureId,
+    });
+    abortMergeIfNeeded();
+    return { ok: false, blocked: false, reason: 'no_api_key' };
+  }
+
+  for (let attempt = 1; attempt <= triageMaxAttempts; attempt++) {
+    const triage = await runMergeTriageAgent({ attempt, lastErrorPath });
+
+    if (triage.decision === 'blocked') {
+      abortMergeIfNeeded();
+      return { ok: false, blocked: true, reason: triage.reason, user_actions: triage.user_actions };
+    }
+
+    if (triage.decision === 'fix_merge' || triage.decision === 'retry_merge') {
+      const complete = tryCompleteMerge(featureId);
+      if (complete.ok) {
+        log.info('merge_conflict_resolved', `[merge_push] feature=${featureId} 冲突已解决并 continue`, {
+          feature_id:  featureId,
+          commit_hash: complete.commit,
+          attempt,
+        });
+        return { ok: true, commit: complete.commit };
+      }
+      log.warn('merge_conflict_retry', `[merge_push] continue 失败，attempt=${attempt}`, {
+        feature_id: featureId,
+        error:      complete.error,
+      });
+    }
+  }
+
+  abortMergeIfNeeded();
+  return { ok: false, blocked: false, reason: 'triage_exhausted' };
+}
+
 function sortFeatures(completedFeatures, prdFeatures) {
   const priorityMap = {};
   for (const f of prdFeatures) {
@@ -186,6 +349,8 @@ function sortFeatures(completedFeatures, prdFeatures) {
 async function main() {
   const startedAt    = new Date();
   const startedAtStr = formatLocalTimeShort(startedAt);
+
+  loadProjectEnv(projectRoot);
 
   // ── 0. 检测 stop.signal ──────────────────────────────────────────
   if (getStopReason() !== null) {
@@ -261,6 +426,11 @@ async function main() {
   const defaultBranch = gitResolved.default_branch;
   const remote        = gitResolved.remote;
   const allowPush     = gitResolved.allow_push;
+
+  const pipelineStagesCfg = (devConfig.pipeline && devConfig.pipeline.stages) || {};
+  const mergePushStageCfg = pipelineStagesCfg.merge_push || {};
+  const triageMaxAttempts =
+    mergePushStageCfg.triage_max_attempts != null ? mergePushStageCfg.triage_max_attempts : 2;
 
   // ── 收集已完成的 codegen feature ─────────────────────────────────
   const codegenFeatures = (stages.stages && stages.stages.codegen &&
@@ -465,15 +635,65 @@ async function main() {
     );
 
     if (mergeResult.status !== 0) {
-      // 冲突 → abort 并记录
-      log.error('validation_fail', `feature ${feature_id} merge 冲突`, {
+      const mergeErr = (mergeResult.stderr || mergeResult.stdout || '').trim();
+      const looksLikeConflict =
+        isMergeInProgress() || /CONFLICT|conflict|Automatic merge failed/i.test(mergeErr);
+
+      if (!looksLikeConflict) {
+        log.error('validation_fail', `feature ${feature_id} merge 失败（非冲突）`, {
+          feature_id,
+          exit_code: 4,
+          error: mergeErr,
+        });
+        conflictFeatures.push(feature_id);
+        abortMergeIfNeeded();
+        break;
+      }
+
+      log.error('validation_fail', `feature ${feature_id} merge 冲突，启动分诊`, {
         conflict_features: [feature_id],
         exit_code: 6,
         error: mergeResult.stderr.trim(),
       });
+
+      const resolved = await resolveConflictWithTriage({
+        featureId: feature_id,
+        branch,
+        mergeStderr: mergeResult.stderr,
+        targetBranch: defaultBranch,
+        triageMaxAttempts,
+      });
+
+      if (resolved.ok) {
+        const afterCommit = getHeadCommit();
+        log.info('git_commit', `feature ${feature_id} 冲突解决后已合并到 ${defaultBranch}`, {
+          branch:        defaultBranch,
+          commit_hash:   afterCommit,
+          feature_id,
+          files_changed: getDiffStat(beforeCommit, afterCommit),
+        });
+        mergedFeatures.push(feature_id);
+        continue;
+      }
+
       conflictFeatures.push(feature_id);
-      git(['merge', '--abort']);
-      break; // 中止后续 merge
+      if (resolved.blocked) {
+        stages = readStagesJson() || stages;
+        stages.stages.merge_push = Object.assign(stages.stages.merge_push || {}, {
+          outputs: Object.assign(stages.stages.merge_push.outputs || {}, {
+            blocked_reason: resolved.reason,
+            user_actions:   resolved.user_actions || [],
+          }),
+        });
+        writeStagesJson(stages);
+        if (stashed) git(['stash', 'pop']);
+        releasePidLock();
+        log.error('merge_push_blocked', `[merge_push] 分诊 blocked: ${resolved.reason}`, {
+          stage: 'merge_push', exit_code: 9, feature_id,
+        });
+        process.exit(9);
+      }
+      break;
     }
 
     const afterCommit = getHeadCommit();

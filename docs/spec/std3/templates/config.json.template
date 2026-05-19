@@ -44,6 +44,9 @@
         "max_retries": 2,
         "file_plan_strict": false
     },
+    "merge_push": {
+        "triage_max_attempts": 2
+    },
     "build": {
         "client_max_parallel": 4
     },

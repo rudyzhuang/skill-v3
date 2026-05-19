@@ -124,6 +124,10 @@ function isStageInternallyBlocked(stages, step) {
     return Array.isArray(u && u.outputs && u.outputs.blocked_features) &&
       u.outputs.blocked_features.length > 0;
   }
+  if (step === 'merge_push') {
+    const m = stages.stages.merge_push;
+    return !!(m && m.outputs && m.outputs.blocked_reason);
+  }
   return false;
 }
 
