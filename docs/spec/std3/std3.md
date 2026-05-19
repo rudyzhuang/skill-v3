@@ -605,7 +605,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | design_phase | 同上 | design + design-review `agent_retry` | ✅ 3/4 |
 | build_phase | 同上 + codegen resume | create-ui-scenarios / codegen | ✅ 3/4 |
 | code-review | 瞬时重试 | `agent_retry` | ✅ 3/4 |
-| merge_push | **专用分诊** | 冲突 → `merge-push-triage` → 业务仓解冲突 → `continue`；push 仍 `pull --rebase` 重试 | ✅ **6**/3/4/9；`blocked` 跳过 recovery |
+| merge_push | **专用分诊** | 冲突 → `merge-push-triage`；push 失败 → `merge-push-push-triage` + `pull --rebase` | ✅ **6**/3/4/9；`blocked` 跳过 recovery |
 | build | — | 无分诊；失败记 `outputs` | ✅ 3/4 |
 | deploy | **专用分诊** | `deploy-triage` → `retry_deploy` / **`fix_script` 后同 stage 重部署** / `blocked` | ✅ 3/4/8；`blocked` 跳过 recovery |
 | ui_e2e | **专用分诊+子链** | 场景重试 + `ui-e2e-triage` + **`skill-prompt-publish`** + repair chain | ✅ 3/4；`blocked_features` 跳过 recovery |
@@ -645,7 +645,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | code-review schema 校验失败 / deterministic_issues 遗漏 | — | 自动 `agent_retry`（≤ `max_retries`）；超出后该 feature `failed`，按上一行处理 |
 | code-review stage 级 `decision=failed` | 4 | 至少一个 feature 失败；按 `outputs.failed_features[]` 逐一处理后 `--from-stage=code-review` |
 | merge_push 冲突 | 6 / 9 | 先经 stage 内分诊；仍失败则 `--from-stage=merge_push` 或 pipeline-recovery |
-| merge_push push 失败 | 7 | 网络/权限问题，修复后重跑 `--from-stage=merge_push` |
+| merge_push push 失败 | 7 / 9 | 先经 push 分诊；`blocked`→9；仍失败→7，重跑 `--from-stage=merge_push` |
 | build 单端超时 | 3 | 调大 `timeouts.stages.build_s` 或 `pipeline.stages.build.client_max_parallel` 后重跑 `--from-stage=build` |
 | build 命令/产物校验失败 | 4 | 查 `.pipeline/reports/build-summary.md` 与 `logs/stages/build/*`；修代码或 `build.client_targets` / `commands` 后重跑 `--from-stage=build` |
 | build 门闸/HEAD 不一致 | 1 | `git checkout <final_commit>` 或重跑 `--from-stage=merge_push` 后再 build |
@@ -688,6 +688,7 @@ on step exit_code ∉ {0,5,9,2} and recoverable:
 | [code-review-agent.md](prompts/code-review-agent.md) | code-review | 只读评审 → `code-review-<feature_id>.json` |
 | [deploy-triage.md](prompts/deploy-triage.md) | deploy（失败分诊） | → `deploy-triage.json` |
 | [merge-push-triage.md](prompts/merge-push-triage.md) | merge_push（合并冲突分诊） | → `merge-push-triage.json` |
+| [merge-push-push-triage.md](prompts/merge-push-push-triage.md) | merge_push（push 失败分诊） | → `merge-push-push-triage.json` |
 | [ui-e2e-triage.md](prompts/ui-e2e-triage.md) | ui_e2e（失败分诊） | → `ui-e2e-triage-<feature_id>.json` |
 | [ui-e2e-run-scenario.md](prompts/ui-e2e-run-scenario.md) | ui_e2e（`--use-sdk-scenarios` 时） | Agent 辅助逐步 MCP；默认由 runner 直驱 |
 | [report-author.md](prompts/report-author.md) | report（有失败时） | 人话「失败与原因」「建议的下一步」 |
@@ -887,4 +888,5 @@ node ai-std3/scripts/stop-pipeline.cjs --project=<业务项目根绝对路径> [
 | [code-review-feature-output.schema.json](schemas/code-review-feature-output.schema.json) | `.pipeline/code-review-<feature_id>.json` |
 | [deploy-triage-output.schema.json](schemas/deploy-triage-output.schema.json) | `.pipeline/deploy-triage.json` |
 | [merge-push-triage-output.schema.json](schemas/merge-push-triage-output.schema.json) | `.pipeline/merge-push-triage.json` |
+| [merge-push-push-triage-output.schema.json](schemas/merge-push-push-triage-output.schema.json) | `.pipeline/merge-push-push-triage.json` |
 | [ui-e2e-triage-output.schema.json](schemas/ui-e2e-triage-output.schema.json) | `.pipeline/ui-e2e-triage-<feature_id>.json` |

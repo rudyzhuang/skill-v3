@@ -18,6 +18,7 @@
 | [design-review-feature-output.schema.json](design-review-feature-output.schema.json) | `.pipeline/design-review-<feature_id>.json` |
 | [deploy-triage-output.schema.json](deploy-triage-output.schema.json) | `.pipeline/deploy-triage.json` |
 | [merge-push-triage-output.schema.json](merge-push-triage-output.schema.json) | `.pipeline/merge-push-triage.json` |
+| [merge-push-push-triage-output.schema.json](merge-push-push-triage-output.schema.json) | `.pipeline/merge-push-push-triage.json` |
 | [ui-e2e-triage-output.schema.json](ui-e2e-triage-output.schema.json) | `.pipeline/ui-e2e-triage-<feature_id>.json` |
 
 ← [返回规范索引](../std3.md#9-附录json-schema-文件)

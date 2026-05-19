@@ -15,8 +15,8 @@
  *   1  上游门闸未满足 / PID 锁占用 / stash 失败 / 其它前置错误
  *   5  检测到 stop.signal
  *   6  合并冲突（conflict_features[] 非空，分诊用尽）
- *   7  git push 失败
- *   9  分诊 decision=blocked
+ *   7  git push 失败（push 分诊用尽）
+ *   9  分诊 decision=blocked（合并冲突或 push）
  */
 
 const fs      = require('fs');
@@ -187,6 +187,14 @@ function isMergeInProgress() {
   return fs.existsSync(path.join(projectRoot, '.git', 'MERGE_HEAD'));
 }
 
+function isRebaseInProgress() {
+  const gitDir = path.join(projectRoot, '.git');
+  return (
+    fs.existsSync(path.join(gitDir, 'rebase-merge')) ||
+    fs.existsSync(path.join(gitDir, 'rebase-apply'))
+  );
+}
+
 function writeMergeLastError({ featureId, branch, mergeStderr, targetBranch }) {
   const errorPath = path.join(projectRoot, '.pipeline', 'merge-push-last-error.json');
   const doc = {
@@ -330,6 +338,174 @@ async function resolveConflictWithTriage({
 
   abortMergeIfNeeded();
   return { ok: false, blocked: false, reason: 'triage_exhausted' };
+}
+
+function writePushLastError({ remote, branch, pushStderr, pullStderr, headCommit }) {
+  const errorPath = path.join(projectRoot, '.pipeline', 'merge-push-push-last-error.json');
+  const doc = {
+    failed_at:      formatLocalTimeShort(),
+    remote,
+    target_branch:  branch,
+    head_commit:    headCommit || getHeadCommit(),
+    push_stderr:    String(pushStderr || '').slice(-2000),
+    pull_stderr:    String(pullStderr || '').slice(-2000),
+    rebase_active:  isRebaseInProgress(),
+    unmerged_files: listUnmergedFiles(),
+  };
+  fs.mkdirSync(path.dirname(errorPath), { recursive: true });
+  fs.writeFileSync(errorPath, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+  return errorPath;
+}
+
+async function runPushTriageAgent({ attempt, lastErrorPath }) {
+  const skillsRoot    = getSkillsRoot();
+  const triageOutPath = path.join(projectRoot, '.pipeline', 'merge-push-push-triage.json');
+
+  log.info('merge_push_push_triage_start', `[merge_push] 启动 push 分诊 Agent attempt=${attempt}`, {
+    agent_id: 'merge-push-push-triage',
+    attempt,
+  });
+
+  const cfg   = readConfigJson(projectRoot);
+  const model = resolvePipelineModel(cfg);
+
+  const result = await invokeSdkAgent({
+    skillsRoot,
+    projectRoot,
+    promptFile:   'merge-push-push-triage.md',
+    agentId:      'merge-push-push-triage',
+    cwd:          projectRoot,
+    model,
+    timeoutMs:    300000,
+    log,
+    artifactPath: triageOutPath,
+    inject:       { last_error: lastErrorPath, attempt: String(attempt) },
+  });
+
+  let triage = result.artifact;
+  if (!triage) {
+    triage = {
+      decision:     'blocked',
+      category:     'unknown',
+      reason:       result.error || '分诊 Agent 未产出 merge-push-push-triage.json',
+      user_actions: ['查看 logs/stages/merge_push 与 git push 错误后人工处理'],
+    };
+    fs.writeFileSync(triageOutPath, JSON.stringify(triage, null, 2) + '\n', 'utf8');
+  }
+
+  log.info('merge_push_push_triage_complete', `[merge_push] push 分诊 decision=${triage.decision}`, {
+    decision: triage.decision,
+    reason:   triage.reason,
+  });
+  return triage;
+}
+
+function tryCompleteRebase() {
+  if (!isRebaseInProgress()) {
+    return { ok: true, skipped: true };
+  }
+  const unmerged = listUnmergedFiles();
+  if (unmerged.length > 0) {
+    return { ok: false, error: `rebase 仍有未合并文件: ${unmerged.slice(0, 8).join(', ')}` };
+  }
+  git(['add', '-A']);
+  const contR = git(['-c', 'core.editor=true', 'rebase', '--continue'], { timeout: 120000 });
+  if (contR.status !== 0) {
+    return {
+      ok: false,
+      error: (contR.stderr || 'rebase --continue 失败').trim().slice(0, 400),
+    };
+  }
+  return { ok: true, commit: getHeadCommit() };
+}
+
+function pullRebaseAndPush(remote, branch) {
+  const pullResult = git(['pull', '--rebase', remote, branch], { timeout: 120000 });
+  if (pullResult.status !== 0) {
+    return {
+      ok: false,
+      pushResult: null,
+      pullStderr: pullResult.stderr,
+      pushStderr: null,
+    };
+  }
+  const pushResult = git(['push', remote, branch], { timeout: 120000 });
+  return {
+    ok: pushResult.status === 0,
+    pushResult,
+    pullStderr: null,
+    pushStderr: pushResult.status === 0 ? null : pushResult.stderr,
+  };
+}
+
+/**
+ * push 失败（已做过一次 pull --rebase 重试）后：分诊 → 修 rebase / 再 pull+push
+ */
+async function resolvePushWithTriage({
+  remote,
+  defaultBranch,
+  pushStderr,
+  pullStderr,
+  triageMaxAttempts,
+}) {
+  const headCommit    = getHeadCommit();
+  const lastErrorPath = writePushLastError({
+    remote,
+    branch:     defaultBranch,
+    pushStderr,
+    pullStderr,
+    headCommit,
+  });
+
+  if (!process.env.CURSOR_API_KEY) {
+    log.warn('merge_push_push_triage_skipped', 'CURSOR_API_KEY 未设置，跳过 push 分诊', {
+      remote,
+      branch: defaultBranch,
+    });
+    return { ok: false, blocked: false, reason: 'no_api_key' };
+  }
+
+  for (let attempt = 1; attempt <= triageMaxAttempts; attempt++) {
+    const triage = await runPushTriageAgent({ attempt, lastErrorPath });
+
+    if (triage.decision === 'blocked') {
+      return {
+        ok: false,
+        blocked: true,
+        reason:       triage.reason,
+        user_actions: triage.user_actions,
+      };
+    }
+
+    if (triage.decision === 'fix_rebase') {
+      const rebaseDone = tryCompleteRebase();
+      if (!rebaseDone.ok) {
+        log.warn('merge_push_rebase_continue_fail', `[merge_push] rebase continue 失败 attempt=${attempt}`, {
+          error: rebaseDone.error,
+        });
+        continue;
+      }
+    }
+
+    if (triage.decision === 'retry_push' || triage.decision === 'fix_rebase') {
+      const sync = pullRebaseAndPush(remote, defaultBranch);
+      if (sync.ok) {
+        log.info('merge_push_push_recovered', `[merge_push] push 分诊后推送成功`, {
+          remote,
+          branch:  defaultBranch,
+          attempt,
+          decision: triage.decision,
+        });
+        return { ok: true };
+      }
+      log.warn('merge_push_push_retry_fail', `[merge_push] 分诊后 pull/push 仍失败 attempt=${attempt}`, {
+        decision: triage.decision,
+        push_error: (sync.pushStderr || sync.pullStderr || '').trim().slice(0, 300),
+      });
+    }
+  }
+
+  return { ok: false, blocked: false, reason: 'push_triage_exhausted' };
 }
 
 function sortFeatures(completedFeatures, prdFeatures) {
@@ -768,7 +944,8 @@ async function main() {
       handleStop(stages, stashed);
     }
 
-    let pushResult = git(['push', remote, defaultBranch], { timeout: 120000 });
+    let pushResult  = git(['push', remote, defaultBranch], { timeout: 120000 });
+    let pullResult  = null;
 
     if (pushResult.status !== 0) {
       log.warn('git_push_retry',
@@ -777,69 +954,126 @@ async function main() {
           branch: defaultBranch,
           error:  pushResult.stderr.trim(),
         });
-      const pullResult = git(['pull', '--rebase', remote, defaultBranch],
-                             { timeout: 120000 });
+      pullResult = git(['pull', '--rebase', remote, defaultBranch], { timeout: 120000 });
       if (pullResult.status === 0) {
         pushResult = git(['push', remote, defaultBranch], { timeout: 120000 });
       }
     }
 
     if (pushResult.status !== 0) {
-      const durMs        = Date.now() - startedAt.getTime();
-      const completedStr = formatLocalTimeShort();
-      const finalCommit  = getHeadCommit();
+      const initialPushErr = pushResult.stderr.trim();
+      const initialPullErr = pullResult && pullResult.status !== 0
+        ? (pullResult.stderr || '').trim()
+        : '';
 
-      log.error('git_push_failed', 'git push 失败', {
+      log.error('git_push_failed', 'git push 失败，尝试 push 分诊', {
         remote,
         branch:    defaultBranch,
-        error:     pushResult.stderr.trim(),
+        error:     initialPushErr,
         exit_code: 7,
       });
 
-      stages = readStagesJson() || stages;
-      stages.stages.merge_push = Object.assign(stages.stages.merge_push || {}, {
-        status:       'failed',
-        completed_at: completedStr,
-        outputs: {
-          final_commit:            finalCommit,
-          merged_features:         mergedFeatures,
-          already_merged_features: alreadyMergedFeatures,
-          conflict_features:       [],
-          push_status:             'failed',
-          remote,
-          target_branch:           defaultBranch,
-          duration_ms:             durMs,
-          timed_out:               false,
-          timeout_reason:          null,
-        },
-        validation: {
-          passed:                  false,
-          checked_at:              completedStr,
-          summary:                 'push 失败',
-          required_files:          [],
-          missing_required_fields: [],
-          warnings:                [],
-        },
-        git_sync: {
-          initial_pushed_at:       null,
-          docs_pipeline_pushed_at: null,
-          last_commit:             finalCommit,
-          last_push_status:        'failed',
-        },
+      const pushResolved = await resolvePushWithTriage({
+        remote,
+        defaultBranch,
+        pushStderr:        initialPushErr,
+        pullStderr:        initialPullErr,
+        triageMaxAttempts,
       });
-      stages.pipeline.updated_at = formatLocalTimeShort();
-      if (stashed) git(['stash', 'pop']);
-      writeStagesJson(stages);
-      releasePidLock();
 
-      log.error('stage_failed', 'merge_push 失败：push 失败', {
-        stage:    'merge_push',
-        step:     'push',
-        exit_code: 7,
-        reason:   pushResult.stderr.trim(),
-        duration_ms: durMs,
-      });
-      process.exit(7);
+      if (pushResolved.ok) {
+        pushResult = { status: 0, stderr: '' };
+      } else if (pushResolved.blocked) {
+        const durMs        = Date.now() - startedAt.getTime();
+        const completedStr = formatLocalTimeShort();
+        const finalCommit  = getHeadCommit();
+
+        stages = readStagesJson() || stages;
+        stages.stages.merge_push = Object.assign(stages.stages.merge_push || {}, {
+          status:       'failed',
+          completed_at: completedStr,
+          outputs: {
+            final_commit:            finalCommit,
+            merged_features:         mergedFeatures,
+            already_merged_features: alreadyMergedFeatures,
+            conflict_features:       [],
+            push_status:             'failed',
+            blocked_reason:          pushResolved.reason,
+            user_actions:            pushResolved.user_actions || [],
+            remote,
+            target_branch:           defaultBranch,
+            duration_ms:             durMs,
+            timed_out:               false,
+            timeout_reason:          null,
+          },
+          validation: {
+            passed:                  false,
+            checked_at:              completedStr,
+            summary:                 `push 分诊 blocked: ${pushResolved.reason}`,
+            required_files:          [],
+            missing_required_fields: [],
+            warnings:                [],
+          },
+        });
+        stages.pipeline.updated_at = formatLocalTimeShort();
+        if (stashed) git(['stash', 'pop']);
+        writeStagesJson(stages);
+        releasePidLock();
+
+        log.error('merge_push_blocked', `[merge_push] push 分诊 blocked: ${pushResolved.reason}`, {
+          stage: 'merge_push', exit_code: 9, step: 'push',
+        });
+        process.exit(9);
+      } else if (pushResult.status !== 0) {
+        const durMs        = Date.now() - startedAt.getTime();
+        const completedStr = formatLocalTimeShort();
+        const finalCommit  = getHeadCommit();
+
+        stages = readStagesJson() || stages;
+        stages.stages.merge_push = Object.assign(stages.stages.merge_push || {}, {
+          status:       'failed',
+          completed_at: completedStr,
+          outputs: {
+            final_commit:            finalCommit,
+            merged_features:         mergedFeatures,
+            already_merged_features: alreadyMergedFeatures,
+            conflict_features:       [],
+            push_status:             'failed',
+            remote,
+            target_branch:           defaultBranch,
+            duration_ms:             durMs,
+            timed_out:               false,
+            timeout_reason:          null,
+          },
+          validation: {
+            passed:                  false,
+            checked_at:              completedStr,
+            summary:                 'push 失败',
+            required_files:          [],
+            missing_required_fields: [],
+            warnings:                [],
+          },
+          git_sync: {
+            initial_pushed_at:       null,
+            docs_pipeline_pushed_at: null,
+            last_commit:             finalCommit,
+            last_push_status:        'failed',
+          },
+        });
+        stages.pipeline.updated_at = formatLocalTimeShort();
+        if (stashed) git(['stash', 'pop']);
+        writeStagesJson(stages);
+        releasePidLock();
+
+        log.error('stage_failed', 'merge_push 失败：push 失败', {
+          stage:       'merge_push',
+          step:        'push',
+          exit_code:   7,
+          reason:      initialPushErr,
+          duration_ms: durMs,
+        });
+        process.exit(7);
+      }
     }
 
     pushStatus = 'success';
