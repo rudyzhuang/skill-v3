@@ -135,3 +135,174 @@ body {
   margin: 0;
   color: #666;
 }
+
+.app-header__nav {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+  justify-content: center;
+}
+
+.app-header__nav-link {
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.app-header__nav-link:hover {
+  text-decoration: underline;
+}
+
+.forbidden-page {
+  max-width: 480px;
+  margin: 4rem auto;
+  padding: 2rem;
+  text-align: center;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.users-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.users-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.users-page__header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.users-page__header button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+
+.users-page .error {
+  color: #c0392b;
+}
+
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e2e4e8;
+}
+
+.user-table th,
+.user-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e4e8;
+}
+
+.user-table th {
+  background: #f8f9fb;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.users-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #666;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.user-table__hint {
+  color: #888;
+  font-size: 0.875rem;
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 40%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 420px;
+  padding: 1.5rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgb(0 0 0 / 15%);
+}
+
+.dialog h2 {
+  margin: 0 0 1rem;
+  font-size: 1.125rem;
+}
+
+.dialog-subtitle {
+  margin: -0.5rem 0 1rem;
+  color: #666;
+  font-size: 0.875rem;
+}
+
+.dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dialog label {
+  font-size: 0.875rem;
+  color: #444;
+}
+
+.dialog input,
+.dialog select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.dialog .error {
+  color: #c0392b;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.dialog-actions button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dialog-actions button[type='submit'] {
+  border: none;
+  background: #2563eb;
+  color: #fff;
+}
+
+.dialog-actions button[type='button'] {
+  border: 1px solid #ccc;
+  background: #fff;
+}
